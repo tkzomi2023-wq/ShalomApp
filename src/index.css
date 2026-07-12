@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;850;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+.dark {
+  color-scheme: dark;
+  --color-white: #1c1917;
+  --color-stone-50: #0c0a09;
+  --color-stone-100: #141211;
+  --color-stone-150: #1a1817;
+  --color-stone-200: #292524;
+  --color-stone-250: #332f2e;
+  --color-stone-300: #44403c;
+  --color-stone-400: #a8a29e;
+  --color-stone-500: #d6d3d1;
+  --color-stone-600: #e7e5e4;
+  --color-stone-700: #f5f5f4;
+  --color-stone-800: #fafaf9;
+  --color-stone-900: #ffffff;
+  --color-stone-950: #ffffff;
+  
+  --color-neutral-50: #0c0a09;
+  --color-neutral-100: #141211;
+  --color-neutral-200: #292524;
+  --color-neutral-300: #44403c;
+  --color-neutral-400: #a8a29e;
+  --color-neutral-500: #d6d3d1;
+  --color-neutral-600: #e7e5e4;
+  --color-neutral-700: #f5f5f4;
+  --color-neutral-800: #fafaf9;
+  --color-neutral-900: #ffffff;
+  --color-neutral-950: #ffffff;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+

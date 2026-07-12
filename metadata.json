@@ -1,0 +1,6 @@
+{
+  "name": "Shalom Youth",
+  "description": "A secure, role-based members management dashboard for the Shalom Youth community, synced with Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
