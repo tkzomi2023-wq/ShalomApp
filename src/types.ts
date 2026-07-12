@@ -90,6 +90,8 @@ export interface ChatMessage {
   read_by?: string[];
   reactions?: Record<string, string[]>;
   created_at: string;
+  parent_id?: string;
+  is_pinned?: boolean;
 }
 
 export function formatMemberName(name: string, gender?: 'Male' | 'Female' | string): string {

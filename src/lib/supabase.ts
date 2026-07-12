@@ -315,12 +315,16 @@ CREATE TABLE IF NOT EXISTS public.global_chat_messages (
   message TEXT NOT NULL,
   read_by JSONB DEFAULT '[]'::jsonb,
   reactions JSONB DEFAULT '{}'::jsonb,
+  parent_id UUID,
+  is_pinned BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
 -- Safe DDL update for existing tables
 ALTER TABLE public.global_chat_messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.global_chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.global_chat_messages ADD COLUMN IF NOT EXISTS parent_id UUID;
+ALTER TABLE public.global_chat_messages ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT false;
 
 -- Enable RLS for global_chat_messages
 ALTER TABLE public.global_chat_messages ENABLE ROW LEVEL SECURITY;
@@ -1164,14 +1168,52 @@ class HybridDatabaseManager {
         throw error;
       }
       
-      // Overwrite local storage with the exact database state to prevent reverting cleared chats
+      // Read local cache to merge overrides and local-only messages (in case database columns are not yet provisioned in Supabase)
+      let localList: ChatMessage[] = [];
       try {
-        localStorage.setItem('sy_global_chat_messages', JSON.stringify(data || []));
+        const localData = localStorage.getItem('sy_global_chat_messages');
+        if (localData) {
+          localList = JSON.parse(localData) as ChatMessage[];
+        }
       } catch (e) {
-        console.warn('Failed to sync database state to local storage:', e);
+        console.warn('Failed to read local chat messages cache:', e);
+      }
+
+      const dbMsgs = data || [];
+      const dbIds = new Set(dbMsgs.map(m => m.id));
+      const localOnly = localList.filter(m => !dbIds.has(m.id));
+
+      const merged = dbMsgs.map((dbMsg: any) => {
+        const localMsg = localList.find(m => m.id === dbMsg.id);
+        if (localMsg) {
+          return {
+            ...dbMsg,
+            // Preserve locally set properties if they are undefined or missing from the database record
+            parent_id: dbMsg.parent_id !== undefined ? dbMsg.parent_id : localMsg.parent_id,
+            is_pinned: dbMsg.is_pinned !== undefined ? dbMsg.is_pinned : (localMsg.is_pinned || false),
+            reactions: dbMsg.reactions && Object.keys(dbMsg.reactions).length > 0 ? dbMsg.reactions : (localMsg.reactions || {}),
+            read_by: dbMsg.read_by && dbMsg.read_by.length > 0 ? dbMsg.read_by : (localMsg.read_by || [])
+          };
+        }
+        return {
+          ...dbMsg,
+          is_pinned: dbMsg.is_pinned || false,
+          reactions: dbMsg.reactions || {},
+          read_by: dbMsg.read_by || []
+        };
+      });
+
+      const finalMessages = [...merged, ...localOnly].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+      try {
+        localStorage.setItem('sy_global_chat_messages', JSON.stringify(finalMessages));
+      } catch (e) {
+        console.warn('Failed to sync merged chat messages state to local storage:', e);
       }
       
-      return data as ChatMessage[];
+      return finalMessages;
     } catch (err: any) {
       console.warn('Supabase global_chat_messages query failed, falling back to local storage:', err.message || err);
       try {
@@ -1186,7 +1228,7 @@ class HybridDatabaseManager {
     }
   }
 
-  async sendChatMessage(messageText: string, userId: string, userName: string, userAvatar?: string): Promise<ChatMessage> {
+  async sendChatMessage(messageText: string, userId: string, userName: string, userAvatar?: string, parentId?: string): Promise<ChatMessage> {
     const newMsg: ChatMessage = {
       id: crypto.randomUUID ? crypto.randomUUID() : `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       user_id: userId,
@@ -1195,40 +1237,59 @@ class HybridDatabaseManager {
       message: messageText,
       read_by: [userId],
       reactions: {},
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      parent_id: parentId
     };
 
     try {
-      const { data, error } = await supabase
+      const payload: any = {
+        id: newMsg.id,
+        user_id: newMsg.user_id,
+        user_name: newMsg.user_name,
+        user_avatar: newMsg.user_avatar,
+        message: newMsg.message,
+        read_by: newMsg.read_by,
+        reactions: newMsg.reactions,
+        created_at: newMsg.created_at,
+        parent_id: newMsg.parent_id
+      };
+
+      let { data, error } = await supabase
         .from('global_chat_messages')
-        .insert({
-          id: newMsg.id,
-          user_id: newMsg.user_id,
-          user_name: newMsg.user_name,
-          user_avatar: newMsg.user_avatar,
-          message: newMsg.message,
-          read_by: newMsg.read_by,
-          reactions: newMsg.reactions,
-          created_at: newMsg.created_at
-        })
+        .insert(payload)
         .select()
         .single();
+
+      // Gracefully handle missing parent_id column error (Postgres error 42703) or generic "parent_id" column error
+      if (error && (error.code === '42703' || error.message?.includes('parent_id'))) {
+        console.warn('Supabase parent_id column does not exist yet. Retrying insert without parent_id...');
+        delete payload.parent_id;
+        const retryResult = await supabase
+          .from('global_chat_messages')
+          .insert(payload)
+          .select()
+          .single();
+        data = retryResult.data;
+        error = retryResult.error;
+      }
 
       if (error) {
         throw error;
       }
       
+      const savedMsg = { ...newMsg, ...data } as ChatMessage;
+
       // Also cache locally
       try {
         const localData = localStorage.getItem('sy_global_chat_messages');
         const list = localData ? JSON.parse(localData) as ChatMessage[] : [];
-        list.push(data as ChatMessage);
+        list.push(savedMsg);
         localStorage.setItem('sy_global_chat_messages', JSON.stringify(list.slice(-100)));
       } catch (e) {
         console.warn('Failed to cache sent message to local storage:', e);
       }
 
-      return data as ChatMessage;
+      return savedMsg;
     } catch (err: any) {
       console.warn('Supabase insert global_chat_messages failed, storing in local storage fallback:', err.message || err);
       try {
@@ -1531,6 +1592,198 @@ class HybridDatabaseManager {
         console.error('Local fallback deleteChatMessage failed:', e);
       }
       return null;
+    }
+  }
+
+  async togglePinChatMessage(messageId: string, pinStatus: boolean): Promise<ChatMessage | null> {
+    try {
+      const { data: updatedMsg, error } = await supabase
+        .from('global_chat_messages')
+        .update({ is_pinned: pinStatus })
+        .eq('id', messageId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Update local cache
+      try {
+        const localData = localStorage.getItem('sy_global_chat_messages');
+        if (localData) {
+          const list = JSON.parse(localData) as ChatMessage[];
+          const idx = list.findIndex(m => m.id === messageId);
+          if (idx !== -1) {
+            list[idx].is_pinned = pinStatus;
+            localStorage.setItem('sy_global_chat_messages', JSON.stringify(list));
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to update local storage cache in togglePinChatMessage:', e);
+      }
+
+      return updatedMsg as ChatMessage;
+    } catch (err: any) {
+      console.warn('Supabase togglePinChatMessage failed, applying local-only update:', err.message || err);
+      try {
+        const localData = localStorage.getItem('sy_global_chat_messages');
+        if (localData) {
+          const list = JSON.parse(localData) as ChatMessage[];
+          const idx = list.findIndex(m => m.id === messageId);
+          if (idx !== -1) {
+            list[idx].is_pinned = pinStatus;
+            localStorage.setItem('sy_global_chat_messages', JSON.stringify(list));
+            return list[idx];
+          }
+        }
+      } catch (e) {
+        console.error('Local fallback togglePinChatMessage failed:', e);
+      }
+      return null;
+    }
+  }
+
+  async getMessageRetentionPolicy(): Promise<number> {
+    try {
+      const { data, error } = await supabase
+        .from('bial_configs')
+        .select('*')
+        .eq('id', 'chat_retention_days')
+        .single();
+      
+      if (!error && data) {
+        const days = parseInt(data.leaders, 10);
+        if (!isNaN(days)) {
+          localStorage.setItem('sy_chat_retention_days', String(days));
+          return days;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch chat retention policy from Supabase:', e);
+    }
+
+    try {
+      const cached = localStorage.getItem('sy_chat_retention_days');
+      if (cached) {
+        return parseInt(cached, 10) || 0;
+      }
+    } catch (e) {
+      console.warn('Failed to read local chat retention policy cache:', e);
+    }
+
+    return 0; // Default to 0 (Disabled)
+  }
+
+  async setMessageRetentionPolicy(days: number): Promise<void> {
+    try {
+      // Try to insert or upsert in bial_configs
+      const { error } = await supabase
+        .from('bial_configs')
+        .upsert({
+          id: 'chat_retention_days',
+          leaders: String(days),
+          area: 'chat_retention',
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+    } catch (err: any) {
+      console.warn('Supabase upsert for retention policy failed, applying locally:', err.message || err);
+    }
+
+    try {
+      localStorage.setItem('sy_chat_retention_days', String(days));
+    } catch (e) {
+      console.error('Failed to write local chat retention policy:', e);
+    }
+  }
+
+  async runAutomatedCleanup(forceDays?: number): Promise<{ success: boolean; deletedCount: number; policyDays: number }> {
+    try {
+      const days = forceDays !== undefined ? forceDays : await this.getMessageRetentionPolicy();
+      if (days <= 0) {
+        return { success: true, deletedCount: 0, policyDays: days };
+      }
+
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - days);
+      const cutoffStr = cutoffDate.toISOString();
+
+      // Count matches first if possible
+      let deletedCount = 0;
+      try {
+        const { data: oldMsgs, error: selError } = await supabase
+          .from('global_chat_messages')
+          .select('id')
+          .lt('created_at', cutoffStr)
+          .eq('is_pinned', false);
+
+        if (!selError && oldMsgs) {
+          deletedCount = oldMsgs.length;
+        }
+      } catch (e) {
+        console.warn('Failed to count old messages before cleanup:', e);
+      }
+
+      // Delete from Supabase
+      const { error: delError } = await supabase
+        .from('global_chat_messages')
+        .delete()
+        .lt('created_at', cutoffStr)
+        .eq('is_pinned', false);
+
+      if (delError) throw delError;
+
+      // Clean local storage cache
+      try {
+        const localData = localStorage.getItem('sy_global_chat_messages');
+        if (localData) {
+          const list = JSON.parse(localData) as ChatMessage[];
+          const filtered = list.filter(m => {
+            const isOld = new Date(m.created_at).getTime() < cutoffDate.getTime();
+            return !(isOld && !m.is_pinned);
+          });
+          const diff = list.length - filtered.length;
+          if (deletedCount === 0) {
+            deletedCount = diff;
+          }
+          localStorage.setItem('sy_global_chat_messages', JSON.stringify(filtered));
+        }
+      } catch (e) {
+        console.warn('Failed to clear local storage chat messages cache during cleanup:', e);
+      }
+
+      // Set last cleanup time
+      localStorage.setItem('sy_last_cleanup_run', new Date().toISOString());
+
+      return { success: true, deletedCount, policyDays: days };
+    } catch (err: any) {
+      console.warn('Supabase runAutomatedCleanup failed:', err.message || err);
+      
+      // Local-only cleanup fallback
+      try {
+        const days = forceDays !== undefined ? forceDays : (parseInt(localStorage.getItem('sy_chat_retention_days') || '0', 10) || 0);
+        if (days <= 0) return { success: false, deletedCount: 0, policyDays: days };
+
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - days);
+
+        const localData = localStorage.getItem('sy_global_chat_messages');
+        if (localData) {
+          const list = JSON.parse(localData) as ChatMessage[];
+          const filtered = list.filter(m => {
+            const isOld = new Date(m.created_at).getTime() < cutoffDate.getTime();
+            return !(isOld && !m.is_pinned);
+          });
+          const deletedCount = list.length - filtered.length;
+          localStorage.setItem('sy_global_chat_messages', JSON.stringify(filtered));
+          localStorage.setItem('sy_last_cleanup_run', new Date().toISOString());
+          return { success: true, deletedCount, policyDays: days };
+        }
+      } catch (e) {
+        console.error('Local fallback automated cleanup failed:', e);
+      }
+      
+      return { success: false, deletedCount: 0, policyDays: 0 };
     }
   }
 }

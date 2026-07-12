@@ -35,6 +35,7 @@ interface MemberTableProps {
   onBatchDeleteMembers?: (ids: string[]) => void;
   onOpenProfile: (member: Member) => void;
   isCurrentUserAdmin: boolean;
+  onlineUserIds?: string[];
 }
 
 export const MemberTable: React.FC<MemberTableProps> = ({
@@ -44,7 +45,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   onBatchApproveMembers,
   onBatchDeleteMembers,
   onOpenProfile,
-  isCurrentUserAdmin
+  isCurrentUserAdmin,
+  onlineUserIds = []
 }) => {
   const { user: currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
@@ -660,12 +662,22 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             )}
                           </div>
                           <div>
-                            <button
-                              onClick={() => onOpenProfile(member)}
-                              className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left"
-                            >
-                              {formatMemberName(member.name, member.gender)}
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => onOpenProfile(member)}
+                                className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left"
+                              >
+                                {formatMemberName(member.name, member.gender)}
+                              </button>
+                              <span 
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  onlineUserIds.includes(member.id) 
+                                    ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
+                                    : 'bg-stone-300 dark:bg-stone-700'
+                                }`} 
+                                title={onlineUserIds.includes(member.id) ? "Online" : "Offline"}
+                              />
+                            </div>
                             <span className="text-stone-400 block break-words text-[10px] sm:text-xs">
                               {member.email} {member.phone ? `• ${member.phone}` : ''}
                             </span>
@@ -842,12 +854,22 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                     )}
                   </div>
                   <div className="space-y-1 overflow-hidden">
-                    <button
-                      onClick={() => onOpenProfile(member)}
-                      className="font-extrabold text-stone-900 dark:text-white hover:text-emerald-600 text-sm truncate text-left block w-full"
-                    >
-                      {formatMemberName(member.name, member.gender)}
-                    </button>
+                    <div className="flex items-center gap-1.5 w-full min-w-0">
+                      <button
+                        onClick={() => onOpenProfile(member)}
+                        className="font-extrabold text-stone-900 dark:text-white hover:text-emerald-600 text-sm truncate text-left block"
+                      >
+                        {formatMemberName(member.name, member.gender)}
+                      </button>
+                      <span 
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          onlineUserIds.includes(member.id) 
+                            ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
+                            : 'bg-stone-300 dark:bg-stone-700'
+                        }`} 
+                        title={onlineUserIds.includes(member.id) ? "Online" : "Offline"}
+                      />
+                    </div>
                     <span className="text-[10px] font-bold text-stone-400 block truncate">{member.email}</span>
                     <span className="text-[10px] text-stone-400 block">{member.phone || 'No Phone'}</span>
                   </div>

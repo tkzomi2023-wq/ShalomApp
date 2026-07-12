@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, RefreshCw, CheckCircle, Info, Calendar, Users, Eye, AlertCircle, Sparkles, Send, Heart, TrendingUp, Award } from 'lucide-react';
+import { Mail, RefreshCw, CheckCircle, Info, Calendar, Users, Eye, EyeOff, Copy, Check, AlertCircle, Sparkles, Send, Heart, TrendingUp, Award } from 'lucide-react';
 import { Member, BirthdayWish } from '../types';
 import { db } from '../lib/supabase';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, Cell } from 'recharts';
@@ -45,6 +45,8 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
   const [smtpFrom, setSmtpFrom] = useState<string>('');
   const [smtpLoading, setSmtpLoading] = useState<boolean>(false);
   const [smtpFeedback, setSmtpFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [copiedPassword, setCopiedPassword] = useState<boolean>(false);
 
   // Individual Wish Email States
   const [sendingWishEmail, setSendingWishEmail] = useState<boolean>(false);
@@ -89,7 +91,9 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
           setSmtpPort(data.port || '587');
           setSmtpUser(data.user || '');
           setSmtpFrom(data.from || '');
-          if (data.hasPassword) {
+          if (data.pass) {
+            setSmtpPass(data.pass);
+          } else if (data.hasPassword) {
             setSmtpPass('••••••••••••');
           }
         }
@@ -726,14 +730,48 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
 
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-stone-600 block">SMTP Password / App Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={smtpPass}
-                    onChange={(e) => setSmtpPass(e.target.value)}
-                    placeholder="Enter SMTP password or app password"
-                    className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={smtpPass}
+                      onChange={(e) => setSmtpPass(e.target.value)}
+                      placeholder="Enter SMTP password or app password"
+                      className="w-full text-xs p-3 pr-20 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                    />
+                    <div className="absolute right-2 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!smtpPass || smtpPass === '••••••••••••') return;
+                          navigator.clipboard.writeText(smtpPass);
+                          setCopiedPassword(true);
+                          setTimeout(() => setCopiedPassword(false), 2000);
+                        }}
+                        disabled={!smtpPass || smtpPass === '••••••••••••'}
+                        title={smtpPass === '••••••••••••' ? "Password cannot be copied while fully masked" : "Copy password to clipboard"}
+                        className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-200 disabled:opacity-40 disabled:hover:bg-transparent transition-colors cursor-pointer"
+                      >
+                        {copiedPassword ? (
+                          <Check className="w-4 h-4 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-200 transition-colors cursor-pointer"
+                        title={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 

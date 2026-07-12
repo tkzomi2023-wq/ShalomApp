@@ -18,6 +18,7 @@ import { UserProfileModal } from './components/UserProfileModal';
 import { FinancialRecordsPage } from './components/FinancialRecordsPage';
 import { SchedulePage } from './components/SchedulePage';
 import BirthdayEmailSettingsPage from './components/BirthdayEmailSettingsPage';
+import { WebsiteMetaSettingsPage } from './components/WebsiteMetaSettingsPage';
 import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -47,6 +48,7 @@ import {
   ShieldCheck, 
   Info, 
   AlertTriangle, 
+  AlertCircle,
   FileText, 
   Plus, 
   TrendingUp, 
@@ -72,7 +74,12 @@ import {
   X,
   Clock,
   Sun,
-  Moon
+  Moon,
+  Globe,
+  ArrowLeft,
+  Pin,
+  PinOff,
+  ChevronsDown
 } from 'lucide-react';
 
 const isBirthdayToday = (dobString?: string, todayDate: Date = new Date()): boolean => {
@@ -165,6 +172,7 @@ const getChatDateHeader = (dateString: string): string => {
 
 function AppContent() {
   const { user, loading, signOut, refreshProfile } = useAuth();
+  const isCurrentUserAdmin = user ? (user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(user.role)) : false;
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return localStorage.getItem('sy_theme') === 'dark' ? 'dark' : 'light';
   });
@@ -178,13 +186,64 @@ function AppContent() {
     localStorage.setItem('sy_theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    // Dynamic website meta & SEO configurations loader
+    const loadWebsiteMeta = async () => {
+      try {
+        const response = await fetch('/api/meta-config');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.title) {
+            document.title = data.title;
+          }
+          
+          // Dynamically update description
+          if (data.description) {
+            let descMeta = document.querySelector('meta[name="description"]');
+            if (!descMeta) {
+              descMeta = document.createElement('meta');
+              descMeta.setAttribute('name', 'description');
+              document.head.appendChild(descMeta);
+            }
+            descMeta.setAttribute('content', data.description);
+          }
+          
+          // Dynamically update keywords
+          if (data.keywords) {
+            let keyMeta = document.querySelector('meta[name="keywords"]');
+            if (!keyMeta) {
+              keyMeta = document.createElement('meta');
+              keyMeta.setAttribute('name', 'keywords');
+              document.head.appendChild(keyMeta);
+            }
+            keyMeta.setAttribute('content', data.keywords);
+          }
+
+          // Dynamically update favicon
+          if (data.favicon) {
+            let faviconLink = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel="shortcut icon"]');
+            if (!faviconLink) {
+              faviconLink = document.createElement('link');
+              faviconLink.setAttribute('rel', 'icon');
+              document.head.appendChild(faviconLink);
+            }
+            faviconLink.setAttribute('href', data.favicon);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to dynamically fetch website metadata:', err);
+      }
+    };
+    loadWebsiteMeta();
+  }, []);
+
   const [members, setMembers] = useState<Member[]>([]);
   const [logs, setLogs] = useState(() => getActivityLogs());
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectionSuccess, setConnectionSuccess] = useState<boolean | null>(null);
-  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks'>('directory');
+  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings'>('directory');
   
   // Keep track of the current date to auto-dismiss birthday banners and effects when the day rolls over.
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -259,6 +318,18 @@ function AppContent() {
   const [isAuthView, setIsAuthView] = useState<'login' | 'register'>('login');
   const [addNewMemberOpen, setAddNewMemberOpen] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showBalloons, setShowBalloons] = useState(true);
+  const [blessingsReceived, setBlessingsReceived] = useState(false);
+  const [customDialog, setCustomDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'confirm' | 'alert';
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   // Global Realtime Chat states
@@ -268,6 +339,7 @@ function AppContent() {
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const chatEndRef = React.useRef<HTMLDivElement>(null);
   const chatScrollContainerRef = React.useRef<HTMLDivElement>(null);
   const chatChannelRef = React.useRef<any>(null);
@@ -285,6 +357,7 @@ function AppContent() {
   const [isChatHeaderMenuOpen, setIsChatHeaderMenuOpen] = useState(false);
   const [showFullTimestamps, setShowFullTimestamps] = useState(() => localStorage.getItem('sy_show_full_timestamps') === 'true');
   const [showReadReceipts, setShowReadReceipts] = useState(() => localStorage.getItem('sy_show_read_receipts') !== 'false');
+  const [autoScrollChat, setAutoScrollChat] = useState(() => localStorage.getItem('sy_chat_auto_scroll') !== 'false');
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const [popoverDirection, setPopoverDirection] = useState<'up' | 'down'>('up');
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
@@ -293,6 +366,146 @@ function AppContent() {
   const chatHeaderMenuRef = React.useRef<HTMLDivElement>(null);
   const activeReactionContainerRef = React.useRef<HTMLDivElement>(null);
   const pressTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Thread Discussion States
+  const [activeThreadParent, setActiveThreadParent] = useState<ChatMessage | null>(null);
+  const [newReplyText, setNewReplyText] = useState("");
+
+  // Message retention policy states
+  const [isRetentionModalOpen, setIsRetentionModalOpen] = useState(false);
+  const [retentionDays, setRetentionDays] = useState<number>(0);
+  const [lastCleanupRun, setLastCleanupRun] = useState<string | null>(null);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [cleanupFeedback, setCleanupFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Load retention settings when modal is opened
+  useEffect(() => {
+    if (isRetentionModalOpen) {
+      db.getMessageRetentionPolicy().then(days => {
+        setRetentionDays(days);
+      });
+      setLastCleanupRun(localStorage.getItem('sy_last_cleanup_run'));
+      setCleanupFeedback(null);
+    }
+  }, [isRetentionModalOpen]);
+
+  // Trigger background cleanup for admins once on load/mount or every 12 hours
+  useEffect(() => {
+    if (isCurrentUserAdmin) {
+      const lastRun = localStorage.getItem('sy_last_cleanup_run');
+      const now = new Date();
+      let shouldRun = false;
+      if (!lastRun) {
+        shouldRun = true;
+      } else {
+        const lastRunDate = new Date(lastRun);
+        const diffHours = (now.getTime() - lastRunDate.getTime()) / (1000 * 60 * 60);
+        if (diffHours >= 12) {
+          shouldRun = true;
+        }
+      }
+
+      if (shouldRun) {
+        const timer = setTimeout(async () => {
+          try {
+            const res = await db.runAutomatedCleanup();
+            if (res.success && res.deletedCount > 0) {
+              console.log(`[Automated Cleanup] Deleted ${res.deletedCount} messages older than ${res.policyDays} days.`);
+            }
+          } catch (e) {
+            console.warn('[Automated Cleanup] Failed background cleanup:', e);
+          }
+        }, 5000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isCurrentUserAdmin]);
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const threadEndRef = React.useRef<HTMLDivElement>(null);
+  const threadScrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Thread alert states for tracking new replies to threads the user participates in
+  const [threadAlerts, setThreadAlerts] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sy_chat_thread_alerts');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Keep track of the message log to identify when genuinely new messages are received
+  const prevMessagesRef = React.useRef<ChatMessage[]>([]);
+
+  // Dynamically calculate which thread parent IDs the current user is participating in
+  const participatingThreadIds = React.useMemo(() => {
+    if (!user || !chatMessages) return new Set<string>();
+    const threadIds = new Set<string>();
+    chatMessages.forEach(m => {
+      if (m.user_id === user.id) {
+        if (m.parent_id) {
+          threadIds.add(m.parent_id);
+        } else {
+          threadIds.add(m.id);
+        }
+      }
+    });
+    return threadIds;
+  }, [chatMessages, user?.id]);
+
+  // React to incoming messages to identify if any represent new replies to threads the user is participating in
+  useEffect(() => {
+    if (!user || chatMessages.length === 0) {
+      prevMessagesRef.current = chatMessages;
+      return;
+    }
+
+    const prevIds = new Set(prevMessagesRef.current.map(m => m.id));
+    const newArrivals = chatMessages.filter(m => !prevIds.has(m.id) && m.user_id !== user.id);
+
+    if (newArrivals.length > 0 && prevMessagesRef.current.length > 0) {
+      let updatedAlerts = [...threadAlerts];
+      let addedAlert = false;
+
+      newArrivals.forEach(msg => {
+        if (msg.parent_id) {
+          // If the reply belongs to a thread the user is in, and they are not looking at it right now
+          if (participatingThreadIds.has(msg.parent_id)) {
+            const isViewingThisThread = isChatOpen && activeThreadParent?.id === msg.parent_id;
+            if (!isViewingThisThread && !updatedAlerts.includes(msg.parent_id)) {
+              updatedAlerts.push(msg.parent_id);
+              addedAlert = true;
+            }
+          }
+        }
+      });
+
+      if (addedAlert) {
+        setThreadAlerts(updatedAlerts);
+        localStorage.setItem('sy_chat_thread_alerts', JSON.stringify(updatedAlerts));
+      }
+    }
+
+    prevMessagesRef.current = chatMessages;
+  }, [chatMessages, user, participatingThreadIds, isChatOpen, activeThreadParent, threadAlerts]);
+
+  // Automatically dismiss alerts when the user opens/views the corresponding thread
+  useEffect(() => {
+    if (activeThreadParent && threadAlerts.includes(activeThreadParent.id)) {
+      const updated = threadAlerts.filter(id => id !== activeThreadParent.id);
+      setThreadAlerts(updated);
+      localStorage.setItem('sy_chat_thread_alerts', JSON.stringify(updated));
+    }
+  }, [activeThreadParent, threadAlerts]);
+
+  // Thread auto-scroll to bottom on replies or open
+  useEffect(() => {
+    if (activeThreadParent) {
+      setTimeout(() => {
+        threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [chatMessages, activeThreadParent]);
 
   const startPress = (msgId: string) => {
     if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
@@ -408,14 +621,27 @@ function AppContent() {
     }
   }, [isChatOpen, chatMessages, user?.id, showReadReceipts]);
 
+  // Track previous chat open state to detect when it transitions from closed to open
+  const prevIsChatOpenRef = React.useRef(isChatOpen);
+
   // Auto-scroll chat to bottom
   useEffect(() => {
+    const wasClosed = !prevIsChatOpenRef.current;
+    prevIsChatOpenRef.current = isChatOpen;
+
     if (isChatOpen) {
-      setTimeout(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 80);
+      const lastMessage = chatMessages[chatMessages.length - 1];
+      const isOwnMessage = lastMessage && lastMessage.user_id === user?.id;
+
+      if (wasClosed || autoScrollChat || isOwnMessage) {
+        setTimeout(() => {
+          chatEndRef.current?.scrollIntoView({ 
+            behavior: wasClosed ? 'auto' : 'smooth' 
+          });
+        }, wasClosed ? 50 : 80);
+      }
     }
-  }, [chatMessages, isChatOpen]);
+  }, [chatMessages, isChatOpen, autoScrollChat, user?.id]);
 
   // Manual Member creation (Admin action)
   const [newMemberEmail, setNewMemberEmail] = useState('');
@@ -601,15 +827,20 @@ function AppContent() {
       .on('presence', { event: 'sync' }, () => {
         const state = chatChannel.presenceState();
         const typing: string[] = [];
+        const onlineIds: string[] = [];
         Object.keys(state).forEach((key) => {
           const presences = state[key] as any[];
           presences.forEach((p) => {
+            if (p.user_id) {
+              onlineIds.push(p.user_id);
+            }
             if (p.is_typing && p.user_id !== user.id) {
               typing.push(p.user_name || 'Someone');
             }
           });
         });
         setTypingUsers(Array.from(new Set(typing)));
+        setOnlineUserIds(Array.from(new Set(onlineIds)));
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -744,6 +975,34 @@ function AppContent() {
     }
   };
 
+  const handleSendReply = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!user || !activeThreadParent || !newReplyText.trim() || isSendingReply) return;
+
+    const text = newReplyText.trim();
+    setNewReplyText("");
+    setIsSendingReply(true);
+
+    try {
+      const sentMsg = await db.sendChatMessage(
+        text,
+        user.id,
+        user.name,
+        user.avatar,
+        activeThreadParent.id
+      );
+      
+      setChatMessages((prev) => {
+        if (prev.some(m => m.id === sentMsg.id)) return prev;
+        return [...prev, sentMsg];
+      });
+    } catch (err) {
+      console.error("Failed to send thread reply:", err);
+    } finally {
+      setIsSendingReply(false);
+    }
+  };
+
   const handleSelectMention = (memberName: string) => {
     if (mentionIndex === -1) return;
     const text = newChatMessageText;
@@ -798,6 +1057,45 @@ function AppContent() {
     }
   };
 
+  const handleSaveRetentionPolicy = async () => {
+    if (!isCurrentUserAdmin) return;
+    setIsCleaningUp(true);
+    setCleanupFeedback(null);
+    try {
+      await db.setMessageRetentionPolicy(retentionDays);
+      setCleanupFeedback({ type: 'success', message: `Retention policy successfully saved! Messages older than ${retentionDays || 'infinite'} days will be cleaned up.` });
+    } catch (err: any) {
+      setCleanupFeedback({ type: 'error', message: err.message || 'Failed to save retention policy.' });
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
+
+  const handleRunCleanupNow = async () => {
+    if (!isCurrentUserAdmin) return;
+    setIsCleaningUp(true);
+    setCleanupFeedback(null);
+    try {
+      const res = await db.runAutomatedCleanup(retentionDays);
+      if (res.success) {
+        setCleanupFeedback({ 
+          type: 'success', 
+          message: `Cleanup completed successfully! Deleted ${res.deletedCount} unpinned messages older than ${retentionDays} days.` 
+        });
+        setLastCleanupRun(new Date().toISOString());
+        // Refresh chat messages
+        const msgs = await db.getChatMessages();
+        setChatMessages(msgs);
+      } else {
+        setCleanupFeedback({ type: 'error', message: 'Cleanup failed or found no messages to delete.' });
+      }
+    } catch (err: any) {
+      setCleanupFeedback({ type: 'error', message: err.message || 'Failed to trigger cleanup.' });
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
+
   const handleToggleMessageReaction = async (messageId: string, emoji: string) => {
     if (!user) return;
     try {
@@ -836,6 +1134,29 @@ function AppContent() {
       setActiveReactionMsgId(null);
     } catch (err) {
       console.error('Failed to delete chat message:', err);
+    }
+  };
+
+  const handleTogglePinMessage = async (messageId: string, currentPinStatus: boolean) => {
+    if (!user || !isCurrentUserAdmin) return;
+    try {
+      const updated = await db.togglePinChatMessage(messageId, !currentPinStatus);
+      if (updated) {
+        setChatMessages(prev => prev.map(m => m.id === messageId ? updated : m));
+        addActivityLog(
+          user.id,
+          user.email,
+          user.name,
+          currentPinStatus ? 'Announcement Unpinned' : 'Announcement Pinned',
+          `${currentPinStatus ? 'Unpinned' : 'Pinned'} important announcement message: "${updated.message.substring(0, 40)}${updated.message.length > 40 ? '...' : ''}"`,
+          messageId,
+          updated.user_name
+        );
+        setLogs(getActivityLogs());
+      }
+      setActiveReactionMsgId(null);
+    } catch (err) {
+      console.error('Failed to toggle pin message:', err);
     }
   };
 
@@ -1112,9 +1433,6 @@ function AppContent() {
     setLogs([]);
   };
 
-  // Check if current user is default admin or is an OB role
-  const isCurrentUserAdmin = user ? (user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(user.role)) : false;
-
   // Compute Statistics for Dashboard widgets
   const totalCount = members.length;
   const approvedCount = members.filter(m => m.status === 'approved').length;
@@ -1366,7 +1684,7 @@ function AppContent() {
       <main className="max-w-7xl mx-auto w-full px-4 py-6 flex-grow space-y-6">
 
         {/* Floating Festive Balloon Background Theme Effect */}
-        {user.dob && isBirthdayToday(user.dob, currentDate) && (
+        {user.dob && isBirthdayToday(user.dob, currentDate) && showBalloons && (
           <>
             <style>{`
               @keyframes floatUp {
@@ -1460,12 +1778,73 @@ function AppContent() {
             <div className="w-full md:w-auto shrink-0 relative z-10 flex justify-center md:justify-end">
               <button
                 onClick={() => {
-                  setShowConfetti(true);
-                  alert("🎉 Thank you for being a wonderful part of Shalom Youth! Have an amazing birthday celebration!");
+                  if (blessingsReceived) {
+                    setCustomDialog({
+                      isOpen: true,
+                      title: "Stop Birthday Celebrations? 🛑",
+                      message: "Do you want to stop the floating balloons and festive animations on your screen?",
+                      type: 'confirm',
+                      confirmText: "Yes, Stop Them",
+                      cancelText: "Keep Celebrating",
+                      onConfirm: () => {
+                        setShowConfetti(false);
+                        setShowBalloons(false);
+                        setBlessingsReceived(false);
+                        setCustomDialog(null);
+                      },
+                      onCancel: () => setCustomDialog(null)
+                    });
+                  } else {
+                    setCustomDialog({
+                      isOpen: true,
+                      title: "Receive Birthday Blessings! 🎁✨",
+                      message: "Do you wish to activate your official birthday blessings and play the festive animations?",
+                      type: 'confirm',
+                      confirmText: "Bless Me! 💖",
+                      cancelText: "Not Now",
+                      onConfirm: () => {
+                        setShowConfetti(true);
+                        setShowBalloons(true);
+                        setBlessingsReceived(true);
+                        
+                        setTimeout(() => {
+                          setCustomDialog({
+                            isOpen: true,
+                            title: "Happy Birthday! 🎉🎂",
+                            message: "Thank you for being a wonderful part of Shalom Youth! Have an amazing birthday celebration!",
+                            type: 'alert',
+                            confirmText: "Ameen 🙏",
+                            onConfirm: () => setCustomDialog(null)
+                          });
+                        }, 300);
+                      },
+                      onCancel: () => setCustomDialog(null)
+                    });
+                  }
                 }}
-                className="w-full md:w-auto bg-white hover:bg-pink-50 active:bg-pink-100 text-indigo-950 font-black text-[10px] sm:text-xs px-4 py-2 sm:py-2.5 rounded-xl shadow-md transition-all transform hover:scale-102 active:scale-98 cursor-pointer border border-pink-100/10 text-center"
+                onDoubleClick={() => {
+                  if (blessingsReceived) {
+                    setShowConfetti(false);
+                    setShowBalloons(false);
+                    setBlessingsReceived(false);
+                    setCustomDialog({
+                      isOpen: true,
+                      title: "Animations Stopped 🎈",
+                      message: "Festive celebrations and floating balloons have been turned off. You can click again to restart!",
+                      type: 'alert',
+                      confirmText: "OK",
+                      onConfirm: () => setCustomDialog(null)
+                    });
+                  }
+                }}
+                className={`w-full md:w-auto font-black text-[10px] sm:text-xs px-5 py-2.5 sm:py-3 rounded-xl shadow-md transition-all transform hover:scale-102 active:scale-98 cursor-pointer border text-center ${
+                  blessingsReceived 
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-500' 
+                    : 'bg-white hover:bg-pink-50 active:bg-pink-100 text-indigo-950 border-pink-100/10'
+                }`}
+                title={blessingsReceived ? "Double click or click again to stop the celebrations" : "Click to receive your blessings"}
               >
-                Receive Blessings 🙏
+                {blessingsReceived ? "Stop Blessings 🛑" : "Receive Blessings 🙏"}
               </button>
             </div>
           </div>
@@ -1677,6 +2056,15 @@ function AppContent() {
                     <span>Birthday Emails</span>
                   </button>
                 )}
+                {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
+                  <button
+                    onClick={() => setCurrentTab('meta-settings')}
+                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'meta-settings' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                  >
+                    <Globe className="w-3.5 h-3.5 shrink-0" />
+                    <span>Meta Settings</span>
+                  </button>
+                )}
               </div>
 
               {/* Preferences Toggle / Layout Customize Menu */}
@@ -1747,11 +2135,13 @@ function AppContent() {
               />
             ) : currentTab === 'birthday-tasks' && isCurrentUserAdmin ? (
               <BirthdayEmailSettingsPage currentUser={user} members={members} />
+            ) : currentTab === 'meta-settings' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
+              <WebsiteMetaSettingsPage currentUser={user} />
             ) : (
               <>
                 {/* Quick overview metrics Grid */}
             {showQuickMetrics && (
-              <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                 
                 <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs space-y-2">
                   <div className="flex items-center justify-between text-stone-400">
@@ -1795,6 +2185,43 @@ function AppContent() {
                     <div className="text-2xl font-black text-stone-900">{obCount}</div>
                     <p className="text-[10px] text-stone-400 font-medium">Active administrative users</p>
                   </div>
+                </div>
+
+                <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs space-y-2 relative group overflow-visible">
+                  <div className="flex items-center justify-between text-stone-400">
+                    <span className="text-[10px] uppercase font-bold tracking-wider">Online Now</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="text-2xl font-black text-stone-900 flex items-baseline gap-1.5">
+                      {onlineUserIds.length}
+                    </div>
+                    <p className="text-[10px] text-stone-400 font-medium truncate">
+                      {onlineUserIds.length === 1 ? '1 active user' : `${onlineUserIds.length} active users`}
+                    </p>
+                  </div>
+
+                  {onlineUserIds.length > 0 && (
+                    <div className="absolute top-full left-0 mt-1 hidden group-hover:block bg-stone-900 text-white text-[10px] p-2.5 rounded-xl shadow-xl border border-stone-800 z-30 max-h-48 overflow-y-auto w-52 font-medium">
+                      <p className="font-extrabold border-b border-stone-800 pb-1.5 mb-1.5 text-stone-400">Active Members:</p>
+                      <div className="space-y-1">
+                        {onlineUserIds.map(id => {
+                          const mb = members.find(m => m.id === id);
+                          return (
+                            <div key={id} className="flex items-center gap-1.5 text-stone-200">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full shrink-0 animate-pulse" />
+                              <span className="truncate">{mb ? mb.name : (id === user?.id ? 'You' : 'Anonymous')}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
               </section>
@@ -2062,6 +2489,7 @@ function AppContent() {
                 onBatchDeleteMembers={handleBatchDeleteMembers}
                 onOpenProfile={(member) => setSelectedProfileMember(member)}
                 isCurrentUserAdmin={isCurrentUserAdmin}
+                onlineUserIds={onlineUserIds}
               />
             </section>
               </>
@@ -2097,6 +2525,128 @@ function AppContent() {
 
       {/* SQL script Copy tool */}
       <SQLSetupModal isOpen={isSQLModalOpen} onClose={() => setIsSQLModalOpen(false)} />
+
+      {/* Message Retention Policy Modal */}
+      {isRetentionModalOpen && (
+        <div className="fixed inset-0 bg-stone-950/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in text-left">
+          <div className="bg-white dark:bg-stone-900 w-full max-w-md rounded-2xl shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden animate-scale-up">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-5 h-5" />
+                <h3 className="font-extrabold text-base tracking-tight">Message Retention Policy</h3>
+              </div>
+              <button
+                onClick={() => setIsRetentionModalOpen(false)}
+                className="text-white/80 hover:text-white transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4 text-left">
+              <p className="text-xs text-stone-500 dark:text-stone-400 leading-relaxed">
+                As an Admin, you can configure an automated cleanup schedule to automatically prune older messages from the Fellowship Chat. This helps optimize database size and keeps loading speeds snappy.
+              </p>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-stone-700 dark:text-stone-300">
+                  Delete Messages Older Than:
+                </label>
+                <select
+                  value={retentionDays}
+                  onChange={(e) => setRetentionDays(Number(e.target.value))}
+                  className="w-full bg-stone-50 dark:bg-stone-950 border border-stone-250 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-bold text-stone-800 dark:text-stone-200 focus:outline-hidden focus:ring-2 focus:ring-violet-500 cursor-pointer"
+                >
+                  <option value={0}>Disabled (Keep All Messages Forever)</option>
+                  <option value={3}>3 Days</option>
+                  <option value={7}>7 Days (1 Week)</option>
+                  <option value={14}>14 Days (2 Weeks)</option>
+                  <option value={30}>30 Days (1 Month)</option>
+                  <option value={90}>90 Days (3 Months)</option>
+                </select>
+              </div>
+
+              {/* Notice Banner */}
+              <div className="bg-indigo-50/50 dark:bg-indigo-950/25 border border-indigo-100/40 dark:border-indigo-900/30 rounded-xl p-3 flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5" />
+                <div className="space-y-1 text-left">
+                  <h4 className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300">Pinned Messages are Safe!</h4>
+                  <p className="text-[10px] text-indigo-700/80 dark:text-indigo-400/80 leading-normal">
+                    Important announcements that are marked as <strong>Pinned</strong> will never be deleted, even if they exceed the selected retention period.
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Section */}
+              <div className="bg-stone-50 dark:bg-stone-950 rounded-xl p-3.5 border border-stone-150 dark:border-stone-800 space-y-1.5 text-[11px] select-none">
+                <div className="flex justify-between">
+                  <span className="text-stone-400">Current Policy:</span>
+                  <span className="font-extrabold text-stone-700 dark:text-stone-300">
+                    {retentionDays > 0 ? `Delete messages older than ${retentionDays} days` : 'Disabled (No retention policy)'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-stone-400">Last Background Run:</span>
+                  <span className="font-semibold text-stone-700 dark:text-stone-300">
+                    {lastCleanupRun ? new Date(lastCleanupRun).toLocaleString() : 'Never'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Feedback Alert */}
+              {cleanupFeedback && (
+                <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs font-bold leading-normal animate-fade-in ${
+                  cleanupFeedback.type === 'success' 
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-400' 
+                    : 'bg-rose-50 border-rose-250 text-rose-800 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-400'
+                }`}>
+                  <div className="shrink-0 mt-0.5">
+                    {cleanupFeedback.type === 'success' ? (
+                      <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-500" />
+                    )}
+                  </div>
+                  <span>{cleanupFeedback.message}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="bg-stone-50 dark:bg-stone-950 px-5 py-4 border-t border-stone-150 dark:border-stone-800 flex flex-wrap items-center justify-between gap-3 text-left">
+              <button
+                type="button"
+                onClick={handleRunCleanupNow}
+                disabled={isCleaningUp || retentionDays <= 0}
+                className="px-4 py-2 text-xs font-extrabold text-violet-700 hover:text-violet-800 dark:text-violet-300 dark:hover:text-violet-250 hover:bg-violet-50 dark:hover:bg-violet-950/30 border border-violet-100 dark:border-violet-900/30 rounded-xl transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
+              >
+                {isCleaningUp ? 'Running...' : 'Run Cleanup Now'}
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRetentionModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveRetentionPolicy}
+                  disabled={isCleaningUp}
+                  className="px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs active:scale-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+                >
+                  {isCleaningUp ? 'Saving...' : 'Save Policy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Render detailed profile card modal */}
       {selectedProfileMember && (
@@ -2227,7 +2777,11 @@ function AppContent() {
             <button
               id="tour-global-chat-btn"
               onClick={() => setIsChatOpen(!isChatOpen)}
-              className="group flex items-center justify-center bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white p-4 rounded-full shadow-2xl hover:shadow-[0_15px_30px_rgba(99,102,241,0.5)] border border-indigo-400/30 transition-all transform hover:scale-110 active:scale-95 cursor-pointer relative animate-fade-in"
+              className={`group flex items-center justify-center bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white p-4 rounded-full shadow-2xl hover:shadow-[0_15px_30px_rgba(99,102,241,0.5)] border border-indigo-400/30 transition-all transform hover:scale-110 active:scale-95 cursor-pointer relative animate-fade-in ${
+                threadAlerts.length > 0 && !isChatOpen
+                  ? 'ring-4 ring-indigo-500 dark:ring-indigo-400 animate-pulse shadow-[0_0_25px_rgba(99,102,241,0.7)]'
+                  : ''
+              }`}
               title="Open Global Fellowship Chat 💬"
             >
               <MessageSquare className="w-6 h-6 animate-pulse" />
@@ -2236,12 +2790,21 @@ function AppContent() {
                   {unreadChatCount}
                 </span>
               )}
+              {threadAlerts.length > 0 && !isChatOpen && (
+                <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-stone-900 font-extrabold text-[8px] px-1.5 py-0.5 rounded-full border border-white animate-bounce shadow-md">
+                  New Reply
+                </span>
+              )}
             </button>
           </div>
 
           {/* Chat Window Panel */}
-          {isChatOpen && (
-            <div className="fixed inset-0 sm:inset-auto sm:right-6 sm:bottom-24 z-50 w-full sm:w-[380px] h-full sm:h-[550px] sm:max-h-[75vh] flex flex-col bg-white dark:bg-stone-900 rounded-none sm:rounded-2xl shadow-2xl border-0 sm:border border-stone-200 dark:border-stone-800 overflow-hidden animate-scale-up">
+          {isChatOpen && !activeThreadParent && (
+            <div className={`fixed inset-0 sm:inset-auto sm:right-6 sm:bottom-24 z-50 w-full sm:w-[380px] h-full sm:h-[550px] sm:max-h-[75vh] flex flex-col bg-white dark:bg-stone-900 rounded-none sm:rounded-2xl overflow-hidden animate-scale-up ${
+              threadAlerts.length > 0
+                ? 'ring-2 ring-indigo-500 dark:ring-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.45)] border border-indigo-400/50'
+                : 'shadow-2xl border-0 sm:border border-stone-200 dark:border-stone-800'
+            }`}>
               {/* Chat Header */}
               <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 px-4 py-3 text-white flex items-center justify-between shadow-md">
                 <div className="flex items-center gap-2.5">
@@ -2335,14 +2898,51 @@ function AppContent() {
                             </button>
                           </div>
 
-                          {isCurrentUserAdmin && (
+                          <div className="px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-stone-700 dark:text-stone-300 border-b border-stone-100 dark:border-stone-800 select-none">
+                            <div className="flex items-center gap-2">
+                              <ChevronsDown className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                              <span>Auto-Scroll Chat</span>
+                            </div>
                             <button
-                              onClick={handleClearChatHistory}
-                              className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:text-rose-700 transition-colors flex items-center gap-2 cursor-pointer"
+                              type="button"
+                              onClick={() => {
+                                const newVal = !autoScrollChat;
+                                setAutoScrollChat(newVal);
+                                localStorage.setItem('sy_chat_auto_scroll', String(newVal));
+                              }}
+                              className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer outline-none shrink-0 ${
+                                autoScrollChat ? 'bg-violet-600' : 'bg-stone-300 dark:bg-stone-700'
+                              }`}
                             >
-                              <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                              <span>Clear Chat History</span>
+                              <span
+                                className={`absolute top-0.5 left-0.5 bg-white w-3 h-3 rounded-full transition-transform shadow-xs ${
+                                  autoScrollChat ? 'translate-x-4' : 'translate-x-0'
+                                }`}
+                              />
                             </button>
+                          </div>
+
+                          {isCurrentUserAdmin && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setIsRetentionModalOpen(true);
+                                  setIsChatHeaderMenuOpen(false);
+                                }}
+                                className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800/50 hover:text-stone-900 transition-colors flex items-center gap-2 cursor-pointer border-b border-stone-100 dark:border-stone-800"
+                              >
+                                <SlidersHorizontal className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                                <span>Message Retention Policy</span>
+                              </button>
+
+                              <button
+                                onClick={handleClearChatHistory}
+                                className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:text-rose-700 transition-colors flex items-center gap-2 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>Clear Chat History</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       )}
@@ -2401,9 +3001,69 @@ function AppContent() {
                 </div>
               )}
 
+              {/* Pinned Announcements Panel */}
+              {(() => {
+                const pinnedMessages = chatMessages.filter(m => m.is_pinned && !m.parent_id);
+                if (pinnedMessages.length === 0) return null;
+                return (
+                  <div className="bg-amber-50/90 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900/30 p-2.5 space-y-2 z-10 shadow-xs max-h-[160px] overflow-y-auto">
+                    <div className="flex items-center gap-1.5 text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-wider select-none">
+                      <Pin className="w-3.5 h-3.5 fill-amber-500 stroke-amber-700 animate-pulse" />
+                      <span>Pinned Announcements ({pinnedMessages.length})</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {pinnedMessages.map((pMsg) => (
+                        <div key={`pinned-${pMsg.id}`} className="bg-white/80 dark:bg-stone-850/60 p-2 rounded-xl border border-amber-100/50 dark:border-amber-950/40 shadow-xxs flex items-start justify-between gap-2 transition-all hover:bg-white dark:hover:bg-stone-850">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-0.5 select-none">
+                              <span className="text-[9px] font-extrabold text-stone-700 dark:text-stone-300">
+                                {pMsg.user_name}
+                              </span>
+                              <span className="text-[8px] text-stone-400 dark:text-stone-500 font-medium">
+                                • {formatTimeAgo(pMsg.created_at)}
+                              </span>
+                            </div>
+                            <p className="text-[10.5px] text-stone-850 dark:text-stone-150 font-medium break-words leading-relaxed line-clamp-3">
+                              {renderFormattedMessage(pMsg.message)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => {
+                                const msgElement = document.querySelector(`[data-message-id="${pMsg.id}"]`);
+                                if (msgElement) {
+                                  msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  msgElement.classList.add('ring-2', 'ring-amber-400', 'scale-102');
+                                  setTimeout(() => {
+                                    msgElement.classList.remove('ring-2', 'ring-amber-400', 'scale-102');
+                                  }, 2000);
+                                }
+                              }}
+                              className="px-1.5 py-0.5 rounded bg-amber-100/50 hover:bg-amber-150 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-400 transition-all text-[9px] font-black cursor-pointer uppercase select-none"
+                              title="Jump to message in chat"
+                            >
+                              Jump
+                            </button>
+                            {isCurrentUserAdmin && (
+                              <button
+                                onClick={() => handleTogglePinMessage(pMsg.id, true)}
+                                className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:text-stone-500 dark:hover:text-rose-400 dark:hover:bg-rose-950/20 transition-all cursor-pointer"
+                                title="Unpin Announcement"
+                              >
+                                <PinOff className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Message List */}
               <div ref={chatScrollContainerRef} className="flex-1 overflow-y-auto p-2.5 space-y-2 bg-stone-50/50 dark:bg-stone-950/20 animate-fade-in">
-                {chatMessages.length === 0 ? (
+                {chatMessages.filter(m => !m.parent_id).length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2">
                     <span className="text-2xl animate-bounce">💬</span>
                     <div className="space-y-1">
@@ -2417,7 +3077,8 @@ function AppContent() {
                   <div className="space-y-1.5">
                     {(() => {
                       let lastDateHeader = '';
-                      return chatMessages.map((msg) => {
+                      const mainChatMessages = chatMessages.filter(m => !m.parent_id);
+                      return mainChatMessages.map((msg) => {
                         const dateHeader = getChatDateHeader(msg.created_at);
                         const displayHeader = dateHeader && dateHeader !== lastDateHeader;
                         if (displayHeader) {
@@ -2449,6 +3110,7 @@ function AppContent() {
                         const senderMember = members.find((m) => m.id === msg.user_id);
                         const avatarUrl = senderMember?.avatar || msg.user_avatar;
                         const isDeleted = msg.message === "This message was deleted";
+                        const repliesCount = chatMessages.filter(m => m.parent_id === msg.id).length;
                         const isEditing = editingMsgId === msg.id;
 
                         return (
@@ -2493,13 +3155,25 @@ function AppContent() {
                           <div className={`flex flex-col max-w-[75%] relative ${isOwnMessage ? 'items-start' : 'items-end'}`}>
                             {/* Sender Name */}
                             {!isOwnMessage && (
-                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 truncate max-w-[120px]">
-                                {msg.user_name}
+                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                                <span className="truncate">{msg.user_name}</span>
+                                <span 
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    onlineUserIds.includes(msg.user_id) 
+                                      ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]' 
+                                      : 'bg-stone-300 dark:bg-stone-700'
+                                  }`}
+                                  title={onlineUserIds.includes(msg.user_id) ? "Online" : "Offline"}
+                                />
                               </span>
                             )}
                             {isOwnMessage && (
-                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 truncate max-w-[120px]">
-                                You
+                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                                <span className="truncate">You</span>
+                                <span 
+                                  className="w-1.5 h-1.5 rounded-full shrink-0 bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"
+                                  title="Online"
+                                />
                               </span>
                             )}
                             
@@ -2591,32 +3265,56 @@ function AppContent() {
                                    );
                                  })}
 
-                                 {isOwnMessage && (
+                                 {(isOwnMessage || isCurrentUserAdmin) && (
                                    <>
                                      <div className="w-px h-4 bg-stone-200 dark:bg-stone-700 mx-1 shrink-0" />
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         setEditingMsgId(msg.id);
-                                         setEditingText(msg.message);
-                                         setActiveReactionMsgId(null);
-                                       }}
-                                       className="h-7 w-7 rounded-full flex items-center justify-center text-stone-500 hover:text-violet-600 dark:text-stone-400 dark:hover:text-violet-400 hover:bg-stone-100 dark:hover:bg-stone-850 transition-colors cursor-pointer"
-                                       title="Edit Message"
-                                     >
-                                       <Pencil className="w-3.5 h-3.5" />
-                                     </button>
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         handleDeleteMessage(msg.id);
-                                         setActiveReactionMsgId(null);
-                                       }}
-                                       className="h-7 w-7 rounded-full flex items-center justify-center text-stone-500 hover:text-rose-600 dark:text-stone-400 dark:hover:text-rose-400 hover:bg-stone-100 dark:hover:bg-stone-850 transition-colors cursor-pointer"
-                                       title="Delete Message"
-                                     >
-                                       <Trash className="w-3.5 h-3.5" />
-                                     </button>
+                                     
+                                     {isOwnMessage && (
+                                       <>
+                                         <button
+                                           type="button"
+                                           onClick={() => {
+                                             setEditingMsgId(msg.id);
+                                             setEditingText(msg.message);
+                                             setActiveReactionMsgId(null);
+                                           }}
+                                           className="h-7 w-7 rounded-full flex items-center justify-center text-stone-500 hover:text-violet-600 dark:text-stone-400 dark:hover:text-violet-400 hover:bg-stone-100 dark:hover:bg-stone-850 transition-colors cursor-pointer"
+                                           title="Edit Message"
+                                         >
+                                           <Pencil className="w-3.5 h-3.5" />
+                                         </button>
+                                         <button
+                                           type="button"
+                                           onClick={() => {
+                                             handleDeleteMessage(msg.id);
+                                             setActiveReactionMsgId(null);
+                                           }}
+                                           className="h-7 w-7 rounded-full flex items-center justify-center text-stone-500 hover:text-rose-600 dark:text-stone-400 dark:hover:text-rose-400 hover:bg-stone-100 dark:hover:bg-stone-850 transition-colors cursor-pointer"
+                                           title="Delete Message"
+                                         >
+                                           <Trash className="w-3.5 h-3.5" />
+                                         </button>
+                                       </>
+                                     )}
+
+                                     {isCurrentUserAdmin && (
+                                       <button
+                                         type="button"
+                                         onClick={() => handleTogglePinMessage(msg.id, !!msg.is_pinned)}
+                                         className={`h-7 w-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                           msg.is_pinned 
+                                             ? 'text-amber-500 hover:text-stone-500 dark:text-amber-400 dark:hover:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-850 bg-amber-50 dark:bg-amber-950/20'
+                                             : 'text-stone-500 hover:text-amber-500 dark:text-stone-400 dark:hover:text-amber-400 hover:bg-stone-100 dark:hover:bg-stone-850'
+                                         }`}
+                                         title={msg.is_pinned ? "Unpin Announcement" : "Pin Announcement"}
+                                       >
+                                         {msg.is_pinned ? (
+                                           <PinOff className="w-3.5 h-3.5" />
+                                         ) : (
+                                           <Pin className="w-3.5 h-3.5" />
+                                         )}
+                                       </button>
+                                     )}
                                    </>
                                  )}
                                </div>
@@ -2651,7 +3349,7 @@ function AppContent() {
                              {/* Timing & Read Receipts */}
                              <div className={`flex items-center gap-1 mt-0.5 px-1 select-none ${isOwnMessage ? 'justify-start' : 'justify-end'}`}>
                                <span className="text-[8px] text-stone-400 dark:text-stone-500 font-mono">
-                                 {showFullTimestamps ? formatFullTimestamp(msg.created_at) : formatTimeAgo(msg.created_at)}
+                                 {showFullTimestamps ? formatFullTimestamp(msg.created_at) : formatTimeAgo(msg.created_at)}</span>{!isDeleted && (<button type="button" onClick={() => setActiveThreadParent(msg)} className={`text-[9px] font-extrabold flex items-center gap-0.5 transition-colors cursor-pointer ml-1.5 ${threadAlerts.includes(msg.id) ? 'text-amber-500 hover:text-amber-600 dark:text-amber-400 font-black animate-pulse' : 'text-stone-400 hover:text-violet-600 dark:text-stone-500 dark:hover:text-violet-400'}`} title="Reply to message"><MessageSquare className={`w-2.5 h-2.5 shrink-0 ${threadAlerts.includes(msg.id) ? 'text-amber-500 fill-amber-500' : ''}`} /><span>Reply {threadAlerts.includes(msg.id) && '• New'}</span></button>)}<span className="hidden">
                                </span>
                                {isOwnMessage && (
                                  <span 
@@ -2670,6 +3368,28 @@ function AppContent() {
                                   }
                                 >
                                   {showReadReceipts && msg.read_by && msg.read_by.filter(id => id !== user.id).length > 0 ? '✓✓' : '✓'}
+                                 </span>
+                               )}
+                             </div>
+                             {repliesCount > 0 && (
+                               <button
+                                 onClick={() => setActiveThreadParent(msg)}
+                                 className={`mt-1 flex items-center gap-1.5 px-2 py-1 text-[10px] font-black rounded-lg border transition-all active:scale-95 cursor-pointer shadow-xxs ${
+                                   threadAlerts.includes(msg.id)
+                                     ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:border-amber-900/30 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                                     : 'bg-violet-50 hover:bg-violet-100 border-violet-100/40 dark:border-violet-900/30 dark:hover:bg-violet-900/30 text-violet-700 dark:text-violet-300'
+                                 }`}
+                               >
+                                 <MessageSquare className={`w-3 h-3 shrink-0 animate-pulse ${threadAlerts.includes(msg.id) ? 'text-amber-500 fill-amber-500' : 'text-violet-500'}`} />
+                                 <span>{repliesCount} {repliesCount === 1 ? 'reply' : 'replies'}</span>
+                                 {threadAlerts.includes(msg.id) && (
+                                   <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping"></span>
+                                 )}
+                               </button>
+                             )}
+                             <div className="hidden">
+                               {isOwnMessage && (
+                                 <span className="hidden">
                                 </span>
                               )}
                             </div>
@@ -2775,6 +3495,305 @@ function AppContent() {
               </form>
             </div>
           )}
+
+          {/* Thread Panel View */}
+          {isChatOpen && activeThreadParent && (
+            <div className={`fixed inset-0 sm:inset-auto sm:right-6 sm:bottom-24 z-50 w-full sm:w-[380px] h-full sm:h-[550px] sm:max-h-[75vh] flex flex-col bg-white dark:bg-stone-900 rounded-none sm:rounded-2xl overflow-hidden animate-scale-up ${
+              threadAlerts.length > 0
+                ? 'ring-2 ring-indigo-500 dark:ring-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.45)] border border-indigo-400/50'
+                : 'shadow-2xl border-0 sm:border border-stone-200 dark:border-stone-800'
+            }`}>
+              {/* Thread Header */}
+              <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 px-4 py-3 text-white flex items-center gap-3 shadow-md">
+                <button
+                  onClick={() => setActiveThreadParent(null)}
+                  className="p-1 hover:bg-white/10 rounded-full transition-colors cursor-pointer text-white flex items-center justify-center shrink-0"
+                  title="Back to Global Chat"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-extrabold text-xs sm:text-sm tracking-tight truncate">Thread Discussion</h3>
+                  <p className="text-[9px] text-indigo-100 font-medium truncate">Replying to {activeThreadParent.user_name}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveThreadParent(null);
+                    setIsChatOpen(false);
+                  }}
+                  className="text-white/80 hover:text-white transition-colors text-xs font-bold p-1 bg-white/10 hover:bg-white/20 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer border border-white/10"
+                  title="Close Chat"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Thread Messages List Container */}
+              <div ref={threadScrollContainerRef} className="flex-1 overflow-y-auto p-3.5 space-y-4 bg-stone-50/50 dark:bg-stone-950/20 animate-fade-in">
+                {/* Parent Message Card */}
+                <div className="p-3 bg-violet-50/30 dark:bg-violet-950/10 rounded-xl border border-violet-100/40 dark:border-violet-900/10 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 border border-violet-200 shadow-xxs">
+                      {activeThreadParent.user_avatar ? (
+                        <img
+                          src={activeThreadParent.user_avatar}
+                          alt={activeThreadParent.user_name}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-full h-full text-[8px] font-black flex items-center justify-center bg-violet-600 text-white">
+                          {activeThreadParent.user_name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-black text-violet-950 dark:text-violet-200">{activeThreadParent.user_name}</span>
+                    <span className="text-[8px] text-stone-400 font-mono ml-auto">
+                      {formatFullTimestamp(activeThreadParent.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-800 dark:text-stone-200 font-medium break-words leading-relaxed pl-1">
+                    {renderFormattedMessage(activeThreadParent.message)}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between select-none px-1">
+                  <span className="text-[10px] font-black text-violet-600 dark:text-violet-400 uppercase tracking-wider">
+                    Replies
+                  </span>
+                  <div className="h-px bg-stone-200 dark:bg-stone-800 flex-1 ml-3"></div>
+                </div>
+
+                {/* List of Reply Messages */}
+                {chatMessages.filter(m => m.parent_id === activeThreadParent.id).length === 0 ? (
+                  <div className="py-8 text-center space-y-1.5 select-none">
+                    <span className="text-xl block">💬</span>
+                    <p className="text-[10px] text-stone-400 dark:text-stone-500 font-bold leading-normal">
+                      No replies yet.<br/>Be the first to start the discussion!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {chatMessages
+                      .filter(m => m.parent_id === activeThreadParent.id)
+                      .map((msg) => {
+                        const isOwnReply = msg.user_id === user.id;
+                        const senderMember = members.find((m) => m.id === msg.user_id);
+                        const avatarUrl = senderMember?.avatar || msg.user_avatar;
+                        const isDeleted = msg.message === "This message was deleted";
+                        const isEditingReply = editingMsgId === msg.id;
+
+                        return (
+                          <div
+                            key={msg.id}
+                            data-message-id={msg.id}
+                            className={`flex items-start gap-2 ${
+                              isOwnReply ? 'justify-start' : 'justify-end flex-row-reverse'
+                            }`}
+                          >
+                            {/* Avatar */}
+                            <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 shadow-xs border border-stone-200 dark:border-stone-800 flex items-center justify-center">
+                              {avatarUrl ? (
+                                <img
+                                  src={avatarUrl}
+                                  alt={msg.user_name}
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className={`w-full h-full text-[9px] font-black font-sans flex items-center justify-center text-white ${
+                                  isOwnReply ? 'bg-violet-600' : 'bg-emerald-600'
+                                }`}>
+                                  {msg.user_name ? msg.user_name.charAt(0).toUpperCase() : '?'}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Message Bubble Column */}
+                            <div className={`flex flex-col max-w-[75%] relative ${isOwnReply ? 'items-start' : 'items-end'}`}>
+                              {/* Sender Name */}
+                              {!isOwnReply && (
+                                <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                                  <span className="truncate">{msg.user_name}</span>
+                                  <span 
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                      onlineUserIds.includes(msg.user_id) 
+                                        ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]' 
+                                        : 'bg-stone-300 dark:bg-stone-700'
+                                    }`}
+                                    title={onlineUserIds.includes(msg.user_id) ? "Online" : "Offline"}
+                                  />
+                                </span>
+                              )}
+                              {isOwnReply && (
+                                <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                                  <span className="truncate">You</span>
+                                  <span 
+                                    className="w-1.5 h-1.5 rounded-full shrink-0 bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"
+                                    title="Online"
+                                  />
+                                </span>
+                              )}
+
+                              {/* Text bubble or Editing Block */}
+                              {isEditingReply ? (
+                                <div className="bg-white dark:bg-stone-850 p-1.5 rounded-2xl border border-violet-500 dark:border-violet-400 shadow-md flex flex-col gap-1 w-[200px] sm:w-[240px]">
+                                  <textarea
+                                    value={editingText}
+                                    onChange={(e) => setEditingText(e.target.value)}
+                                    className="w-full text-xs p-1.5 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-stone-100 rounded focus:outline-none focus:ring-1 focus:ring-violet-500 border border-stone-200 dark:border-stone-850 resize-none font-medium leading-normal"
+                                    rows={2}
+                                    maxLength={500}
+                                    autoFocus
+                                  />
+                                  <div className="flex justify-end gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingMsgId(null);
+                                        setEditingText('');
+                                      }}
+                                      className="p-1 rounded text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+                                      title="Cancel"
+                                    >
+                                      <X className="w-3.5 h-3.5 shrink-0" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditMessage(msg.id, editingText)}
+                                      className="p-1 rounded bg-violet-600 text-white hover:bg-violet-700 transition-colors"
+                                      title="Save"
+                                    >
+                                      <Check className="w-3.5 h-3.5 shrink-0" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : isDeleted ? (
+                                <div className={`px-3 py-1.5 text-xs bg-stone-100/80 dark:bg-stone-900/40 text-stone-400 dark:text-stone-500 rounded-2xl border border-stone-150/45 dark:border-stone-850/30 italic ${
+                                  isOwnReply ? 'rounded-tl-none' : 'rounded-tr-none'
+                                }`}>
+                                  <p className="break-words font-normal text-left">This message was deleted</p>
+                                </div>
+                              ) : (
+                                <div
+                                  onTouchStart={() => startPress(msg.id)}
+                                  onTouchEnd={endPress}
+                                  onMouseDown={() => startPress(msg.id)}
+                                  onMouseUp={endPress}
+                                  onMouseLeave={endPress}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setActiveReactionMsgId(msg.id);
+                                  }}
+                                  className={`px-3 py-1.5 text-xs shadow-xs leading-snug transition-all cursor-pointer select-none active:scale-98 ${
+                                    isOwnReply
+                                      ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-2xl rounded-tl-none'
+                                      : 'bg-white dark:bg-stone-850 text-stone-850 dark:text-stone-150 rounded-2xl rounded-tr-none border border-stone-100 dark:border-stone-800'
+                                  }`}
+                                  title="Hold or right-click to react"
+                                >
+                                  <p className="break-words font-medium text-left">{renderFormattedMessage(msg.message)}</p>
+                                </div>
+                              )}
+
+                              {/* Emoji Reaction Popover */}
+                              {activeReactionMsgId === msg.id && !isDeleted && !isEditingReply && (
+                                <div
+                                  ref={activeReactionContainerRef}
+                                  className={`absolute z-30 ${
+                                    popoverDirection === 'up' ? '-top-11' : 'top-full mt-1.5'
+                                  } flex items-center gap-1 bg-white dark:bg-stone-850 rounded-full shadow-2xl border border-stone-200 dark:border-stone-750 px-2 py-1.5 animate-scale-up ${
+                                    isOwnReply ? 'left-0' : 'right-0'
+                                  }`}
+                                >
+                                  {['👍', '❤️', '😂', '🙏', '🎉', '😮'].map(emoji => {
+                                    const list = (msg.reactions?.[emoji] || []) as string[];
+                                    const hasMyReaction = list.includes(user.id);
+                                    return (
+                                      <button
+                                        key={emoji}
+                                        type="button"
+                                        onClick={() => handleToggleMessageReaction(msg.id, emoji)}
+                                        className={`h-7 w-7 text-sm rounded-full flex items-center justify-center transition-all hover:scale-125 hover:bg-stone-100 dark:hover:bg-stone-800 active:scale-90 cursor-pointer select-none ${
+                                          hasMyReaction ? 'bg-violet-100 dark:bg-violet-900/40' : ''
+                                        }`}
+                                      >
+                                        {emoji}
+                                      </button>
+                                    );
+                                  })}
+
+                                  {isOwnReply && (
+                                    <>
+                                      <div className="w-px h-4 bg-stone-200 dark:bg-stone-700 mx-1 shrink-0" />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingMsgId(msg.id);
+                                          setEditingText(msg.message);
+                                          setActiveReactionMsgId(null);
+                                        }}
+                                        className="h-7 w-7 rounded-full flex items-center justify-center text-stone-500 hover:text-violet-600 dark:text-stone-400 dark:hover:text-violet-400 hover:bg-stone-100 dark:hover:bg-stone-850 transition-colors cursor-pointer"
+                                        title="Edit Message"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleDeleteMessage(msg.id);
+                                          setActiveReactionMsgId(null);
+                                        }}
+                                        className="h-7 w-7 rounded-full flex items-center justify-center text-stone-500 hover:text-rose-600 dark:text-stone-400 dark:hover:text-rose-400 hover:bg-stone-100 dark:hover:bg-stone-850 transition-colors cursor-pointer"
+                                        title="Delete Message"
+                                      >
+                                        <Trash className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Timing & Read Receipts */}
+                              <div className={`flex items-center gap-1 mt-0.5 px-1 select-none ${isOwnReply ? 'justify-start' : 'justify-end'}`}>
+                                <span className="text-[8px] text-stone-400 dark:text-stone-500 font-mono">
+                                  {formatTimeAgo(msg.created_at)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+                <div ref={threadEndRef} />
+              </div>
+
+              {/* Thread Input Form */}
+              <form
+                onSubmit={handleSendReply}
+                className="p-3 bg-white dark:bg-stone-900 border-t border-stone-150 dark:border-stone-800 flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={newReplyText}
+                  onChange={(e) => setNewReplyText(e.target.value)}
+                  placeholder="Reply to this thread..."
+                  className="flex-1 bg-stone-50 dark:bg-stone-950/55 border border-stone-200 dark:border-stone-800 rounded-full px-4 py-2 text-xs text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-violet-500 placeholder-stone-400"
+                  maxLength={500}
+                  autoComplete="off"
+                />
+                <button
+                  type="submit"
+                  disabled={!newReplyText.trim() || isSendingReply}
+                  className="bg-violet-600 hover:bg-violet-700 active:scale-95 text-white p-2 rounded-full cursor-pointer transition-all flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 shadow-md hover:shadow-indigo-500/20"
+                  title="Send reply"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            </div>
+          )}
         </>
       )}
 
@@ -2784,6 +3803,53 @@ function AppContent() {
 
       {showOnboardingTour && user && (
         <OnboardingTour user={user} onComplete={() => setShowOnboardingTour(false)} />
+      )}
+
+      {/* Custom Alert & Confirmation Dialog Modal */}
+      {customDialog && customDialog.isOpen && (
+        <div className="fixed inset-0 bg-stone-900/60 dark:bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] animate-fade-in">
+          <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-scale-up space-y-4 text-center">
+            <div className="w-14 h-14 bg-pink-50 dark:bg-pink-950/30 text-pink-500 dark:text-pink-400 rounded-2xl flex items-center justify-center mx-auto border border-pink-100/30 dark:border-pink-900/30">
+              <Sparkles className="w-7 h-7 animate-pulse" />
+            </div>
+            
+            <div className="space-y-1.5">
+              <h3 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100 leading-tight">
+                {customDialog.title}
+              </h3>
+              <p className="text-xs sm:text-sm text-stone-550 dark:text-stone-400 leading-relaxed font-medium">
+                {customDialog.message}
+              </p>
+            </div>
+            
+            <div className="flex gap-3 pt-2">
+              {customDialog.type === 'confirm' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customDialog.onCancel) {
+                      customDialog.onCancel();
+                    } else {
+                      setCustomDialog(null);
+                    }
+                  }}
+                  className="flex-1 py-2.5 px-4 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-extrabold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  {customDialog.cancelText || 'Cancel'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  customDialog.onConfirm();
+                }}
+                className="flex-1 py-2.5 px-4 bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 hover:from-pink-600 hover:to-indigo-700 active:scale-98 text-white font-black text-xs rounded-xl shadow-md transition-all cursor-pointer"
+              >
+                {customDialog.confirmText || 'OK'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

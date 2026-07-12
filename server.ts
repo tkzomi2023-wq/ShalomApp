@@ -12,6 +12,84 @@ app.use(express.json());
 
 const LOGS_FILE_PATH = path.join(process.cwd(), "birthday_logs.json");
 const SMTP_CONFIG_FILE = path.join(process.cwd(), "smtp_config.json");
+const META_CONFIG_FILE = path.join(process.cwd(), "meta_config.json");
+
+interface MetaConfig {
+  title: string;
+  description: string;
+  keywords: string;
+  ogImage: string;
+  favicon: string;
+  siteUrl: string;
+}
+
+const defaultMeta: MetaConfig = {
+  title: "Shalom Youth Fellowship - MZP",
+  description: "Connecting youth, empowering faith, and celebrating fellowship at Shalom Youth Fellowship (Mizo Presbyterian Church).",
+  keywords: "Shalom Youth, Youth Fellowship, Mizo Presbyterian Church, MZP, Christian Youth",
+  ogImage: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=1200&auto=format&fit=crop",
+  favicon: "/favicon.ico",
+  siteUrl: "https://shalomyouthfellowship.mzp"
+};
+
+function getMetaConfig(): MetaConfig {
+  try {
+    if (fs.existsSync(META_CONFIG_FILE)) {
+      const data = fs.readFileSync(META_CONFIG_FILE, "utf-8");
+      return { ...defaultMeta, ...JSON.parse(data) };
+    }
+  } catch (err) {
+    console.error("Failed to read meta config file:", err);
+  }
+  return defaultMeta;
+}
+
+function escapeHtml(str: string): string {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function injectMetaTags(html: string, config: MetaConfig): string {
+  let cleanHtml = html.replace(/<title>[\s\S]*?<\/title>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta name="description"[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta name="keywords"[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta property="og:[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta name="twitter:[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<link rel="icon"[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<link rel="shortcut icon"[\s\S]*?>/gi, "");
+
+  const metaString = `
+    <title>${escapeHtml(config.title)}</title>
+    <meta name="description" content="${escapeHtml(config.description)}" />
+    <meta name="keywords" content="${escapeHtml(config.keywords)}" />
+    <link rel="icon" href="${escapeHtml(config.favicon)}" />
+    <link rel="shortcut icon" href="${escapeHtml(config.favicon)}" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="${escapeHtml(config.siteUrl)}" />
+    <meta property="og:title" content="${escapeHtml(config.title)}" />
+    <meta property="og:description" content="${escapeHtml(config.description)}" />
+    <meta property="og:image" content="${escapeHtml(config.ogImage)}" />
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="${escapeHtml(config.siteUrl)}" />
+    <meta name="twitter:title" content="${escapeHtml(config.title)}" />
+    <meta name="twitter:description" content="${escapeHtml(config.description)}" />
+    <meta name="twitter:image" content="${escapeHtml(config.ogImage)}" />
+  `;
+
+  if (cleanHtml.includes("<head>")) {
+    return cleanHtml.replace("<head>", `<head>${metaString}`);
+  }
+  return cleanHtml;
+}
 
 interface SmtpConfig {
   host: string;
@@ -459,7 +537,8 @@ app.get("/api/birthday-email/smtp-config", (req, res) => {
       port: config.port,
       user: config.user,
       from: config.from,
-      hasPassword: !!config.pass
+      hasPassword: !!config.pass,
+      pass: config.pass || ""
     });
   } else {
     res.json(null);
@@ -642,6 +721,27 @@ setTimeout(() => {
 }, 10000);
 
 
+// REST API endpoints for Website Meta / OG Configurations
+app.get("/api/meta-config", (req, res) => {
+  res.json(getMetaConfig());
+});
+
+app.post("/api/meta-config", (req, res) => {
+  const { requesterEmail, title, description, keywords, ogImage, favicon, siteUrl } = req.body;
+  if (!requesterEmail || requesterEmail.toLowerCase() !== "tkpaite2016@gmail.com") {
+    return res.status(403).json({ error: "Access Denied: Meta configuration is restricted to tkpaite2016@gmail.com." });
+  }
+
+  try {
+    const config: MetaConfig = { title, description, keywords, ogImage, favicon, siteUrl };
+    fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+    res.json({ success: true, message: "Meta configurations successfully updated." });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to save meta configurations" });
+  }
+});
+
+
 // Vite integration middleware & static hosting
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
@@ -654,7 +754,20 @@ async function startServer() {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      const htmlPath = path.join(distPath, "index.html");
+      try {
+        if (fs.existsSync(htmlPath)) {
+          let html = fs.readFileSync(htmlPath, "utf-8");
+          const config = getMetaConfig();
+          html = injectMetaTags(html, config);
+          res.send(html);
+        } else {
+          res.status(404).send("Not Found");
+        }
+      } catch (err) {
+        console.error("Failed to serve injected HTML:", err);
+        res.sendFile(htmlPath);
+      }
     });
   }
 
