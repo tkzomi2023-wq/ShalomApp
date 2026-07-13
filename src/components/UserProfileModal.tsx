@@ -141,7 +141,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   if (!isOpen) return null;
 
   const isSelf = currentUser?.id === member.id || (currentUser?.email && currentUser.email.toLowerCase() === member.email.toLowerCase());
-  const canEdit = isSelf || isCurrentUserAdmin;
+  const canEdit = isSelf || (isCurrentUserAdmin && (member.role === 'standard' || canChangeRole));
 
   const currentYear = 2026; // Match mock and app default data year
   const currentMonthIndex = new Date().getMonth();
@@ -787,7 +787,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   <select
                     value={status}
                     onChange={e => setStatus(e.target.value as any)}
-                    className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white"
+                    disabled={member.role !== 'standard' && !canChangeRole}
+                    className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white disabled:bg-stone-100 dark:disabled:bg-stone-800 disabled:text-stone-400 disabled:cursor-not-allowed"
                   >
                     <option value="pending">pending (review)</option>
                     <option value="approved">approved</option>

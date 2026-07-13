@@ -1260,6 +1260,11 @@ function AppContent() {
         return;
       }
 
+      if (memberToUpdate.role !== 'standard' && user.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+        alert('Permission Denied: Office Bearers can only verify or update Standard (Member) records. Access to other leadership or administrative roles is restricted to the administrator.');
+        return;
+      }
+
       const act = await db.updateMemberRoleAndStatus(id, role, status);
       if (act) {
         // Track log
@@ -1411,6 +1416,23 @@ function AppContent() {
 
     try {
       const original = members.find(m => m.id === finalUpdated.id) || members.find(m => m.email.toLowerCase() === finalUpdated.email.toLowerCase());
+      
+      if (original) {
+        if (original.role !== finalUpdated.role && user.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+          alert('You do not have permission to change user roles. This function is restricted to the administrator.');
+          return;
+        }
+        if (original.role !== 'standard' && !isSelf && user.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+          alert('Permission Denied: Office Bearers can only edit or verify Standard (Member) profiles. Modifying details of other leadership or administrative roles is restricted to the main administrator.');
+          return;
+        }
+      }
+
+      if (finalUpdated.role !== 'standard' && !isSelf && user.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+        alert('Permission Denied: You cannot set a user role other than Standard (Member). Only the main administrator can assign other roles.');
+        return;
+      }
+
       let details = `Updated details for "${finalUpdated.name}".`;
       let changes: string[] = [];
       if (original) {
@@ -1480,6 +1502,11 @@ function AppContent() {
     }
     if (!newMemberName.trim()) {
       setAdminFormError('Full Name is required.');
+      return;
+    }
+
+    if (newMemberRole !== 'standard' && user?.email?.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+      setAdminFormError('Permission Denied: Only the main administrator (tkpaite2016@gmail.com) can manually provision members with a role other than Standard (Member).');
       return;
     }
 
@@ -2512,7 +2539,8 @@ function AppContent() {
                     <select
                       value={newMemberRole}
                       onChange={e => setNewMemberRole(e.target.value as UserRole)}
-                      className="w-full px-3 py-2 border rounded-lg bg-white"
+                      disabled={user?.email?.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()}
+                      className="w-full px-3 py-2 border rounded-lg bg-white disabled:bg-stone-50 disabled:text-stone-400 disabled:cursor-not-allowed"
                     >
                       {ALL_ROLES.map(r => (
                         <option key={r} value={r}>
