@@ -19,6 +19,7 @@ import { FinancialRecordsPage } from './components/FinancialRecordsPage';
 import { SchedulePage } from './components/SchedulePage';
 import BirthdayEmailSettingsPage from './components/BirthdayEmailSettingsPage';
 import { WebsiteMetaSettingsPage } from './components/WebsiteMetaSettingsPage';
+import { DatabaseHealthCheck } from './components/DatabaseHealthCheck';
 import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -180,6 +181,18 @@ function AppContent() {
     return localStorage.getItem('sy_theme') === 'dark' ? 'dark' : 'light';
   });
 
+  const [lastSyncedUserId, setLastSyncedUserId] = useState<string | null>(null);
+
+  // Sync theme from database profile when user loads/changes
+  useEffect(() => {
+    if (user && user.theme && user.id !== lastSyncedUserId) {
+      setTheme(user.theme);
+      setLastSyncedUserId(user.id);
+    } else if (!user) {
+      setLastSyncedUserId(null);
+    }
+  }, [user, lastSyncedUserId]);
+
   useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -189,12 +202,63 @@ function AppContent() {
     localStorage.setItem('sy_theme', theme);
   }, [theme]);
 
+  const handleThemeToggle = async () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    
+    if (user) {
+      try {
+        // Optimistically update local user object so it doesn't trigger the database sync effect again
+        user.theme = nextTheme;
+        
+        // Save to Supabase using db.createOrUpdateMember
+        await db.createOrUpdateMember({
+          ...user,
+          theme: nextTheme
+        });
+        
+        // Refresh local user profile
+        refreshProfile();
+      } catch (err) {
+        console.error('Failed to sync theme preference to database:', err);
+      }
+    }
+  };
+
   useEffect(() => {
     // Dynamic website meta & SEO configurations loader
     const loadWebsiteMeta = async () => {
       let data: any = null;
       try {
-        const response = await apiFetch('/api/meta-config');
+        let response = await apiFetch('/api/meta-config');
+        
+        // Explicitly verify response headers and status
+        if (!response.ok) {
+          const wwwAuthenticate = response.headers.get('www-authenticate');
+          console.warn(`Metadata service response not ok: Status ${response.status}. WWW-Authenticate header: ${wwwAuthenticate || 'none'}`);
+          
+          if (response.status === 401) {
+            console.log('401 Unauthorized detected. Triggering silent re-authentication attempt for the metadata service...');
+            
+            // Silent re-authentication attempt
+            try {
+              // Retrieve or refresh session silently using Supabase
+              const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+              if (sessionError) throw sessionError;
+              
+              if (session) {
+                console.log('Silent re-authentication successful. Retrying metadata service request...');
+                // Retry the request after successful re-authentication
+                response = await apiFetch('/api/meta-config');
+              } else {
+                console.warn('No active session found during silent re-authentication.');
+              }
+            } catch (authErr) {
+              console.error('Silent re-authentication attempt failed:', authErr);
+            }
+          }
+        }
+
         if (response.ok) {
           const contentType = response.headers.get('content-type');
           if (contentType && contentType.includes('text/html')) {
@@ -204,6 +268,8 @@ function AppContent() {
           if (data) {
             localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
           }
+        } else {
+          throw new Error(`Failed to fetch metadata service. Status: ${response.status}`);
         }
       } catch (err) {
         console.warn('Failed to dynamically fetch website metadata via API, falling back to local cache:', err);
@@ -1189,6 +1255,11 @@ function AppContent() {
       const memberToUpdate = members.find(m => m.id === id);
       if (!memberToUpdate) return;
 
+      if (role !== memberToUpdate.role && user.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+        alert('You do not have permission to assign or change user roles. This function is restricted to the administrator.');
+        return;
+      }
+
       const act = await db.updateMemberRoleAndStatus(id, role, status);
       if (act) {
         // Track log
@@ -1495,7 +1566,7 @@ function AppContent() {
         <div className="absolute top-4 right-4 z-50">
           <button
             type="button"
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            onClick={handleThemeToggle}
             className="p-2.5 bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-750 text-stone-700 dark:text-stone-200 rounded-full border border-stone-200 dark:border-stone-700 shadow-md cursor-pointer transition-all active:scale-95 flex items-center justify-center hover:shadow-lg"
             title={theme === 'dark' ? 'Switch to Light Mode ☀️' : 'Switch to Dark Mode 🌙'}
           >
@@ -1584,8 +1655,9 @@ function AppContent() {
         </div>
 
         {/* Universal Footer */}
-        <footer className="py-6 border-t border-stone-200 dark:border-stone-850 bg-white dark:bg-stone-900 text-center text-xs text-stone-400 dark:text-stone-500">
+        <footer className="py-6 border-t border-stone-200 dark:border-stone-850 bg-white dark:bg-stone-900 flex flex-col sm:flex-row items-center justify-between px-6 gap-4 text-xs text-stone-400 dark:text-stone-500">
           <p>© {new Date().getFullYear()} Shalom Youth Community Organization. Designed by TK Paite.</p>
+          <DatabaseHealthCheck />
         </footer>
 
         <SQLSetupModal isOpen={isSQLModalOpen} onClose={() => setIsSQLModalOpen(false)} />
@@ -1633,7 +1705,7 @@ function AppContent() {
             />
 
             <button
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              onClick={handleThemeToggle}
               className="p-2 bg-emerald-950/40 hover:bg-emerald-800/80 rounded-xl text-emerald-250 hover:text-white transition-all cursor-pointer shrink-0 border border-emerald-800/60 flex items-center justify-center"
               title={theme === 'dark' ? 'Switch to Light Mode ☀️' : 'Switch to Dark Mode 🌙'}
             >
@@ -2541,8 +2613,9 @@ function AppContent() {
       </main>
 
       {/* Footer */}
-      <footer className="py-6 bg-white border-t border-stone-200 text-center text-xs text-stone-400 mt-8">
+      <footer className="py-6 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row items-center justify-between px-6 gap-4 text-xs text-stone-400 dark:text-stone-500 mt-8">
         <p>© {new Date().getFullYear()} Shalom Youth Center. All system rights reserved.</p>
+        <DatabaseHealthCheck />
       </footer>
 
       {/* SQL script Copy tool */}

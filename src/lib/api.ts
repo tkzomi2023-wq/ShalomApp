@@ -6,7 +6,19 @@
 
 export const getApiUrl = (path: string): string => {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-  if (!baseUrl) {
+  
+  // If we are running in a full-stack environment (like Cloud Run or localhost),
+  // we have our robust, stateful, persistent Express backend running right beside the client on port 3000.
+  // In this case, we MUST route all API requests directly to the local Express backend (relative 'path'),
+  // completely bypassing any external Supabase Edge Function base URLs (which are only meant as stateless fallbacks for Netlify).
+  const isFullStackEnv = typeof window !== 'undefined' && (
+    window.location.hostname.includes('run.app') ||
+    window.location.hostname.includes('localhost') ||
+    window.location.hostname.includes('127.0.0.1') ||
+    window.location.hostname.includes('0.0.0.0')
+  );
+
+  if (!baseUrl || isFullStackEnv) {
     return path;
   }
   const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;

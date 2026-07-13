@@ -12,7 +12,7 @@ interface BirthdayLog {
   recipients: string[];
   subject: string;
   body: string;
-  status: 'sent' | 'simulated' | 'failed';
+  status: 'sent' | 'simulated' | 'failed' | 'checked_no_birthdays';
   errorMessage?: string;
 }
 
@@ -471,119 +471,130 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
     return () => clearTimeout(timer);
   }, [selectedLogForPreview]);
 
+  // Helper to compute local client-side check
+  const runClientSideSimulation = () => {
+    const utcDate = new Date();
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(utcDate.getTime() + istOffsetMs);
+    const ist = {
+      year: istDate.getUTCFullYear(),
+      month: istDate.getUTCMonth() + 1,
+      date: istDate.getUTCDate()
+    };
+    const todayString = `${ist.year}-${String(ist.month).padStart(2, '0')}-${String(ist.date).padStart(2, '0')}`;
+
+    const isBirthdayTodayClient = (dobString?: string): boolean => {
+      if (!dobString) return false;
+      const parts = dobString.split('-');
+      if (parts.length === 3) {
+        const dobMonth = parseInt(parts[1], 10);
+        const dobDay = parseInt(parts[2], 10);
+        return ist.month === dobMonth && ist.date === dobDay;
+      }
+      const dobDate = new Date(dobString);
+      if (isNaN(dobDate.getTime())) return false;
+      return (dobDate.getMonth() + 1) === ist.month && dobDate.getDate() === ist.date;
+    };
+
+    const approvedMembers = members.filter(m => m.status === 'approved');
+    const celebrants = approvedMembers.filter(m => m.dob && isBirthdayTodayClient(m.dob));
+    
+    const localLogsStr = localStorage.getItem('sy_local_birthday_logs');
+    const localLogs: BirthdayLog[] = localLogsStr ? JSON.parse(localLogsStr) : [];
+
+    if (localStorage.getItem('sy_local_last_run_date') === todayString && !forceRerun) {
+      setApiFeedback({
+        type: 'success',
+        message: `[Simulated Run] Already checked today (${todayString}). Found ${celebrants.length} celebrants. (Enable "Force Rerun Check" to simulate again)`
+      });
+      return;
+    }
+
+    const activeRecipients = approvedMembers.filter(m => m.email && m.email_notifications !== false);
+
+    let statusText = '';
+
+    if (celebrants.length === 0) {
+      statusText = `Simulated check completed: Checked today (${todayString}). No members have a birthday today.`;
+      const newLog: BirthdayLog = {
+        id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: new Date().toISOString(),
+        celebrants: [],
+        recipientCount: 0,
+        recipients: [],
+        subject: "No Birthdays Today",
+        body: "<div style='padding: 20px; font-family: sans-serif; text-align: center; color: #6b7280; font-weight: bold;'>Today's simulated system scan found no active member birthdays in the database.</div>",
+        status: 'checked_no_birthdays'
+      };
+      localLogs.unshift(newLog);
+    } else {
+      statusText = `🎉 Simulated check completed: Found ${celebrants.length} celebrant(s) and prepared individual beautiful birthday cards!`;
+      
+      for (const c of celebrants) {
+        const celebrantHtml = `
+          <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center; font-family: sans-serif;">
+            ${c.avatar ? `
+              <img src="${c.avatar}" alt="${c.name}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 12px; border: 3px solid #a855f7;" />
+            ` : `
+              <div style="width: 80px; height: 80px; border-radius: 50%; background-color: #a855f7; color: white; line-height: 80px; font-size: 32px; font-weight: bold; margin: 0 auto 12px auto; text-align: center;">
+                ${c.name.charAt(0).toUpperCase()}
+              </div>
+            `}
+            <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px; font-weight: bold;">${c.name}</h3>
+            <p style="margin: 0; color: #701a75; font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${c.role || 'Member'}</p>
+          </div>
+        `;
+
+        const subject = `🎉 Happy Birthday, ${c.name}! 🎂 - Shalom Youth Fellowship`;
+        const htmlContent = `
+          <div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
+            <h1 style="color: #8b5cf6; margin-top: 0;">Birthday Celebration! 🎉</h1>
+            <p style="color: #4b5563;">Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member:</p>
+            ${celebrantHtml}
+            <div style="background-color: #f9fafb; border-left: 4px solid #8b5cf6; padding: 16px; margin: 24px 0; font-style: italic; color: #4b5563;">
+              "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace." 
+              <div style="text-align: right; font-weight: bold; font-size: 12px; margin-top: 8px; color: #6b7280; font-style: normal;">— Numbers 6:24-26</div>
+            </div>
+          </div>
+        `;
+
+        const newLog: BirthdayLog = {
+          id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: new Date().toISOString(),
+          celebrants: [c.name],
+          recipientCount: activeRecipients.length,
+          recipients: activeRecipients.map(r => r.email || ''),
+          subject,
+          body: htmlContent,
+          status: 'simulated'
+        };
+
+        localLogs.unshift(newLog);
+      }
+    }
+
+    localStorage.setItem('sy_local_birthday_logs', JSON.stringify(localLogs.slice(0, 50)));
+    localStorage.setItem('sy_local_last_run_date', todayString);
+
+    setApiFeedback({
+      type: 'success',
+      message: statusText
+    });
+
+    // Trigger local status refresh
+    setStatusData(prev => ({
+      lastRunDate: todayString,
+      logs: localLogs.slice(0, 50),
+      smtpConfigured: prev ? prev.smtpConfigured : false
+    }));
+
+    fetchAllWishes();
+  };
+
   const handleTriggerCheck = async () => {
     try {
       setTriggering(true);
       setApiFeedback(null);
-
-      // Helper to compute local client-side check
-      const runClientSideSimulation = () => {
-        const utcDate = new Date();
-        const istOffsetMs = 5.5 * 60 * 60 * 1000;
-        const istDate = new Date(utcDate.getTime() + istOffsetMs);
-        const ist = {
-          year: istDate.getUTCFullYear(),
-          month: istDate.getUTCMonth() + 1,
-          date: istDate.getUTCDate()
-        };
-        const todayString = `${ist.year}-${String(ist.month).padStart(2, '0')}-${String(ist.date).padStart(2, '0')}`;
-
-        const isBirthdayTodayClient = (dobString?: string): boolean => {
-          if (!dobString) return false;
-          const parts = dobString.split('-');
-          if (parts.length === 3) {
-            const dobMonth = parseInt(parts[1], 10);
-            const dobDay = parseInt(parts[2], 10);
-            return ist.month === dobMonth && ist.date === dobDay;
-          }
-          const dobDate = new Date(dobString);
-          if (isNaN(dobDate.getTime())) return false;
-          return (dobDate.getMonth() + 1) === ist.month && dobDate.getDate() === ist.date;
-        };
-
-        const approvedMembers = members.filter(m => m.status === 'approved');
-        const celebrants = approvedMembers.filter(m => m.dob && isBirthdayTodayClient(m.dob));
-        
-        const localLogsStr = localStorage.getItem('sy_local_birthday_logs');
-        const localLogs: BirthdayLog[] = localLogsStr ? JSON.parse(localLogsStr) : [];
-
-        if (localStorage.getItem('sy_local_last_run_date') === todayString && !forceRerun) {
-          setApiFeedback({
-            type: 'success',
-            message: `[Simulated Run] Already checked today (${todayString}). Found ${celebrants.length} celebrants. (Enable "Force Rerun Check" to simulate again)`
-          });
-          return;
-        }
-
-        const activeRecipients = approvedMembers.filter(m => m.email && m.email_notifications !== false);
-
-        let statusText = '';
-
-        if (celebrants.length === 0) {
-          statusText = `Simulated check completed: Checked today (${todayString}). No members have a birthday today.`;
-        } else {
-          statusText = `🎉 Simulated check completed: Found ${celebrants.length} celebrant(s) and prepared individual beautiful birthday cards!`;
-          
-          for (const c of celebrants) {
-            const celebrantHtml = `
-              <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center; font-family: sans-serif;">
-                ${c.avatar ? `
-                  <img src="${c.avatar}" alt="${c.name}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 12px; border: 3px solid #a855f7;" />
-                ` : `
-                  <div style="width: 80px; height: 80px; border-radius: 50%; background-color: #a855f7; color: white; line-height: 80px; font-size: 32px; font-weight: bold; margin: 0 auto 12px auto; text-align: center;">
-                    ${c.name.charAt(0).toUpperCase()}
-                  </div>
-                `}
-                <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px; font-weight: bold;">${c.name}</h3>
-                <p style="margin: 0; color: #701a75; font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${c.role || 'Member'}</p>
-              </div>
-            `;
-
-            const subject = `🎉 Happy Birthday, ${c.name}! 🎂 - Shalom Youth Fellowship`;
-            const htmlContent = `
-              <div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
-                <h1 style="color: #8b5cf6; margin-top: 0;">Birthday Celebration! 🎉</h1>
-                <p style="color: #4b5563;">Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member:</p>
-                ${celebrantHtml}
-                <div style="background-color: #f9fafb; border-left: 4px solid #8b5cf6; padding: 16px; margin: 24px 0; font-style: italic; color: #4b5563;">
-                  "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace." 
-                  <div style="text-align: right; font-weight: bold; font-size: 12px; margin-top: 8px; color: #6b7280; font-style: normal;">— Numbers 6:24-26</div>
-                </div>
-              </div>
-            `;
-
-            const newLog: BirthdayLog = {
-              id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              timestamp: new Date().toISOString(),
-              celebrants: [c.name],
-              recipientCount: activeRecipients.length,
-              recipients: activeRecipients.map(r => r.email || ''),
-              subject,
-              body: htmlContent,
-              status: 'simulated'
-            };
-
-            localLogs.unshift(newLog);
-          }
-        }
-
-        localStorage.setItem('sy_local_birthday_logs', JSON.stringify(localLogs.slice(0, 50)));
-        localStorage.setItem('sy_local_last_run_date', todayString);
-
-        setApiFeedback({
-          type: 'success',
-          message: statusText
-        });
-
-        // Trigger local status refresh
-        setStatusData(prev => ({
-          lastRunDate: todayString,
-          logs: localLogs.slice(0, 50),
-          smtpConfigured: prev ? prev.smtpConfigured : false
-        }));
-
-        fetchAllWishes();
-      };
 
       if (isFallbackMode) {
         runClientSideSimulation();
@@ -603,7 +614,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       const result = await safeJsonParse(res);
       setApiFeedback({
         type: 'success',
-        message: result.status || 'Birthday task ran successfully!'
+        message: result.status || result.message || 'Birthday task ran successfully!'
       });
       fetchStatus();
       fetchAllWishes();
@@ -611,92 +622,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       console.warn('API trigger failed, executing client-side simulation fallback:', err);
       setIsFallbackMode(true);
       try {
-        // Run client-side simulation on failure
-        const utcDate = new Date();
-        const istOffsetMs = 5.5 * 60 * 60 * 1000;
-        const istDate = new Date(utcDate.getTime() + istOffsetMs);
-        const ist = {
-          year: istDate.getUTCFullYear(),
-          month: istDate.getUTCMonth() + 1,
-          date: istDate.getUTCDate()
-        };
-        const todayString = `${ist.year}-${String(ist.month).padStart(2, '0')}-${String(ist.date).padStart(2, '0')}`;
-
-        const isBirthdayTodayClient = (dobString?: string): boolean => {
-          if (!dobString) return false;
-          const parts = dobString.split('-');
-          if (parts.length === 3) {
-            const dobMonth = parseInt(parts[1], 10);
-            const dobDay = parseInt(parts[2], 10);
-            return ist.month === dobMonth && ist.date === dobDay;
-          }
-          const dobDate = new Date(dobString);
-          if (isNaN(dobDate.getTime())) return false;
-          return (dobDate.getMonth() + 1) === ist.month && dobDate.getDate() === ist.date;
-        };
-
-        const approvedMembers = members.filter(m => m.status === 'approved');
-        const celebrants = approvedMembers.filter(m => m.dob && isBirthdayTodayClient(m.dob));
-        
-        const localLogsStr = localStorage.getItem('sy_local_birthday_logs');
-        const localLogs: BirthdayLog[] = localLogsStr ? JSON.parse(localLogsStr) : [];
-        const celebrantsNames = celebrants.map(c => c.name);
-        const activeRecipients = approvedMembers.filter(m => m.email && m.email_notifications !== false);
-
-        const celebrantsHtml = celebrants.map(c => `
-          <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center; font-family: sans-serif;">
-            ${c.avatar ? `
-              <img src="${c.avatar}" alt="${c.name}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 12px; border: 3px solid #a855f7;" />
-            ` : `
-              <div style="width: 80px; height: 80px; border-radius: 50%; background-color: #a855f7; color: white; line-height: 80px; font-size: 32px; font-weight: bold; margin: 0 auto 12px auto; text-align: center;">
-                ${c.name.charAt(0).toUpperCase()}
-              </div>
-            `}
-            <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px;">${c.name}</h3>
-            <p style="margin: 0; color: #701a75; font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${c.role || 'Member'}</p>
-          </div>
-        `).join("");
-
-        const subject = `🎉 Shalom Youth Birthday Celebration Today: ${celebrantsNames.join(", ")}! 🎂`;
-        const htmlContent = `
-          <div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
-            <h1 style="color: #8b5cf6; margin-top: 0;">Birthday Celebration! 🎉</h1>
-            <p style="color: #4b5563;">Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member(s):</p>
-            ${celebrantsHtml}
-            <div style="background-color: #f9fafb; border-left: 4px solid #8b5cf6; padding: 16px; margin: 24px 0; font-style: italic; color: #4b5563;">
-              "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace." 
-              <div style="text-align: right; font-weight: bold; font-size: 12px; margin-top: 8px; color: #6b7280; font-style: normal;">— Numbers 6:24-26</div>
-            </div>
-          </div>
-        `;
-
-        const newLog: BirthdayLog = {
-          id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: new Date().toISOString(),
-          celebrants: celebrantsNames,
-          recipientCount: activeRecipients.length,
-          recipients: activeRecipients.map(r => r.email),
-          subject,
-          body: htmlContent,
-          status: 'simulated'
-        };
-
-        localLogs.unshift(newLog);
-        localStorage.setItem('sy_local_birthday_logs', JSON.stringify(localLogs.slice(0, 50)));
-        localStorage.setItem('sy_local_last_run_date', todayString);
-
-        setApiFeedback({
-          type: 'success',
-          message: celebrants.length === 0 
-            ? `[Simulated Fallback] Checked successfully. No member birthdays found today.`
-            : `[Simulated Fallback] Found ${celebrants.length} celebrants! Created simulated birthday card log.`
-        });
-
-        setStatusData({
-          lastRunDate: todayString,
-          logs: localLogs.slice(0, 50),
-          smtpConfigured: !!localStorage.getItem('sy_local_smtp_config')
-        });
+        runClientSideSimulation();
       } catch (err2) {
         console.error('Simulated fallback run failed:', err2);
         setApiFeedback({
@@ -1237,6 +1163,11 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                           Simulated
                         </span>
                       )}
+                      {log.status === 'checked_no_birthdays' && (
+                        <span className="bg-amber-100 text-amber-800 text-[9px] font-black p-0.5 px-2 rounded-full border border-amber-200">
+                          System Scan
+                        </span>
+                      )}
                       {log.status === 'failed' && (
                         <span className="bg-rose-100 text-rose-800 text-[9px] font-black p-0.5 px-2 rounded-full border border-rose-200">
                           Failed
@@ -1245,12 +1176,16 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                     </div>
                     
                     <div className="font-extrabold text-xs text-stone-800">
-                      Celebrants: <span className="text-purple-600 text-sm">{log.celebrants.join(', ')}</span> 🎂
+                      {log.status === 'checked_no_birthdays' ? (
+                        <span className="text-stone-500 font-bold">Database Checked: No birthdays found today</span>
+                      ) : (
+                        <>Celebrants: <span className="text-purple-600 text-sm">{log.celebrants.join(', ')}</span> 🎂</>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
                       <Users className="w-3.5 h-3.5 text-stone-400" />
-                      <span>Emailed to {log.recipientCount} approved members</span>
+                      <span>{log.status === 'checked_no_birthdays' ? 'Verified active members profiles' : `Emailed to ${log.recipientCount} approved members`}</span>
                     </div>
 
                     {log.errorMessage && (

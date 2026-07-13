@@ -130,7 +130,7 @@ interface BirthdayLog {
   recipients: string[];
   subject: string;
   body: string;
-  status: "sent" | "simulated" | "failed";
+  status: "sent" | "simulated" | "failed" | "checked_no_birthdays";
   errorMessage?: string;
 }
 
@@ -321,6 +321,20 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
     store.lastRunDate = todayString;
 
     if (celebrants.length === 0) {
+      const logEntry: BirthdayLog = {
+        id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+        timestamp: new Date().toISOString(),
+        celebrants: [],
+        recipientCount: 0,
+        recipients: [],
+        subject: "No Birthdays Today",
+        body: "<div style='padding: 20px; font-family: sans-serif; text-align: center; color: #6b7280; font-weight: bold;'>Today's automated system scan found no active member birthdays in the database.</div>",
+        status: "checked_no_birthdays"
+      };
+      store.logs.unshift(logEntry);
+      if (store.logs.length > 50) {
+        store.logs = store.logs.slice(0, 50);
+      }
       saveLogsStore(store);
       return {
         checked: true,

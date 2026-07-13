@@ -49,6 +49,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   onlineUserIds = []
 }) => {
   const { user: currentUser } = useAuth();
+  const canChangeRole = currentUser?.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'pending' | 'approved' | 'rejected'>('All');
   const [roleGroupFilter, setRoleGroupFilter] = useState<'All' | 'standard' | 'ECM' | 'OB'>('All');
@@ -706,7 +707,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
                       {/* Role selection Dropdown for Admin */}
                       <td className="py-3.5 px-4">
-                        {isCurrentUserAdmin && !isDefaultAdmin ? (
+                        {canChangeRole && !isDefaultAdmin ? (
                           <select
                             value={member.role}
                             onChange={(e) => {

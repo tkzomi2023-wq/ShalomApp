@@ -30,6 +30,7 @@ export interface Member {
   avatar?: string;
   email_notifications?: boolean;
   bial?: string;
+  theme?: 'light' | 'dark';
 }
 
 export interface ActivityLog {

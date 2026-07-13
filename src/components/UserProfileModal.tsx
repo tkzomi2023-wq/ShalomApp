@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar } from '../types';
+import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar, DEFAULT_ADMIN_EMAIL } from '../types';
 import { useAuth } from '../lib/auth';
 import { supabase, db } from '../lib/supabase';
 import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock } from 'lucide-react';
@@ -31,6 +31,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   initialEditMode = false
 }) => {
   const { user: currentUser } = useAuth();
+  const canChangeRole = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [isAvatarUploading, setIsAvatarUploading] = useState(false);
   const [avatarUploadError, setAvatarUploadError] = useState<string | null>(null);
@@ -243,7 +244,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         blood_group: bloodGroup,
         dob,
         address,
-        role: isCurrentUserAdmin ? role : member.role,
+        role: canChangeRole ? role : member.role,
         status: isCurrentUserAdmin ? status : member.status,
         avatar,
         email_notifications: emailNotifications,
@@ -760,17 +761,23 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">
                     Set User Role
                   </label>
-                  <select
-                    value={role}
-                    onChange={e => setRole(e.target.value as UserRole)}
-                    className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white"
-                  >
-                    {ALL_ROLES.map(r => (
-                      <option key={r} value={r}>
-                        {r === 'standard' ? 'standard (Member)' : r}
-                      </option>
-                    ))}
-                  </select>
+                  {canChangeRole ? (
+                    <select
+                      value={role}
+                      onChange={e => setRole(e.target.value as UserRole)}
+                      className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white"
+                    >
+                      {ALL_ROLES.map(r => (
+                        <option key={r} value={r}>
+                          {r === 'standard' ? 'standard (Member)' : r}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="py-1 flex items-center">
+                      <RoleBadge role={member.role} />
+                    </div>
+                  )}
                 </div>
 
                 <div>
