@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Member, UserRole, ALL_ROLES, OB_ROLES, isOBUser, DEFAULT_ADMIN_EMAIL, formatMemberName } from '../types';
+import { Member, UserRole, ALL_ROLES, OB_ROLES, isOBUser, DEFAULT_ADMIN_EMAIL, formatMemberName, getDefaultAvatar } from '../types';
 import { RoleBadge } from './RoleBadge';
 import { 
   Search, 
@@ -653,10 +653,10 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                         <div className="flex items-center gap-3">
                           <div 
                             onClick={() => onOpenProfile(member)}
-                            className={`w-10 h-10 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${member.avatar ? '' : 'p-2.5'} font-bold flex items-center justify-center text-sm cursor-pointer select-none`}
+                            className={`w-10 h-10 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${member.avatar || getDefaultAvatar(member.gender) ? '' : 'p-2.5'} font-bold flex items-center justify-center text-sm cursor-pointer select-none`}
                           >
-                            {member.avatar ? (
-                              <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            {member.avatar || getDefaultAvatar(member.gender) ? (
+                              <img src={member.avatar || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             ) : (
                               member.name.charAt(0).toUpperCase()
                             )}
@@ -847,8 +847,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                     </div>
                   )}
                   <div className="w-12 h-12 shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 font-extrabold flex items-center justify-center text-lg shadow-inner select-none">
-                    {member.avatar ? (
-                      <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    {member.avatar || getDefaultAvatar(member.gender) ? (
+                      <img src={member.avatar || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       member.name.charAt(0).toUpperCase()
                     )}

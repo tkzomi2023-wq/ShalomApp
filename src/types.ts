@@ -29,6 +29,7 @@ export interface Member {
   address?: string;
   avatar?: string;
   email_notifications?: boolean;
+  bial?: string;
 }
 
 export interface ActivityLog {
@@ -111,4 +112,17 @@ export function formatMemberName(name: string, gender?: 'Male' | 'Female' | stri
   }
   return cleanName;
 }
+
+export function getDefaultAvatar(gender?: 'Male' | 'Female' | string): string {
+  if (!gender) return '';
+  const lower = gender.toLowerCase();
+  if (lower === 'male' || lower === 'tg' || lower === 'tg.') {
+    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23E0F2FE"/><circle cx="50" cy="40" r="18" fill="%230284C7"/><path d="M22 80C22 65 34 56 50 56s28 9 28 24v4H22v-4z" fill="%230284C7"/><path d="M45 52h10v6H45z" fill="%230284C7" opacity="0.8"/></svg>`;
+  }
+  if (lower === 'female' || lower === 'lia') {
+    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23FCE7F3"/><path d="M30 40c0-15 10-22 20-22s20 7 20 22c0 8-2 15-5 18H35c-3-3-5-10-5-18z" fill="%23DB2777"/><circle cx="50" cy="43" r="16" fill="%23F472B6"/><path d="M25 82C25 68 36 59 50 59s25 9 25 23v3H25v-3z" fill="%23DB2777"/></svg>`;
+  }
+  return '';
+}
+
 

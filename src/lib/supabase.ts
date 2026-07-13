@@ -52,8 +52,12 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   address TEXT,
   avatar TEXT,
   email_notifications BOOLEAN DEFAULT true,
+  bial TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
+-- Safe upgrade for existing databases
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -537,6 +541,7 @@ class HybridDatabaseManager {
       address: member.address,
       avatar: member.avatar,
       email_notifications: member.email_notifications !== undefined ? member.email_notifications : true,
+      bial: member.bial,
       created_at: member.created_at || new Date().toISOString()
     };
 
@@ -593,7 +598,8 @@ class HybridDatabaseManager {
           dob: newMember.dob,
           address: newMember.address,
           avatar: newMember.avatar,
-          email_notifications: newMember.email_notifications
+          email_notifications: newMember.email_notifications,
+          bial: newMember.bial
         };
 
         // Only allow updating role/status if user is admin, or if it's the default admin email
@@ -653,6 +659,7 @@ class HybridDatabaseManager {
             address: newMember.address,
             avatar: newMember.avatar,
             email_notifications: newMember.email_notifications,
+            bial: newMember.bial,
             created_at: newMember.created_at
           });
 
@@ -670,7 +677,8 @@ class HybridDatabaseManager {
               dob: newMember.dob,
               address: newMember.address,
               avatar: newMember.avatar,
-              email_notifications: newMember.email_notifications
+              email_notifications: newMember.email_notifications,
+              bial: newMember.bial
             };
             if (isAdmin || newMember.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
               updatePayload.role = newMember.role;

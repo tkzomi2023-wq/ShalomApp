@@ -338,19 +338,22 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
       };
     }
 
-    // 4. Draft the email contents
-    const celebrantsNames = celebrants.map(c => c.name);
-    const subject = `🎉 Shalom Youth Birthday Celebration Today: ${celebrantsNames.join(", ")}! 🎂`;
-    
-    // HTML Email Template
-    const autoAttachments: any[] = [];
-    const celebrantsHtmlPromises = celebrants.map(async (c, idx) => {
-      const resolved = await resolveAvatarForEmail(c.avatar, c.id || idx, "avatar-auto");
+    // 4. Send a separate email for each celebrant
+    const smtpConfig = getSmtpConfig();
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+
+    for (const c of celebrants) {
+      const celebrantsNames = [c.name];
+      const subject = `🎉 Happy Birthday, ${c.name}! 🎂 - Shalom Youth Fellowship`;
+
+      const autoAttachments: any[] = [];
+      const resolved = await resolveAvatarForEmail(c.avatar, c.id, "avatar-auto");
       if (resolved.attachment) {
         autoAttachments.push(resolved.attachment);
       }
       const avatarSrc = resolved.src;
-      return `
+
+      const celebrantsHtml = `
       <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center;">
         ${avatarSrc ? `
           <img src="${avatarSrc}" alt="${c.name}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 12px; border: 3px solid #a855f7;" referrerPolicy="no-referrer" />
@@ -359,22 +362,17 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
             ${c.name.charAt(0).toUpperCase()}
           </div>
         `}
-        <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px; font-family: sans-serif;">${c.name}</h3>
+        <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px; font-family: sans-serif; font-weight: bold;">${c.name}</h3>
         <p style="margin: 0; color: #701a75; font-size: 14px; font-family: sans-serif; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${c.role || 'Member'}</p>
       </div>
-    `;
-    });
-    const celebrantsHtmlParts = await Promise.all(celebrantsHtmlPromises);
-    const celebrantsHtml = celebrantsHtmlParts.join("");
+      `;
 
-    const appUrl = process.env.APP_URL || "http://localhost:3000";
-
-    const htmlContent = `
+      const htmlContent = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Shalom Youth Birthday Celebration</title>
+        <title>Happy Birthday, ${c.name}!</title>
       </head>
       <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
         <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
@@ -390,7 +388,7 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
           <tr>
             <td style="padding: 40px 30px;">
               <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.6; color: #374151;">
-                Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member${celebrants.length > 1 ? 's' : ''}. Let's lift them up in our prayers, send them some love, and celebrate their special day together!
+                Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member, <strong>${c.name}</strong>. Let's lift them up in our prayers, send them some love, and celebrate their special day together!
               </p>
               
               <!-- Celebrants List -->
@@ -421,70 +419,66 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
         </table>
       </body>
       </html>
-    `;
+      `;
 
-    // 5. Attempt Email Dispatch
-    const smtpConfig = getSmtpConfig();
-    let isSmtpConfigured = !!smtpConfig;
+      let sendStatus: "sent" | "simulated" | "failed" = "simulated";
+      let errorMsg: string | undefined = undefined;
 
-    let sendStatus: "sent" | "simulated" | "failed" = "simulated";
-    let errorMsg: string | undefined = undefined;
+      if (smtpConfig) {
+        try {
+          const transporter = nodemailer.createTransport({
+            host: smtpConfig.host,
+            port: parseInt(smtpConfig.port || "587"),
+            secure: smtpConfig.port === "465",
+            auth: {
+              user: smtpConfig.user,
+              pass: smtpConfig.pass,
+            },
+          });
 
-    if (smtpConfig) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: smtpConfig.host,
-          port: parseInt(smtpConfig.port || "587"),
-          secure: smtpConfig.port === "465",
-          auth: {
-            user: smtpConfig.user,
-            pass: smtpConfig.pass,
-          },
-        });
+          const fromAddress = smtpConfig.from || `"Shalom Youth Fellowship" <${smtpConfig.user}>`;
 
-        const fromAddress = smtpConfig.from || `"Shalom Youth Fellowship" <${smtpConfig.user}>`;
+          await transporter.sendMail({
+            from: fromAddress,
+            to: fromAddress, // Send to sender
+            bcc: recipientEmails, // BCC to prevent exposing emails
+            subject: subject,
+            html: htmlContent,
+            attachments: autoAttachments,
+          });
 
-        await transporter.sendMail({
-          from: fromAddress,
-          to: fromAddress, // Send to sender
-          bcc: recipientEmails, // BCC to prevent exposing emails
-          subject: subject,
-          html: htmlContent,
-          attachments: autoAttachments,
-        });
-
-        sendStatus = "sent";
-        console.log(`[SMTP] Successfully dispatched daily birthday emails for: ${celebrantsNames.join(", ")}`);
-      } catch (err: any) {
-        console.error("[SMTP] Error sending birthday emails, falling back to simulated:", err);
-        sendStatus = "failed";
-        errorMsg = err?.message || String(err);
+          sendStatus = "sent";
+          console.log(`[SMTP] Successfully dispatched daily birthday email for: ${c.name}`);
+        } catch (err: any) {
+          console.error(`[SMTP] Error sending birthday email for ${c.name}, falling back to simulated:`, err);
+          sendStatus = "failed";
+          errorMsg = err?.message || String(err);
+        }
+      } else {
+        console.log("\n==================================================");
+        console.log("📢 [SIMULATED EMAIL DISPATCH]");
+        console.log(`SUBJECT: ${subject}`);
+        console.log(`RECIPIENTS (${recipientEmails.length}): ${recipientEmails.join(", ")}`);
+        console.log(`CELEBRANT: ${c.name}`);
+        console.log("==================================================\n");
       }
-    } else {
-      // Simulated Output in server console
-      console.log("\n==================================================");
-      console.log("📢 [SIMULATED EMAIL DISPATCH]");
-      console.log(`SUBJECT: ${subject}`);
-      console.log(`RECIPIENTS (${recipientEmails.length}): ${recipientEmails.join(", ")}`);
-      console.log(`CELEBRANTS: ${celebrantsNames.join(", ")}`);
-      console.log("==================================================\n");
+
+      // Record the log entry
+      const logEntry: BirthdayLog = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: new Date().toISOString(),
+        celebrants: celebrantsNames,
+        recipientCount: recipientEmails.length,
+        recipients: recipientEmails,
+        subject,
+        body: htmlContent,
+        status: sendStatus,
+        errorMessage: errorMsg
+      };
+
+      store.logs.unshift(logEntry);
     }
 
-    // 6. Record the log entry
-    const logEntry: BirthdayLog = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date().toISOString(),
-      celebrants: celebrantsNames,
-      recipientCount: recipientEmails.length,
-      recipients: recipientEmails,
-      subject,
-      body: htmlContent,
-      status: sendStatus,
-      errorMessage: errorMsg
-    };
-
-    // Keep up to 50 logs
-    store.logs.unshift(logEntry);
     if (store.logs.length > 50) {
       store.logs = store.logs.slice(0, 50);
     }
@@ -494,11 +488,8 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
     return {
       checked: true,
       celebrantsFound: celebrants.length,
-      emailsSent: sendStatus === "sent",
-      status: sendStatus === "sent" 
-        ? `Successfully sent birthday emails for: ${celebrantsNames.join(", ")}.`
-        : `Simulated birthday email dispatch for: ${celebrantsNames.join(", ")}.`,
-      log: logEntry
+      emailsSent: !!smtpConfig,
+      status: `Successfully processed ${celebrants.length} individual celebrant(s).`
     };
 
   } catch (err: any) {
@@ -700,6 +691,118 @@ app.post("/api/birthday-email/trigger", async (req, res) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to trigger birthday check" });
+  }
+});
+
+// REST API endpoint to trigger a test preview email to an admin's own address
+app.post("/api/birthday-email/preview-email", async (req, res) => {
+  const { adminEmail, smtpConfig } = req.body;
+
+  if (!adminEmail || adminEmail.toLowerCase() !== "tkpaite2016@gmail.com") {
+    return res.status(403).json({ error: "Access Denied: Only administrators can trigger test emails." });
+  }
+
+  // Determine which SMTP configuration to use
+  const savedSmtpConfig = getSmtpConfig();
+  const host = smtpConfig?.host || savedSmtpConfig?.host;
+  const port = smtpConfig?.port || savedSmtpConfig?.port;
+  const user = smtpConfig?.user || savedSmtpConfig?.user;
+  const pass = smtpConfig?.pass || savedSmtpConfig?.pass;
+  const from = smtpConfig?.from || savedSmtpConfig?.from;
+
+  if (!host || !port || !user || !pass) {
+    return res.status(400).json({ error: "SMTP is not fully configured yet. Please enter Host, Port, Username, and Password." });
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host,
+      port: parseInt(port || "587"),
+      secure: port === "465",
+      auth: {
+        user,
+        pass,
+      },
+    });
+
+    const fromAddress = from || `"Shalom Youth Fellowship" <${user}>`;
+
+    const testCelebrant = {
+      name: "Test Member (John Doe)",
+      role: "Youth Member",
+    };
+
+    const appUrl = process.env.APP_URL || "https://shalomyouth.netlify.app";
+
+    const celebrantsHtml = `
+      <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center;">
+        <div style="width: 80px; height: 80px; border-radius: 50%; background-color: #a855f7; color: white; line-height: 80px; font-size: 32px; font-weight: bold; margin: 0 auto 12px auto; text-align: center;">
+          J
+        </div>
+        <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px; font-family: sans-serif; font-weight: bold;">${testCelebrant.name}</h3>
+        <p style="margin: 0; color: #701a75; font-size: 14px; font-family: sans-serif; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${testCelebrant.role}</p>
+      </div>
+    `;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Shalom Youth Birthday Celebration [TEST PREVIEW]</title>
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+          <tr>
+            <td style="background-color: #f59e0b; padding: 10px; text-align: center; color: white; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; font-family: sans-serif;">
+              ⚠️ SMTP Configuration Test Preview Email
+            </td>
+          </tr>
+          <tr>
+            <td style="background: linear-gradient(135deg, #ec4899, #8b5cf6, #6366f1); padding: 40px 20px; text-align: center; color: white;">
+              <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; background-color: rgba(255, 255, 255, 0.2); padding: 4px 12px; border-radius: 100px; font-family: sans-serif;">Shalom Youth Fellowship</span>
+              <h1 style="margin: 15px 0 0 0; font-size: 32px; font-weight: 800; letter-spacing: -0.025em; text-shadow: 0 2px 4px rgba(0,0,0,0.15); font-family: sans-serif;">Birthday Celebration! 🎉</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px 30px;">
+              <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.6; color: #374151; font-family: sans-serif;">
+                This is a test email sent from the <strong>Shalom Youth Fellowship Profile & Birthday Portal</strong> to verify that your SMTP configuration and email template are functioning perfectly.
+              </p>
+              ${celebrantsHtml}
+              <div style="background-color: #f9fafb; border-left: 4px solid #8b5cf6; border-radius: 4px; padding: 16px; margin: 24px 0; font-style: italic; color: #4b5563; font-family: sans-serif;">
+                "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace." 
+                <div style="text-align: right; font-weight: bold; font-size: 12px; margin-top: 8px; color: #6b7280; font-style: normal;">— Numbers 6:24-26</div>
+              </div>
+              <div style="text-align: center; margin: 30px 0 10px 0;">
+                <a href="${appUrl}" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; text-decoration: none; padding: 14px 32px; font-weight: bold; font-size: 16px; border-radius: 100px; display: inline-block; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3); font-family: sans-serif;">
+                  Send a Birthday Wish! 🎁
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f9fafb; padding: 24px 30px; text-align: center; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px; font-family: sans-serif;">
+              <p style="margin: 0 0 6px 0; font-weight: 600; color: #4b5563;">Shalom Youth Fellowship</p>
+              <p style="margin: 0;">You are receiving this test email because you are configuring SMTP on the Shalom Youth admin panel.</p>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: fromAddress,
+      to: adminEmail,
+      subject: `[TEST PREVIEW] 🎉 Shalom Youth Birthday Celebration! 🎂`,
+      html: htmlContent,
+    });
+
+    res.json({ success: true, message: `A preview email has been successfully sent to ${adminEmail}!` });
+  } catch (err: any) {
+    console.error("Error sending preview email:", err);
+    res.status(500).json({ error: err.message || "Failed to send SMTP test preview email." });
   }
 });
 

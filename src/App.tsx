@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, AuthProvider } from './lib/auth';
 import { db, supabase } from './lib/supabase';
-import { Member, UserRole, isOBUser, DEFAULT_ADMIN_EMAIL, ALL_ROLES, formatMemberName, BirthdayWish, ChatMessage } from './types';
+import { Member, UserRole, isOBUser, DEFAULT_ADMIN_EMAIL, ALL_ROLES, formatMemberName, BirthdayWish, ChatMessage, getDefaultAvatar } from './types';
 import { getActivityLogs, addActivityLog, clearActivityLogs } from './lib/activity';
 import { RoleBadge } from './components/RoleBadge';
 import { SQLSetupModal } from './components/SQLSetupModal';
@@ -22,6 +22,7 @@ import { WebsiteMetaSettingsPage } from './components/WebsiteMetaSettingsPage';
 import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
+import { getApiUrl, apiFetch, safeJsonParse } from './lib/api';
 
 // Recharts for analytics representation
 import { 
@@ -170,6 +171,8 @@ const getChatDateHeader = (dateString: string): string => {
   }
 };
 
+
+
 function AppContent() {
   const { user, loading, signOut, refreshProfile } = useAuth();
   const isCurrentUserAdmin = user ? (user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(user.role)) : false;
@@ -189,49 +192,68 @@ function AppContent() {
   useEffect(() => {
     // Dynamic website meta & SEO configurations loader
     const loadWebsiteMeta = async () => {
+      let data: any = null;
       try {
-        const response = await fetch('/api/meta-config');
+        const response = await apiFetch('/api/meta-config');
         if (response.ok) {
-          const data = await response.json();
-          if (data.title) {
-            document.title = data.title;
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('text/html')) {
+            throw new Error('Static HTML response received instead of JSON. Static host (Netlify) fallback mode triggered.');
           }
-          
-          // Dynamically update description
-          if (data.description) {
-            let descMeta = document.querySelector('meta[name="description"]');
-            if (!descMeta) {
-              descMeta = document.createElement('meta');
-              descMeta.setAttribute('name', 'description');
-              document.head.appendChild(descMeta);
-            }
-            descMeta.setAttribute('content', data.description);
-          }
-          
-          // Dynamically update keywords
-          if (data.keywords) {
-            let keyMeta = document.querySelector('meta[name="keywords"]');
-            if (!keyMeta) {
-              keyMeta = document.createElement('meta');
-              keyMeta.setAttribute('name', 'keywords');
-              document.head.appendChild(keyMeta);
-            }
-            keyMeta.setAttribute('content', data.keywords);
-          }
-
-          // Dynamically update favicon
-          if (data.favicon) {
-            let faviconLink = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel="shortcut icon"]');
-            if (!faviconLink) {
-              faviconLink = document.createElement('link');
-              faviconLink.setAttribute('rel', 'icon');
-              document.head.appendChild(faviconLink);
-            }
-            faviconLink.setAttribute('href', data.favicon);
+          data = await response.json();
+          if (data) {
+            localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
           }
         }
       } catch (err) {
-        console.warn('Failed to dynamically fetch website metadata:', err);
+        console.warn('Failed to dynamically fetch website metadata via API, falling back to local cache:', err);
+        try {
+          const cached = localStorage.getItem('sy_local_meta_config');
+          if (cached) {
+            data = JSON.parse(cached);
+          }
+        } catch (e) {
+          console.error('Failed to read local cached meta config:', e);
+        }
+      }
+
+      if (data) {
+        if (data.title) {
+          document.title = data.title;
+        }
+        
+        // Dynamically update description
+        if (data.description) {
+          let descMeta = document.querySelector('meta[name="description"]');
+          if (!descMeta) {
+            descMeta = document.createElement('meta');
+            descMeta.setAttribute('name', 'description');
+            document.head.appendChild(descMeta);
+          }
+          descMeta.setAttribute('content', data.description);
+        }
+        
+        // Dynamically update keywords
+        if (data.keywords) {
+          let keyMeta = document.querySelector('meta[name="keywords"]');
+          if (!keyMeta) {
+            keyMeta = document.createElement('meta');
+            keyMeta.setAttribute('name', 'keywords');
+            document.head.appendChild(keyMeta);
+          }
+          keyMeta.setAttribute('content', data.keywords);
+        }
+
+        // Dynamically update favicon
+        if (data.favicon) {
+          let faviconLink = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel="shortcut icon"]');
+          if (!faviconLink) {
+            faviconLink = document.createElement('link');
+            faviconLink.setAttribute('rel', 'icon');
+            document.head.appendChild(faviconLink);
+          }
+          faviconLink.setAttribute('href', data.favicon);
+        }
       }
     };
     loadWebsiteMeta();
@@ -1638,8 +1660,8 @@ function AppContent() {
               className="w-9 h-9 rounded-full overflow-hidden bg-emerald-80 text-emerald-200 hover:text-white font-black flex items-center justify-center text-xs border-2 border-emerald-700/50 cursor-pointer shrink-0"
               title="My Account Details"
             >
-              {user.avatar ? (
-                <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              {user.avatar || getDefaultAvatar(user.gender) ? (
+                <img src={user.avatar || getDefaultAvatar(user.gender)} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
                 user.name.charAt(0).toUpperCase()
               )}
@@ -2047,7 +2069,7 @@ function AppContent() {
                     <span>Financial Records</span>
                   </button>
                 )}
-                {isCurrentUserAdmin && (
+                {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
                   <button
                     onClick={() => setCurrentTab('birthday-tasks')}
                     className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'birthday-tasks' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
@@ -2133,7 +2155,7 @@ function AppContent() {
                   setLogs(getActivityLogs());
                 }}
               />
-            ) : currentTab === 'birthday-tasks' && isCurrentUserAdmin ? (
+            ) : currentTab === 'birthday-tasks' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
               <BirthdayEmailSettingsPage currentUser={user} members={members} />
             ) : currentTab === 'meta-settings' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
               <WebsiteMetaSettingsPage currentUser={user} />
@@ -3108,7 +3130,7 @@ function AppContent() {
 
                         const isOwnMessage = msg.user_id === user.id;
                         const senderMember = members.find((m) => m.id === msg.user_id);
-                        const avatarUrl = senderMember?.avatar || msg.user_avatar;
+                        const avatarUrl = senderMember?.avatar || msg.user_avatar || (senderMember ? getDefaultAvatar(senderMember.gender) : '');
                         const isDeleted = msg.message === "This message was deleted";
                         const repliesCount = chatMessages.filter(m => m.parent_id === msg.id).length;
                         const isEditing = editingMsgId === msg.id;
@@ -3534,18 +3556,22 @@ function AppContent() {
                 <div className="p-3 bg-violet-50/30 dark:bg-violet-950/10 rounded-xl border border-violet-100/40 dark:border-violet-900/10 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 border border-violet-200 shadow-xxs">
-                      {activeThreadParent.user_avatar ? (
-                        <img
-                          src={activeThreadParent.user_avatar}
-                          alt={activeThreadParent.user_name}
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-full h-full text-[8px] font-black flex items-center justify-center bg-violet-600 text-white">
-                          {activeThreadParent.user_name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
+                      {(() => {
+                        const parentSenderMember = members.find(m => m.id === activeThreadParent.user_id);
+                        const parentAvatarUrl = activeThreadParent.user_avatar || (parentSenderMember ? getDefaultAvatar(parentSenderMember.gender) : '');
+                        return parentAvatarUrl ? (
+                          <img
+                            src={parentAvatarUrl}
+                            alt={activeThreadParent.user_name}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="w-full h-full text-[8px] font-black flex items-center justify-center bg-violet-600 text-white">
+                            {activeThreadParent.user_name.charAt(0).toUpperCase()}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <span className="text-[10px] font-black text-violet-950 dark:text-violet-200">{activeThreadParent.user_name}</span>
                     <span className="text-[8px] text-stone-400 font-mono ml-auto">
@@ -3579,7 +3605,7 @@ function AppContent() {
                       .map((msg) => {
                         const isOwnReply = msg.user_id === user.id;
                         const senderMember = members.find((m) => m.id === msg.user_id);
-                        const avatarUrl = senderMember?.avatar || msg.user_avatar;
+                        const avatarUrl = senderMember?.avatar || msg.user_avatar || (senderMember ? getDefaultAvatar(senderMember.gender) : '');
                         const isDeleted = msg.message === "This message was deleted";
                         const isEditingReply = editingMsgId === msg.id;
 

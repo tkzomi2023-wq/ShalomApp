@@ -40,7 +40,8 @@ import {
   AlertTriangle,
   Trophy,
   Medal,
-  Crown
+  Crown,
+  ChevronDown
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -55,6 +56,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
+import { AnimatePresence, motion } from 'motion/react';
 
 interface FinancialRecordsPageProps {
   currentUser: Member;
@@ -82,6 +84,24 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Bulk actions states
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
+  const [bulkEditAmount, setBulkEditAmount] = useState<number | ''>('');
+  const [bulkEditMonth, setBulkEditMonth] = useState<string>('');
+  const [bulkEditDate, setBulkEditDate] = useState<string>('');
+
+  // Bulk add states
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [bulkEntries, setBulkEntries] = useState<{ [month: string]: { selected: boolean; amount: number | ''; date: string } }>(() => {
+    const initial: { [month: string]: { selected: boolean; amount: number | ''; date: string } } = {};
+    MONTHS.forEach(m => {
+      initial[m] = { selected: false, amount: '', date: new Date().toISOString().split('T')[0] };
+    });
+    return initial;
+  });
+
   // Bial Editable configuration states
   const [isEditingBialConfig, setIsEditingBialConfig] = useState(false);
   const [bialLeadersInput, setBialLeadersInput] = useState('');
@@ -96,6 +116,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBial, setFilterBial] = useState('All');
   const [filterMonth, setFilterMonth] = useState('All');
+  const [expandedUserKeys, setExpandedUserKeys] = useState<string[]>([]);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -113,6 +134,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   // Reset page when tab or filters change
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedRecordIds([]);
   }, [activeTab, searchTerm, filterBial, filterMonth]);
 
   // Role Permissions
@@ -166,6 +188,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     setFormAddress('');
     setFormAmount('');
     setFormError(null);
+    setIsBulkMode(false);
+    setBulkEntries(() => {
+      const initial: { [month: string]: { selected: boolean; amount: number | ''; date: string } } = {};
+      MONTHS.forEach(m => {
+        initial[m] = { selected: false, amount: '', date: new Date().toISOString().split('T')[0] };
+      });
+      return initial;
+    });
   };
 
   // Submit record helper
@@ -173,13 +203,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     e.preventDefault();
     setFormError(null);
 
-    if (!formName.trim() || !formAddress.trim() || formAmount === '') {
+    if (!formName.trim() || !formAddress.trim()) {
       setFormError('Please fill in all required fields.');
-      return;
-    }
-
-    if (Number(formAmount) <= 0) {
-      setFormError('Amount must be greater than 0.');
       return;
     }
 
@@ -191,6 +216,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
     try {
       if (editingRecord) {
+        if (formAmount === '') {
+          setFormError('Please enter an amount.');
+          return;
+        }
+        if (Number(formAmount) <= 0) {
+          setFormError('Amount must be greater than 0.');
+          return;
+        }
         // Edit flow
         const updated = await financialsDb.updateFinancialRecord(editingRecord.id, {
           name: formName.trim(),
@@ -205,7 +238,49 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           'Edit Financial Record', 
           `Updated payment of ₹${updated.amount} for "${updated.name}" (${updated.area}, ${updated.payment_month})`
         );
+      } else if (isBulkMode) {
+        // Bulk add flow
+        const selectedBulkMonths = (Object.entries(bulkEntries) as [string, { selected: boolean; amount: number | ''; date: string }][]).filter(([_, val]) => val.selected);
+        if (selectedBulkMonths.length === 0) {
+          setFormError('Please select at least one month for bulk adding.');
+          return;
+        }
+
+        const recordsToAdd = selectedBulkMonths.map(([month, data]) => {
+          const amountVal = data.amount !== '' ? Number(data.amount) : Number(formAmount);
+          if (isNaN(amountVal) || amountVal <= 0) {
+            throw new Error(`Please specify a valid amount greater than 0 for ${month}.`);
+          }
+          const dateVal = data.date || formDate;
+          return {
+            name: formName.trim(),
+            address: formAddress.trim(),
+            amount: amountVal,
+            area: formArea,
+            payment_month: month,
+            payment_date: dateVal
+          };
+        });
+
+        const createdList = await financialsDb.bulkAddFinancialRecords(
+          recordsToAdd, 
+          currentUser.email, 
+          currentUser.name
+        );
+
+        onAddLog(
+          'Bulk Add Financial Records', 
+          `Registered bulk payments (${createdList.length} records) for "${formName.trim()}" (${formArea})`
+        );
       } else {
+        if (formAmount === '') {
+          setFormError('Please enter an amount.');
+          return;
+        }
+        if (Number(formAmount) <= 0) {
+          setFormError('Amount must be greater than 0.');
+          return;
+        }
         // Add flow
         const created = await financialsDb.addFinancialRecord({
           name: formName.trim(),
@@ -242,6 +317,70 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     );
     const recs = await financialsDb.getFinancialRecords();
     setRecords(recs);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRecordIds.length === 0) return;
+    try {
+      const recordsToDelete = records.filter(r => selectedRecordIds.includes(r.id));
+      for (const record of recordsToDelete) {
+        await financialsDb.deleteFinancialRecord(record.id);
+      }
+      
+      onAddLog(
+        'Bulk Delete Financial Records', 
+        `Removed ${recordsToDelete.length} payment records in bulk for ${activeTab}`
+      );
+      
+      const recs = await financialsDb.getFinancialRecords();
+      setRecords(recs);
+      setSelectedRecordIds([]);
+      setIsBulkDeleteConfirmOpen(false);
+    } catch (err: any) {
+      console.error('Failed to perform bulk delete:', err);
+    }
+  };
+
+  const handleBulkEdit = async () => {
+    if (selectedRecordIds.length === 0) return;
+    try {
+      const updates: Partial<FinancialRecord> = {};
+      if (bulkEditAmount !== '') {
+        updates.amount = Number(bulkEditAmount);
+      }
+      if (bulkEditMonth !== '') {
+        updates.payment_month = bulkEditMonth;
+      }
+      if (bulkEditDate !== '') {
+        updates.payment_date = bulkEditDate;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        alert('Please specify at least one field to update.');
+        return;
+      }
+
+      for (const id of selectedRecordIds) {
+        await financialsDb.updateFinancialRecord(id, updates);
+      }
+      
+      onAddLog(
+        'Bulk Edit Financial Records', 
+        `Updated ${selectedRecordIds.length} payment records in bulk for ${activeTab}: ${JSON.stringify(updates)}`
+      );
+      
+      const recs = await financialsDb.getFinancialRecords();
+      setRecords(recs);
+      setSelectedRecordIds([]);
+      setIsBulkEditModalOpen(false);
+      
+      // Reset
+      setBulkEditAmount('');
+      setBulkEditMonth('');
+      setBulkEditDate('');
+    } catch (err: any) {
+      console.error('Failed to perform bulk edit:', err);
+    }
   };
 
   // Bial configuration edit helpers
@@ -289,7 +428,17 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     };
     const strippedMember = stripPrefix(normalizedName);
     
-    // First, try matching exactly by name in the financial records (excluding the current edited record)
+    // First, check if there is a registered approved member with this name and they have an assigned bial
+    const registeredMember = members.find(m => {
+      const mName = m.name.trim().toLowerCase();
+      return mName === normalizedName || stripPrefix(mName) === strippedMember;
+    });
+
+    if (registeredMember && registeredMember.bial) {
+      return registeredMember.bial;
+    }
+
+    // Second, try matching exactly by name in the financial records (excluding the current edited record)
     const recordMatch = records.find(r => {
       if (excludeRecordId && r.id === excludeRecordId) return false;
       const rName = r.name.trim().toLowerCase();
@@ -300,9 +449,9 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       return recordMatch.area;
     }
 
-    // Second, check if the member's address mentions a Bial area or ID
-    if (memberAddress) {
-      const addrLower = memberAddress.toLowerCase();
+    // Third, fall back to checking if there is a registered approved member with this name and parsing their address/area
+    if (registeredMember && registeredMember.address) {
+      const addrLower = registeredMember.address.toLowerCase();
       const matchBialPattern = addrLower.match(/bial\s*(\d+)/i);
       if (matchBialPattern && matchBialPattern[1]) {
         return `Bial ${matchBialPattern[1]}`;
@@ -341,8 +490,83 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     return matchesSearch && matchesBial && matchesMonth;
   });
 
-  const totalPagesOverall = Math.ceil(filteredRecords.length / itemsPerPage);
-  const paginatedOverallRecords = filteredRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  interface AggregatedUserRecord {
+    name: string;
+    bial: string;
+    address: string;
+    records: FinancialRecord[];
+    totalAmount: number;
+    paymentPeriod: string;
+    registeredByNames: string[];
+    registeredByEmails: string[];
+    latestRecord: FinancialRecord;
+  }
+
+  // Group and aggregate records by contributor name and area (Bial)
+  const getAggregatedRecords = (recordsList: FinancialRecord[]) => {
+    const groups: { [key: string]: AggregatedUserRecord } = {};
+
+    recordsList.forEach(r => {
+      const key = `${r.name.trim().toLowerCase()}||${r.area.trim().toLowerCase()}`;
+      if (!groups[key]) {
+        groups[key] = {
+          name: r.name,
+          bial: r.area,
+          address: r.address || '',
+          records: [],
+          totalAmount: 0,
+          paymentPeriod: '',
+          registeredByNames: [],
+          registeredByEmails: [],
+          latestRecord: r
+        };
+      }
+      const g = groups[key];
+      g.records.push(r);
+      g.totalAmount += r.amount;
+      
+      if (r.created_by_name && !g.registeredByNames.includes(r.created_by_name)) {
+        g.registeredByNames.push(r.created_by_name);
+      }
+      if (r.created_by_email && !g.registeredByEmails.includes(r.created_by_email)) {
+        g.registeredByEmails.push(r.created_by_email);
+      }
+      
+      const rDate = new Date(r.payment_date || r.created_at);
+      const gDate = new Date(g.latestRecord.payment_date || g.latestRecord.created_at);
+      if (rDate > gDate) {
+        g.latestRecord = r;
+        if (r.address) g.address = r.address;
+      }
+    });
+
+    return Object.values(groups).map(g => {
+      // Sort individual records chronologically by month
+      g.records.sort((a, b) => {
+        const indexA = MONTHS.indexOf(a.payment_month);
+        const indexB = MONTHS.indexOf(b.payment_month);
+        if (indexA !== indexB) return indexA - indexB;
+        return new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime();
+      });
+
+      if (g.records.length > 0) {
+        const uniqueMonths = Array.from(new Set(g.records.map(r => r.payment_month)));
+        uniqueMonths.sort((a, b) => MONTHS.indexOf(a) - MONTHS.indexOf(b));
+        
+        if (uniqueMonths.length === 1) {
+          g.paymentPeriod = uniqueMonths[0];
+        } else if (uniqueMonths.length > 1) {
+          g.paymentPeriod = `${uniqueMonths[0]} - ${uniqueMonths[uniqueMonths.length - 1]}`;
+        }
+      }
+
+      return g;
+    });
+  };
+
+  const aggregatedRecords = getAggregatedRecords(filteredRecords);
+  const totalPagesOverall = Math.ceil(aggregatedRecords.length / itemsPerPage);
+  const paginatedOverallRecords = aggregatedRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   // Organize cell matrix for Bials vs Months
   // rows: Bial 1 to 12
@@ -404,8 +628,13 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   // Active Bial Specific Scope values
   const currentBialConfig = bialConfigs.find(c => c.id === activeTab);
   const currentBialRecords = records.filter(r => r.area === activeTab);
-  const totalPagesBial = Math.ceil(currentBialRecords.length / itemsPerPage);
-  const paginatedBialRecords = currentBialRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const aggregatedBialRecords = React.useMemo(() => {
+    return getAggregatedRecords(currentBialRecords);
+  }, [currentBialRecords]);
+  const totalPagesBial = Math.ceil(aggregatedBialRecords.length / itemsPerPage);
+  const paginatedBialRecords = React.useMemo(() => {
+    return aggregatedBialRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  }, [aggregatedBialRecords, currentPage, itemsPerPage]);
   const currentBialCollection = currentBialRecords.reduce((s, r) => s + r.amount, 0);
   const currentBialContributorsCount = new Set(currentBialRecords.map(r => r.name.toLowerCase().trim())).size;
 
@@ -588,7 +817,6 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
             textColor: [255, 255, 255],
             fontSize: 8,
             fontStyle: 'bold',
-            halign: 'center',
             valign: 'middle'
           },
           columnStyles: {
@@ -727,8 +955,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
             fillColor: [15, 118, 110], // Teal-700
             textColor: [255, 255, 255],
             fontSize: 9,
-            fontStyle: 'bold',
-            halign: 'left'
+            fontStyle: 'bold'
           },
           columnStyles: {
             0: { fontStyle: 'bold', halign: 'left', cellWidth: 40 },
@@ -770,11 +997,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           const leaders = config?.leaders || 'TBD Leaders';
 
           const bialRecords = pdfRecords.filter(r => r.area === bialId);
-          // Sort contributors alphabetically by name
-          const sortedBialRecords = [...bialRecords].sort((a, b) => a.name.localeCompare(b.name));
+          const aggregatedBial = getAggregatedRecords(bialRecords);
+          const sortedBialContributors = [...aggregatedBial].sort((a, b) => a.name.localeCompare(b.name));
 
           const totalBialCollection = bialRecords.reduce((sum, r) => sum + r.amount, 0);
-          const countBialContributors = new Set(bialRecords.map(r => r.name.toLowerCase().trim())).size;
+          const countBialContributors = sortedBialContributors.length;
 
           // Header
           doc.setFont('helvetica', 'bold');
@@ -819,26 +1046,69 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           doc.setLineWidth(0.5);
           doc.line(14, 41, 283, 41);
 
+          // Determine active months from January up to current month (e.g. Jan to Jul)
+          const currentMonthIndex = new Date().getMonth(); // 0-11
+          const activeMonths = MONTHS.slice(0, currentMonthIndex + 1);
+
           // Headers
-          const detailHeaders = ['#', 'Contributor Member Name', 'Residential Address / Locality', 'Month Assigned', 'Receipt Date', 'Paid Amount'];
+          const detailHeaders = [
+            '#', 
+            'Username', 
+            ...activeMonths.map(m => m.slice(0, 3)), 
+            'Total Amount'
+          ];
           
           // Rows
-          const detailRows = sortedBialRecords.map((r, idx) => [
-            (idx + 1).toString(),
-            r.name,
-            r.address,
-            r.payment_month,
-            new Date(r.payment_date).toLocaleDateString('en-IN', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric'
-            }),
-            `INR ${r.amount.toLocaleString('en-IN')}`
-          ]);
+          const detailRows = sortedBialContributors.map((rec, idx) => {
+            const row: any[] = [
+              (idx + 1).toString(),
+              rec.name
+            ];
+
+            // Add amount for each month
+            activeMonths.forEach(m => {
+              const recordsForMonth = rec.records.filter(r => r.payment_month === m);
+              const totalForMonth = recordsForMonth.reduce((sum, r) => sum + r.amount, 0);
+              row.push(totalForMonth > 0 ? `INR ${totalForMonth.toLocaleString('en-IN')}` : '-');
+            });
+
+            // Add Total Amount
+            row.push(`INR ${rec.totalAmount.toLocaleString('en-IN')}`);
+            return row;
+          });
 
           if (detailRows.length === 0) {
-            detailRows.push(['-', 'No contributor records found in this Bial area.', '-', '-', '-', 'INR 0']);
+            const emptyRow = ['-', 'No contributor records found in this Bial area.', ...activeMonths.map(() => '-'), 'INR 0'];
+            detailRows.push(emptyRow);
+          } else {
+            // Add a grand total row at the bottom of the table
+            const totalRow: any[] = [
+              'Total',
+              'Grand Total Sum'
+            ];
+
+            activeMonths.forEach(m => {
+              const sumForMonth = bialRecords
+                .filter(r => r.payment_month === m)
+                .reduce((sum, r) => sum + r.amount, 0);
+              totalRow.push(sumForMonth > 0 ? `INR ${sumForMonth.toLocaleString('en-IN')}` : '-');
+            });
+
+            totalRow.push(`INR ${totalBialCollection.toLocaleString('en-IN')}`);
+            detailRows.push(totalRow);
           }
+
+          // Build dynamic column styles
+          const columnStyles: any = {
+            0: { cellWidth: 12, halign: 'center' },
+            1: { fontStyle: 'bold', cellWidth: 70, halign: 'left' }
+          };
+          
+          activeMonths.forEach((_, mIdx) => {
+            columnStyles[2 + mIdx] = { halign: 'center', cellWidth: 'auto' };
+          });
+
+          columnStyles[detailHeaders.length - 1] = { fontStyle: 'bold', halign: 'right', cellWidth: 32 };
 
           // Render Autotable for Bial
           autoTable(doc, {
@@ -850,17 +1120,9 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               fillColor: primaryColor as [number, number, number],
               textColor: [255, 255, 255],
               fontSize: 8.5,
-              fontStyle: 'bold',
-              halign: 'left'
+              fontStyle: 'bold'
             },
-            columnStyles: {
-              0: { cellWidth: 15, halign: 'center' },
-              1: { fontStyle: 'bold', cellWidth: 65 },
-              2: { cellWidth: 75 },
-              3: { cellWidth: 35, halign: 'center' },
-              4: { cellWidth: 35, halign: 'center' },
-              5: { fontStyle: 'bold', halign: 'right', cellWidth: 'auto' }
-            },
+            columnStyles: columnStyles,
             bodyStyles: {
               fontSize: 8,
               textColor: [51, 65, 85]
@@ -869,11 +1131,20 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               fillColor: [248, 250, 252]
             },
             didParseCell: (data) => {
-              if (data.row.index === detailRows.length - 1 && sortedBialRecords.length > 0) {
-                // If it's the last row of records, keep default style but can highlight if needed
-              }
-              if (data.column.index === 5) {
-                data.cell.styles.halign = 'right';
+              if (sortedBialContributors.length > 0 && data.row.index === detailRows.length - 1) {
+                data.cell.styles.fontStyle = 'bold';
+                data.cell.styles.fillColor = [220, 252, 231]; // light emerald-100
+                data.cell.styles.textColor = [6, 78, 59]; // dark emerald-900
+                if (data.column.index === 1) {
+                  data.cell.styles.halign = 'left';
+                }
+                if (data.column.index === detailHeaders.length - 1) {
+                  data.cell.styles.halign = 'right';
+                }
+              } else {
+                if (data.column.index === detailHeaders.length - 1) {
+                  data.cell.styles.halign = 'right';
+                }
               }
             },
             margin: { left: 14, right: 14 }
@@ -934,6 +1205,177 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     } catch (e) {
       console.error('Error generating PDF Report:', e);
       alert('Failed to generate PDF Report. Please check the console for details.');
+    }
+  };
+
+  const generateContributorPDF = (rec: AggregatedUserRecord) => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      // Branding Colors
+      const primaryColor = [6, 78, 59]; // dark emerald #064e3b
+      const secondaryColor = [30, 41, 59]; // slate #1e293b
+      const accentColor = [16, 185, 129]; // light emerald #10b981
+      const lightBg = [248, 250, 252]; // bg-slate-50
+
+      // Add elegant border
+      doc.setDrawColor(226, 232, 240); // border-slate-200
+      doc.setLineWidth(0.5);
+      doc.rect(5, 5, 200, 287);
+
+      // Header block
+      doc.setFillColor(6, 78, 59);
+      doc.rect(5, 5, 200, 35, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.text('SHALOM YOUTH UNION', 15, 20);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(167, 243, 208); // emerald-200
+      doc.text('OFFICIAL CONTRIBUTION STATEMENT', 15, 26);
+      doc.text('FINANCIAL YEAR: 2026', 15, 32);
+
+      // User Information block
+      doc.setTextColor(30, 41, 59);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('CONTRIBUTOR PROFILE', 15, 52);
+      
+      doc.setDrawColor(6, 78, 59);
+      doc.setLineWidth(0.3);
+      doc.line(15, 54, 70, 54);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text('Name:', 15, 62);
+      doc.setFont('Helvetica', 'bold');
+      doc.text(rec.name, 45, 62);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.text('Geographic Area (Bial):', 15, 68);
+      doc.setFont('Helvetica', 'bold');
+      doc.text(rec.bial, 45, 68);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.text('Primary Address:', 15, 74);
+      doc.setFont('Helvetica', 'bold');
+      doc.text(rec.address || 'N/A', 45, 74);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.text('Statement Period:', 115, 62);
+      doc.setFont('Helvetica', 'bold');
+      doc.text(rec.paymentPeriod || 'January - December', 145, 62);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.text('Total Contributed:', 115, 68);
+      doc.setFont('Helvetica', 'bold');
+      doc.text(`INR ${rec.totalAmount.toLocaleString('en-IN')}/-`, 145, 68);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.text('Status:', 115, 74);
+      doc.setFont('Helvetica', 'bold');
+      doc.setTextColor(5, 150, 105); // emerald green
+      doc.text('VERIFIED RECORD', 145, 74);
+
+      // Create Matrix columns and rows
+      const tableHeaders = [['Month', 'Receipt Date', 'Recorded By', 'Amount (INR)']];
+      const tableRows: any[] = [];
+
+      MONTHS.forEach(m => {
+        const recordsForMonth = rec.records.filter(r => r.payment_month === m);
+        const amount = recordsForMonth.reduce((sum, r) => sum + r.amount, 0);
+        const dates = recordsForMonth.map(r => r.payment_date).join(', ');
+        const recordedBy = recordsForMonth.map(r => r.created_by_name).filter(Boolean).join(', ');
+
+        tableRows.push([
+          m,
+          amount > 0 ? (dates || 'N/A') : '-',
+          amount > 0 ? (recordedBy || 'N/A') : '-',
+          amount > 0 ? `INR ${amount.toLocaleString('en-IN')}` : 'Not Paid'
+        ]);
+      });
+
+      // Add Total Row
+      tableRows.push([
+        { content: 'TOTAL ACCUMULATED FUNDBAWM', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold', fillColor: [240, 253, 250] } },
+        { content: `INR ${rec.totalAmount.toLocaleString('en-IN')}`, styles: { fontStyle: 'bold', fillColor: [240, 253, 250], textColor: [6, 78, 59] } }
+      ]);
+
+      autoTable(doc, {
+        startY: 85,
+        head: tableHeaders,
+        body: tableRows,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [6, 78, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9,
+          cellPadding: 3
+        },
+        columnStyles: {
+          0: { cellWidth: 35, fontStyle: 'bold' },
+          1: { cellWidth: 45 },
+          2: { cellWidth: 65 },
+          3: { cellWidth: 40, halign: 'right', fontStyle: 'bold' }
+        },
+        styles: {
+          fontSize: 8.5,
+          cellPadding: 2.5,
+          valign: 'middle'
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252]
+        },
+        didParseCell: function (data) {
+          if (data.cell.text[0] === 'Not Paid') {
+            data.cell.styles.textColor = [156, 163, 175]; // light gray text for non-payments
+          }
+        }
+      });
+
+      const finalY = (doc as any).lastAutoTable.finalY || 190;
+
+      // Add a nice note
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.text('Note: This document serves as an official receipt of contributions submitted under Shalom Youth Union.', 15, finalY + 12);
+      doc.text('For any queries or discrepancies, please contact your local Bial representative or the Shalom Audit Board.', 15, finalY + 16);
+
+      // Signatures
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.line(15, finalY + 45, 75, finalY + 45);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text('Contributor Signature', 15, finalY + 49);
+
+      doc.line(135, finalY + 45, 195, finalY + 45);
+      doc.text('Finance Secretary / Advisor', 135, finalY + 49);
+      doc.setFont('Helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Shalom Youth Audit Committee', 135, finalY + 53);
+
+      // Save PDF
+      const fileName = `${rec.name.replace(/\s+/g, '_')}_Contributions_Statement_2026.pdf`;
+      doc.save(fileName);
+
+      onAddLog(
+        'Generate Individual PDF',
+        `Generated individual contributions statement PDF for member: ${rec.name} (Bial: ${rec.bial}, Total: ₹${rec.totalAmount})`
+      );
+    } catch (e) {
+      console.error('Error generating individual PDF:', e);
+      alert('Failed to generate statement PDF.');
     }
   };
 
@@ -1470,88 +1912,296 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                       <th className="p-4">Paid Contributor</th>
                       <th className="p-4">Geographic Area</th>
                       <th className="p-4">Payment Period</th>
-                      <th className="p-4">Payment Date</th>
-                      <th className="p-4 text-right">Amount</th>
-                      <th className="p-4 text-right">Registered By</th>
-                      {canManageFinance && <th className="p-4 text-center">Actions</th>}
+                      <th className="p-4">Total Amount</th>
+                      <th className="p-4">Registered By</th>
+                      <th className="p-4 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
-                    {filteredRecords.length === 0 ? (
+                    {paginatedOverallRecords.length === 0 ? (
                       <tr>
-                        <td colSpan={canManageFinance ? 7 : 6} className="text-center py-10 text-stone-400 italic">
+                        <td colSpan={6} className="text-center py-10 text-stone-400 italic">
                           No financial records match the current filter selection.
                         </td>
                       </tr>
                     ) : (
-                      paginatedOverallRecords.map(rec => (
-                        <tr key={rec.id} className="hover:bg-stone-50/50 transition-colors">
-                          <td className="p-4">
-                            <span className="block font-bold text-stone-900 leading-tight">{rec.name}</span>
-                            <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
-                          </td>
-                          <td className="p-4 font-bold text-stone-700">
-                            {rec.area}
-                          </td>
-                          <td className="p-4">
-                            <span className="px-2 py-0.5 bg-stone-100 text-stone-700 border border-stone-200/80 rounded-md text-[10px] font-bold">
-                              {rec.payment_month}
-                            </span>
-                          </td>
-                          <td className="p-4 text-stone-500 leading-none">
-                            {rec.payment_date}
-                          </td>
-                          <td className="p-4 text-right font-black text-stone-800 font-mono text-[13px]">
-                            ₹{rec.amount.toLocaleString('en-IN')}
-                          </td>
-                          <td className="p-4 text-right text-stone-400">
-                            <span className="block font-medium text-stone-550 leading-none">{rec.created_by_name}</span>
-                            <span className="block text-[9px] mt-0.5">{rec.created_by_email}</span>
-                          </td>
-                          {canManageFinance && (
-                            <td className="p-4 text-center">
-                              {deleteConfirmId === rec.id ? (
-                                <div className="inline-flex items-center gap-1.5 animate-fade-in">
+                      paginatedOverallRecords.map(rec => {
+                        const key = `${rec.name.trim().toLowerCase()}||${rec.bial.trim().toLowerCase()}`;
+                        const isExpanded = expandedUserKeys.includes(key);
+                        
+                        return (
+                          <React.Fragment key={key}>
+                            <tr 
+                              onClick={() => {
+                                if (isExpanded) {
+                                  setExpandedUserKeys(prev => prev.filter(k => k !== key));
+                                } else {
+                                  setExpandedUserKeys(prev => [...prev, key]);
+                                }
+                              }}
+                              className="hover:bg-stone-50/50 active:bg-stone-100/40 transition-colors border-b border-stone-100 cursor-pointer select-none"
+                            >
+                              <td className="p-4">
+                                <span className="block font-bold text-stone-900 leading-tight">{rec.name}</span>
+                                <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
+                              </td>
+                              <td className="p-4 font-bold text-stone-700">
+                                {rec.bial}
+                              </td>
+                              <td className="p-4">
+                                <span className="px-2 py-0.5 bg-stone-100 text-stone-700 border border-stone-200/80 rounded-md text-[10px] font-bold uppercase">
+                                  {rec.paymentPeriod || 'None'}
+                                </span>
+                              </td>
+                              <td className="p-4 font-black text-stone-800 font-mono text-[13px]">
+                                ₹{rec.totalAmount.toLocaleString('en-IN')}
+                              </td>
+                              <td className="p-4 text-stone-400">
+                                <span className="block font-medium text-stone-550 leading-none">{rec.latestRecord.created_by_name}</span>
+                                <span className="block text-[9px] mt-0.5">{rec.latestRecord.created_by_email}</span>
+                              </td>
+                              <td className="p-4 text-center">
+                                <div className="inline-flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                  {/* Download Statement PDF Button */}
                                   <button
-                                    onClick={() => {
-                                      handleRecordDelete(rec.id);
-                                      setDeleteConfirmId(null);
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      generateContributorPDF(rec);
                                     }}
-                                    className="p-1 px-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-lg text-[10px] transition-all cursor-pointer shadow-xs"
-                                    title="Confirm Deletion"
+                                    className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg font-bold transition-all text-[11px] cursor-pointer inline-flex items-center justify-center border border-rose-100/30 bg-rose-50/10"
+                                    title="Download Contributor Statement PDF"
                                   >
-                                    Confirm
+                                    <FileText className="w-3.5 h-3.5" />
                                   </button>
-                                  <button
-                                    onClick={() => setDeleteConfirmId(null)}
-                                    className="p-1 px-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-medium transition-all text-[11px] cursor-pointer"
-                                    title="Cancel Deletion"
-                                  >
-                                    Cancel
-                                  </button>
+
+                                  {canManageFinance && (
+                                    <>
+                                      {deleteConfirmId === rec.latestRecord.id ? (
+                                        <div className="inline-flex items-center gap-1 animate-fade-in" onClick={e => e.stopPropagation()}>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRecordDelete(rec.latestRecord.id);
+                                              setDeleteConfirmId(null);
+                                            }}
+                                            className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-lg text-[9px] transition-all cursor-pointer shadow-3xs"
+                                            title="Confirm Deletion"
+                                          >
+                                            Confirm
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setDeleteConfirmId(null);
+                                            }}
+                                            className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold transition-all text-[9px] cursor-pointer"
+                                            title="Cancel Deletion"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setupEditMode(rec.latestRecord);
+                                            }}
+                                            className="p-1 px-2 hover:bg-stone-100 rounded-lg text-emerald-65 hover:text-emerald-800 font-extrabold transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            title="Edit latest payment"
+                                          >
+                                            Edit
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setDeleteConfirmId(rec.latestRecord.id);
+                                            }}
+                                            className="p-1 px-2 hover:bg-rose-50 rounded-lg text-stone-400 hover:text-rose-605 font-medium transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            title="Delete latest payment"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
+                                    </>
+                                  )}
                                 </div>
-                              ) : (
-                                <div className="inline-flex items-center gap-1">
-                                  <button
-                                    onClick={() => setupEditMode(rec)}
-                                    className="p-1 px-2 hover:bg-stone-100 rounded-lg text-stone-500 hover:text-emerald-700 font-bold transition-all text-[11px] cursor-pointer"
-                                    title="Edit payment audit row"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteConfirmId(rec.id)}
-                                    className="p-1 px-2 hover:bg-rose-50 rounded-lg text-stone-400 hover:text-rose-600 font-medium transition-all text-[11px] cursor-pointer"
-                                    title="Remove payment audit row"
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
+                              </td>
+                            </tr>
+                            
+                            <AnimatePresence initial={false}>
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={6} className="p-0 bg-stone-50/20">
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.25, ease: "easeInOut" }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="p-4 bg-stone-50/60 border-b border-stone-150/80 space-y-4">
+                                        {/* 12-Month Payment Matrix Grid */}
+                                        <div className="space-y-1.5">
+                                          <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                            🗓️ Monthly Contributions Matrix
+                                          </h5>
+                                          <div className="overflow-x-auto rounded-xl border border-stone-150 shadow-3xs bg-white p-3">
+                                            <div className="min-w-[800px]">
+                                              <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
+                                                {/* Headers */}
+                                                {MONTHS.map(m => (
+                                                  <div key={m} className="p-1.5 bg-stone-50 rounded-lg text-center border border-stone-100">
+                                                    <span className="block text-[10px] font-black text-stone-400 uppercase">{m.slice(0, 3)}</span>
+                                                  </div>
+                                                ))}
+                                                <div className="p-1.5 bg-emerald-50 rounded-lg text-center border border-emerald-100">
+                                                  <span className="block text-[10px] font-black text-emerald-600 uppercase">Total Sum</span>
+                                                </div>
+
+                                                {/* Values */}
+                                                {MONTHS.map(m => {
+                                                  const recordsForMonth = rec.records.filter(r => r.payment_month === m);
+                                                  const totalForMonth = recordsForMonth.reduce((sum, r) => sum + r.amount, 0);
+                                                  return (
+                                                    <div key={m} className="p-2 flex flex-col items-center justify-center min-h-[48px] text-center border border-dashed border-stone-100 rounded-lg">
+                                                      {totalForMonth > 0 ? (
+                                                        <>
+                                                          <span className="text-xs font-extrabold text-stone-800 font-mono">
+                                                            ₹{totalForMonth.toLocaleString('en-IN')}
+                                                          </span>
+                                                          {recordsForMonth.length > 1 && (
+                                                            <span className="text-[8px] px-1 py-0.2 bg-stone-100 text-stone-500 rounded font-bold mt-0.5">
+                                                              {recordsForMonth.length} recs
+                                                            </span>
+                                                          )}
+                                                        </>
+                                                      ) : (
+                                                        <span className="text-xs text-stone-300 font-bold">-</span>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                                <div className="p-2 flex items-center justify-center bg-emerald-50/50 rounded-lg border border-emerald-100/50 font-mono text-center">
+                                                  <span className="text-xs font-black text-emerald-700">
+                                                    ₹{rec.totalAmount.toLocaleString('en-IN')}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Individual Receipts Breakdown list */}
+                                        <div className="space-y-2">
+                                          <div className="flex items-center justify-between">
+                                            <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                              📄 Detailed Transaction Receipts ({rec.records.length})
+                                            </h5>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                generateContributorPDF(rec);
+                                              }}
+                                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border border-rose-100 shadow-3xs"
+                                              title="Download Contributor Statement PDF"
+                                            >
+                                              <FileText className="w-3.5 h-3.5" />
+                                              <span>Download Statement PDF</span>
+                                            </button>
+                                          </div>
+                                          <div className="divide-y divide-stone-150/60 rounded-xl border border-stone-200 bg-white overflow-hidden shadow-3xs">
+                                            {rec.records.map((item, idx) => (
+                                              <div key={item.id} className="p-3.5 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-50/30 transition-colors">
+                                                <div className="flex items-center gap-3">
+                                                  <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center text-[10px] font-extrabold font-mono">
+                                                    {idx + 1}
+                                                  </span>
+                                                  <div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-750 border border-emerald-100 rounded-md font-bold text-[9px] uppercase">
+                                                        {item.payment_month}
+                                                      </span>
+                                                      <span className="text-xs font-bold text-stone-700">
+                                                        Paid on {item.payment_date}
+                                                      </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-stone-400 mt-0.5">
+                                                      Registered by: <span className="font-semibold text-stone-500">{item.created_by_name}</span> ({item.created_by_email})
+                                                    </p>
+                                                  </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-4">
+                                                  <span className="text-sm font-black text-stone-800 font-mono">
+                                                    ₹{item.amount.toLocaleString('en-IN')}
+                                                  </span>
+
+                                                  {canManageFinance && (
+                                                    <div className="inline-flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                                      {deleteConfirmId === item.id ? (
+                                                        <div className="inline-flex items-center gap-1.5 animate-fade-in">
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              handleRecordDelete(item.id);
+                                                              setDeleteConfirmId(null);
+                                                            }}
+                                                            className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-lg text-[10px] cursor-pointer shadow-2xs"
+                                                            title="Confirm Deletion"
+                                                          >
+                                                            Confirm
+                                                          </button>
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setDeleteConfirmId(null);
+                                                            }}
+                                                            className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold text-[10px] cursor-pointer"
+                                                            title="Cancel Deletion"
+                                                          >
+                                                            Cancel
+                                                          </button>
+                                                        </div>
+                                                      ) : (
+                                                        <>
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setupEditMode(item);
+                                                            }}
+                                                            className="px-2 py-1.5 hover:bg-stone-100 text-stone-500 hover:text-emerald-700 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                          >
+                                                            Edit
+                                                          </button>
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setDeleteConfirmId(item.id);
+                                                            }}
+                                                            className="px-2 py-1.5 hover:bg-rose-50 text-stone-400 hover:text-rose-600 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                          >
+                                                            Delete
+                                                          </button>
+                                                        </>
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </motion.div>
+                                  </td>
+                                </tr>
                               )}
-                            </td>
-                          )}
-                        </tr>
-                      ))
+                            </AnimatePresence>
+                          </React.Fragment>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1790,17 +2440,75 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               )}
             </div>
 
+            {/* Bulk Actions Header Alert / Utility Bar */}
+            {canManageFinance && selectedRecordIds.length > 0 && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3.5 animate-slide-down">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center text-[10px] font-black">
+                    {selectedRecordIds.length}
+                  </span>
+                  <span className="text-xs font-bold text-stone-700">
+                    Selected {selectedRecordIds.length} payment {selectedRecordIds.length === 1 ? 'record' : 'records'} from {activeTab}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    onClick={() => {
+                      setBulkEditAmount('');
+                      setBulkEditMonth('');
+                      setBulkEditDate('');
+                      setIsBulkEditModalOpen(true);
+                    }}
+                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
+                  >
+                    Bulk Edit
+                  </button>
+                  <button
+                    onClick={() => setIsBulkDeleteConfirmOpen(true)}
+                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
+                  >
+                    Bulk Delete
+                  </button>
+                  <button
+                    onClick={() => setSelectedRecordIds([])}
+                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-2xl border border-stone-150 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-stone-50 text-stone-400 uppercase font-bold text-[10px] border-b border-stone-100">
+                      {canManageFinance && (
+                        <th className="p-4 w-12 text-center">
+                          <input
+                            type="checkbox"
+                            checked={
+                              currentBialRecords.length > 0 &&
+                              currentBialRecords.every(r => selectedRecordIds.includes(r.id))
+                            }
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedRecordIds(currentBialRecords.map(r => r.id));
+                              } else {
+                                setSelectedRecordIds([]);
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded-md text-emerald-600 border-stone-300 focus:ring-emerald-500 cursor-pointer"
+                          />
+                        </th>
+                      )}
                       <th className="p-4">Paid Contributor</th>
                       <th className="p-4">Payment Period</th>
-                      <th className="p-4">Payment Date</th>
-                      <th className="p-4 text-right">Amount</th>
-                      <th className="p-4 text-right">Registered By</th>
-                      {canManageFinance && <th className="p-4 text-center">Actions</th>}
+                      <th className="p-4 font-bold text-stone-400">Total Amount</th>
+                      <th className="p-4 font-bold text-stone-400">Registered By</th>
+                      <th className="p-4 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
@@ -1811,71 +2519,300 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         </td>
                       </tr>
                     ) : (
-                      paginatedBialRecords.map(rec => (
-                        <tr key={rec.id} className="hover:bg-stone-50/50 transition-colors">
-                          <td className="p-4">
-                            <span className="block font-bold text-stone-900 leading-tight">{rec.name}</span>
-                            <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
-                          </td>
-                          <td className="p-4">
-                            <span className="px-2 py-0.5 bg-stone-100 text-stone-700 border border-stone-200/80 rounded-md text-[10px] font-bold">
-                              {rec.payment_month}
-                            </span>
-                          </td>
-                          <td className="p-4 text-stone-500 font-medium">
-                            {rec.payment_date}
-                          </td>
-                          <td className="p-4 text-right font-black text-stone-850 font-mono text-[13px]">
-                            ₹{rec.amount.toLocaleString('en-IN')}
-                          </td>
-                          <td className="p-4 text-right text-stone-450">
-                            <span className="block font-medium text-stone-700 leading-none">{rec.created_by_name}</span>
-                            <span className="block text-[9px] mt-0.5">{rec.created_by_email}</span>
-                          </td>
-                          {canManageFinance && (
-                            <td className="p-4 text-center">
-                              {deleteConfirmId === rec.id ? (
-                                <div className="inline-flex items-center gap-1.5 animate-fade-in">
-                                  <button
-                                    onClick={() => {
-                                      handleRecordDelete(rec.id);
-                                      setDeleteConfirmId(null);
+                      paginatedBialRecords.map(rec => {
+                        const key = `${rec.name.trim().toLowerCase()}||${rec.bial.trim().toLowerCase()}||bial-tab`;
+                        const isExpanded = expandedUserKeys.includes(key);
+
+                        return (
+                          <React.Fragment key={key}>
+                            <tr 
+                              onClick={() => {
+                                if (isExpanded) {
+                                  setExpandedUserKeys(prev => prev.filter(k => k !== key));
+                                } else {
+                                  setExpandedUserKeys(prev => [...prev, key]);
+                                }
+                              }}
+                              className="hover:bg-stone-50/50 active:bg-stone-100/40 transition-colors border-b border-stone-100 cursor-pointer select-none"
+                            >
+                              {canManageFinance && (
+                                <td className="p-4 text-center" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={rec.records.map(r => r.id).every(id => selectedRecordIds.includes(id))}
+                                    onChange={(e) => {
+                                      const allUserRecordIds = rec.records.map(r => r.id);
+                                      if (e.target.checked) {
+                                        setSelectedRecordIds(prev => {
+                                          const union = new Set([...prev, ...allUserRecordIds]);
+                                          return Array.from(union);
+                                        });
+                                      } else {
+                                        setSelectedRecordIds(prev => prev.filter(id => !allUserRecordIds.includes(id)));
+                                      }
                                     }}
-                                    className="p-1 px-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-lg text-[10px] transition-all cursor-pointer shadow-xs"
-                                    title="Confirm Deletion"
-                                  >
-                                    Confirm
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteConfirmId(null)}
-                                    className="p-1 px-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-medium transition-all text-[11px] cursor-pointer"
-                                    title="Cancel Deletion"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="inline-flex items-center gap-1">
-                                  <button
-                                    onClick={() => setupEditMode(rec)}
-                                    className="p-1 px-2 hover:bg-stone-100 rounded-lg text-emerald-65 hover:text-emerald-800 font-extrabold transition-all text-[11px] cursor-pointer"
-                                    title="Edit entry row"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteConfirmId(rec.id)}
-                                    className="p-1 px-2 hover:bg-rose-50 rounded-lg text-stone-400 hover:text-rose-605 font-medium transition-all text-[11px] cursor-pointer"
-                                    title="Delete entry row"
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
+                                    className="w-3.5 h-3.5 rounded-md text-emerald-600 border-stone-300 focus:ring-emerald-500 cursor-pointer"
+                                  />
+                                </td>
                               )}
-                            </td>
-                          )}
-                        </tr>
-                      ))
+                              <td className="p-4">
+                                <span className="block font-bold text-stone-900 leading-tight">{rec.name}</span>
+                                <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
+                              </td>
+                              <td className="p-4">
+                                <span className="px-2 py-0.5 bg-stone-100 text-stone-700 border border-stone-200/80 rounded-md text-[10px] font-bold uppercase">
+                                  {rec.paymentPeriod || 'None'}
+                                </span>
+                              </td>
+                              <td className="p-4 font-black text-stone-850 font-mono text-[13px]">
+                                ₹{rec.totalAmount.toLocaleString('en-IN')}
+                              </td>
+                              <td className="p-4 text-stone-450">
+                                <span className="block font-medium text-stone-700 leading-none">{rec.latestRecord.created_by_name}</span>
+                                <span className="block text-[9px] mt-0.5">{rec.latestRecord.created_by_email}</span>
+                              </td>
+                              <td className="p-4 text-center">
+                                <div className="inline-flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                  {/* Download Statement PDF Button */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      generateContributorPDF(rec);
+                                    }}
+                                    className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg font-bold transition-all text-[11px] cursor-pointer inline-flex items-center justify-center border border-rose-100/30 bg-rose-50/10"
+                                    title="Download Contributor Statement PDF"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {canManageFinance && (
+                                    <>
+                                      {deleteConfirmId === rec.latestRecord.id ? (
+                                        <div className="inline-flex items-center gap-1 animate-fade-in" onClick={e => e.stopPropagation()}>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRecordDelete(rec.latestRecord.id);
+                                              setDeleteConfirmId(null);
+                                            }}
+                                            className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-lg text-[9px] transition-all cursor-pointer shadow-3xs"
+                                            title="Confirm Deletion"
+                                          >
+                                            Confirm
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setDeleteConfirmId(null);
+                                            }}
+                                            className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold transition-all text-[9px] cursor-pointer"
+                                            title="Cancel Deletion"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setupEditMode(rec.latestRecord);
+                                            }}
+                                            className="p-1 px-2 hover:bg-stone-100 rounded-lg text-emerald-65 hover:text-emerald-800 font-extrabold transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            title="Edit latest payment"
+                                          >
+                                            Edit
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setDeleteConfirmId(rec.latestRecord.id);
+                                            }}
+                                            className="p-1 px-2 hover:bg-rose-50 rounded-lg text-stone-400 hover:text-rose-605 font-medium transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            title="Delete latest payment"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+
+                            <AnimatePresence initial={false}>
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={canManageFinance ? 6 : 5} className="p-0 bg-stone-50/20">
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.25, ease: "easeInOut" }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="p-4 bg-stone-50/60 border-b border-stone-150/80 space-y-4">
+                                        {/* 12-Month Payment Matrix Grid */}
+                                        <div className="space-y-1.5">
+                                          <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                            🗓️ Monthly Contributions Matrix
+                                          </h5>
+                                          <div className="overflow-x-auto rounded-xl border border-stone-150 shadow-3xs bg-white p-3">
+                                            <div className="min-w-[800px]">
+                                              <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
+                                                {/* Headers */}
+                                                {MONTHS.map(m => (
+                                                  <div key={m} className="p-1.5 bg-stone-50 rounded-lg text-center border border-stone-100">
+                                                    <span className="block text-[10px] font-black text-stone-400 uppercase">{m.slice(0, 3)}</span>
+                                                  </div>
+                                                ))}
+                                                <div className="p-1.5 bg-emerald-50 rounded-lg text-center border border-emerald-100">
+                                                  <span className="block text-[10px] font-black text-emerald-600 uppercase">Total Sum</span>
+                                                </div>
+
+                                                {/* Values */}
+                                                {MONTHS.map(m => {
+                                                  const recordsForMonth = rec.records.filter(r => r.payment_month === m);
+                                                  const totalForMonth = recordsForMonth.reduce((sum, r) => sum + r.amount, 0);
+                                                  return (
+                                                    <div key={m} className="p-2 flex flex-col items-center justify-center min-h-[48px] text-center border border-dashed border-stone-100 rounded-lg">
+                                                      {totalForMonth > 0 ? (
+                                                        <>
+                                                          <span className="text-xs font-extrabold text-stone-800 font-mono">
+                                                            ₹{totalForMonth.toLocaleString('en-IN')}
+                                                          </span>
+                                                          {recordsForMonth.length > 1 && (
+                                                            <span className="text-[8px] px-1 py-0.2 bg-stone-100 text-stone-500 rounded font-bold mt-0.5">
+                                                              {recordsForMonth.length} recs
+                                                            </span>
+                                                          )}
+                                                        </>
+                                                      ) : (
+                                                        <span className="text-xs text-stone-300 font-bold">-</span>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                                <div className="p-2 flex items-center justify-center bg-emerald-50/50 rounded-lg border border-emerald-100/50 font-mono text-center">
+                                                  <span className="text-xs font-black text-emerald-700">
+                                                    ₹{rec.totalAmount.toLocaleString('en-IN')}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Individual Receipts Breakdown list */}
+                                        <div className="space-y-2">
+                                          <div className="flex items-center justify-between">
+                                            <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                              📄 Detailed Transaction Receipts ({rec.records.length})
+                                            </h5>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                generateContributorPDF(rec);
+                                              }}
+                                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border border-rose-100 shadow-3xs"
+                                              title="Download Contributor Statement PDF"
+                                            >
+                                              <FileText className="w-3.5 h-3.5" />
+                                              <span>Download Statement PDF</span>
+                                            </button>
+                                          </div>
+                                          <div className="divide-y divide-stone-150/60 rounded-xl border border-stone-200 bg-white overflow-hidden shadow-3xs">
+                                            {rec.records.map((item, idx) => (
+                                              <div key={item.id} className="p-3.5 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-50/30 transition-colors">
+                                                <div className="flex items-center gap-3">
+                                                  <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center text-[10px] font-extrabold font-mono">
+                                                    {idx + 1}
+                                                  </span>
+                                                  <div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-750 border border-emerald-100 rounded-md font-bold text-[9px] uppercase">
+                                                        {item.payment_month}
+                                                      </span>
+                                                      <span className="text-xs font-bold text-stone-700">
+                                                        Paid on {item.payment_date}
+                                                      </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-stone-400 mt-0.5">
+                                                      Registered by: <span className="font-semibold text-stone-500">{item.created_by_name}</span> ({item.created_by_email})
+                                                    </p>
+                                                  </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-4">
+                                                  <span className="text-sm font-black text-stone-800 font-mono">
+                                                    ₹{item.amount.toLocaleString('en-IN')}
+                                                  </span>
+
+                                                  {canManageFinance && (
+                                                    <div className="inline-flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                                      {deleteConfirmId === item.id ? (
+                                                        <div className="inline-flex items-center gap-1.5 animate-fade-in">
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              handleRecordDelete(item.id);
+                                                              setDeleteConfirmId(null);
+                                                            }}
+                                                            className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-lg text-[10px] cursor-pointer shadow-2xs"
+                                                            title="Confirm Deletion"
+                                                          >
+                                                            Confirm
+                                                          </button>
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setDeleteConfirmId(null);
+                                                            }}
+                                                            className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold text-[10px] cursor-pointer"
+                                                            title="Cancel Deletion"
+                                                          >
+                                                            Cancel
+                                                          </button>
+                                                        </div>
+                                                      ) : (
+                                                        <>
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setupEditMode(item);
+                                                            }}
+                                                            className="px-2 py-1.5 hover:bg-stone-100 text-stone-500 hover:text-emerald-700 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                          >
+                                                            Edit
+                                                          </button>
+                                                          <button
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setDeleteConfirmId(item.id);
+                                                            }}
+                                                            className="px-2 py-1.5 hover:bg-rose-50 text-stone-400 hover:text-rose-600 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                          >
+                                                            Delete
+                                                          </button>
+                                                        </>
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </motion.div>
+                                  </td>
+                                </tr>
+                              )}
+                            </AnimatePresence>
+                          </React.Fragment>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1979,9 +2916,9 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       {/* DYNAMIC RECORD MODAL DIALOG (ADD / EDIT FORM) */}
       {isAddFormOpen && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="record_dialog_stage">
-          <div className="bg-white rounded-3xl border border-stone-150 max-w-lg w-full overflow-hidden shadow-2xl animate-scale-up">
+          <div className="bg-white rounded-3xl border border-stone-150 max-w-lg w-full overflow-hidden shadow-2xl animate-scale-up flex flex-col max-h-[90vh]">
             
-            <header className="p-5 bg-gradient-to-r from-stone-900 to-stone-950 text-white flex items-center justify-between">
+            <header className="p-5 bg-gradient-to-r from-stone-900 to-stone-950 text-white flex items-center justify-between shrink-0">
               <div className="space-y-1">
                 <h3 className="text-sm font-extrabold uppercase tracking-widest">
                   {editingRecord ? 'Update Payment Audit Log' : 'Create New Payment Audit Entry'}
@@ -1999,24 +2936,25 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               </button>
             </header>
 
-            <form onSubmit={handleRecordSubmit} className="p-5 space-y-4">
-              {formError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2 font-medium">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{formError}</span>
-                </div>
-              )}
+            <form onSubmit={handleRecordSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                {formError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2 font-medium animate-fade-in">
+                    <AlertTriangle className="w-4 h-4 shrink-0 animate-bounce" />
+                    <span>{formError}</span>
+                  </div>
+                )}
 
-              {isBialMismatched && (
-                <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl flex items-center gap-2 font-semibold">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
-                  <span>
-                    <strong>{formName}</strong> is already assigned/active at <strong>{selectedUserAssignedBial}</strong>. They are not allowed to be assigned to <strong>{formArea}</strong>.
-                  </span>
-                </div>
-              )}
+                {isBialMismatched && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl flex items-center gap-2 font-semibold">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 animate-pulse" />
+                    <span>
+                      <strong>{formName}</strong> is associated with <strong>{selectedUserAssignedBial}</strong>. You can still save this record under <strong>{formArea}</strong>, but please double check if this is correct.
+                    </span>
+                  </div>
+                )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 
                 <div className="sm:col-span-2 relative">
                   <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Paid Donor / User Name *</label>
@@ -2048,10 +2986,18 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                               type="button"
                               onMouseDown={() => {
                                 setFormName(member.name);
-                                setFormAddress(member.address || '');
                                 setShowUserDropdown(false);
                                 if (assignedBial) {
                                   setFormArea(assignedBial);
+                                  const config = bialConfigs.find(c => c.id === assignedBial);
+                                  if (config && config.area && config.area !== 'TBD') {
+                                    setFormAddress(config.area);
+                                  }
+                                } else {
+                                  const config = bialConfigs.find(c => c.id === formArea);
+                                  if (config && config.area && config.area !== 'TBD') {
+                                    setFormAddress(config.area);
+                                  }
                                 }
                               }}
                               className="w-full text-left px-3.5 py-2.5 hover:bg-stone-50 transition-colors flex items-center justify-between text-xs cursor-pointer"
@@ -2082,28 +3028,34 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Donor Physical Address *</label>
+                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Donor Physical Address (Geographic Area Location) *</label>
                   <input
                     type="text"
                     required
+                    readOnly
                     value={formAddress}
-                    onChange={e => setFormAddress(e.target.value)}
-                    placeholder="e.g. Zuangtui Paite Room, H.no 43"
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 font-medium"
+                    placeholder="Bial configured area location"
+                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-stone-100 text-stone-600 font-semibold border-stone-200 cursor-not-allowed focus:outline-hidden"
+                    title="Automatically pre-filled and locked using the selected Bial's Geographic Scope."
                   />
+                  <p className="text-[9px] text-stone-400 mt-1 font-medium">
+                    Locked to the selected Bial's configured Area Location. Modify Bial leadership parameters to change.
+                  </p>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Receipt Valuation (Amount in ₹) *</label>
+                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">
+                    {isBulkMode ? 'Default Monthly Amount *' : 'Receipt Valuation (Amount in ₹) *'}
+                  </label>
                   <div className="relative">
                     <span className="absolute left-3.5 top-2.5 text-xs text-stone-400 font-bold">₹</span>
                     <input
                       type="number"
-                      required
+                      required={!isBulkMode}
                       min="1"
                       value={formAmount}
                       onChange={e => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                      placeholder="e.g. 1500"
+                      placeholder={isBulkMode ? "e.g. 1000 (applies to selected months)" : "e.g. 1500"}
                       className="w-full text-xs pl-8 pr-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 font-bold font-mono"
                     />
                   </div>
@@ -2129,33 +3081,136 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Donation Period (Month) *</label>
-                  <select
-                    value={formMonth}
-                    onChange={e => setFormMonth(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-stone-50 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-bold"
-                  >
-                    {MONTHS.map(m => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
+                {!editingRecord && (
+                  <div className="sm:col-span-2 p-3.5 bg-emerald-50/50 border border-emerald-100 rounded-2xl flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-black text-emerald-950 block">Bulk Payment Mode</span>
+                      <span className="text-[10px] text-emerald-700 block">Record multiple months for this contributor in a single form submit</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsBulkMode(!isBulkMode)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        isBulkMode ? 'bg-emerald-600' : 'bg-stone-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                          isBulkMode ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
 
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Payment Date *</label>
-                  <input
-                    type="date"
-                    required
-                    value={formDate}
-                    onChange={e => setFormDate(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 font-bold"
-                  />
-                </div>
+                {isBulkMode && !editingRecord ? (
+                  <div className="sm:col-span-2 space-y-3 pt-2">
+                    <label className="block text-[10px] font-bold text-stone-450 uppercase">Select Months & Customize Amounts *</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1 border border-stone-150 p-2.5 rounded-2xl bg-stone-50">
+                      {MONTHS.map(month => {
+                        const entry = bulkEntries[month];
+                        return (
+                          <div 
+                            key={month} 
+                            className={`p-2 rounded-xl border flex flex-col gap-1.5 transition-all ${
+                              entry.selected 
+                                ? 'bg-white border-emerald-300 shadow-xs opacity-100' 
+                                : 'bg-stone-50/50 border-stone-200/60 opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                id={`bulk-month-${month}`}
+                                checked={entry.selected}
+                                onChange={e => {
+                                  setBulkEntries(prev => ({
+                                    ...prev,
+                                    [month]: { ...prev[month], selected: e.target.checked }
+                                  }));
+                                }}
+                                className="w-3.5 h-3.5 rounded-sm text-emerald-600 border-stone-300 focus:ring-emerald-500 cursor-pointer"
+                              />
+                              <label 
+                                htmlFor={`bulk-month-${month}`}
+                                className="text-xs font-black text-stone-800 cursor-pointer select-none"
+                              >
+                                {month}
+                              </label>
+                            </div>
+
+                            {entry.selected && (
+                              <div className="grid grid-cols-2 gap-1.5 pl-5 animate-slide-down">
+                                <div>
+                                  <label className="block text-[9px] font-semibold text-stone-400">Amount (₹)</label>
+                                  <input
+                                    type="number"
+                                    placeholder={formAmount ? `${formAmount}` : "e.g. 1000"}
+                                    value={entry.amount}
+                                    onChange={e => {
+                                      const val = e.target.value === '' ? '' : Number(e.target.value);
+                                      setBulkEntries(prev => ({
+                                        ...prev,
+                                        [month]: { ...prev[month], amount: val }
+                                      }));
+                                    }}
+                                    className="w-full text-[11px] px-2 py-1 border rounded-lg bg-white font-bold"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] font-semibold text-stone-400">Date</label>
+                                  <input
+                                    type="date"
+                                    value={entry.date}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setBulkEntries(prev => ({
+                                        ...prev,
+                                        [month]: { ...prev[month], date: val }
+                                      }));
+                                    }}
+                                    className="w-full text-[11px] px-2 py-1 border rounded-lg bg-white font-bold"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Donation Period (Month) *</label>
+                      <select
+                        value={formMonth}
+                        onChange={e => setFormMonth(e.target.value)}
+                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-stone-50 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-bold"
+                      >
+                        {MONTHS.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Payment Date *</label>
+                      <input
+                        type="date"
+                        required
+                        value={formDate}
+                        onChange={e => setFormDate(e.target.value)}
+                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 font-bold"
+                      />
+                    </div>
+                  </>
+                )}
 
               </div>
+              </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-100">
+              <div className="flex items-center justify-end gap-2.5 p-5 border-t border-stone-150 bg-stone-50/50 shrink-0">
                 <button
                   type="button"
                   onClick={closeForm}
@@ -2165,12 +3220,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 </button>
                 <button
                   type="submit"
-                  disabled={isBialMismatched}
-                  className={`px-5 py-2.5 font-black rounded-xl text-xs shadow-xs inline-flex items-center gap-1 transition-all ${
-                    isBialMismatched 
-                      ? 'bg-stone-200 text-stone-400 cursor-not-allowed opacity-60' 
-                      : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-sm active:translate-y-[1px]'
-                  }`}
+                  className="px-5 py-2.5 font-black rounded-xl text-xs shadow-xs inline-flex items-center gap-1 transition-all bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-sm active:translate-y-[1px]"
                 >
                   <span>{editingRecord ? 'Save Audit Row' : 'Submit Receipt'}</span>
                 </button>
@@ -2440,6 +3490,144 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   <span>Download Report PDF</span>
                 </button>
               </div>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Edit Modal */}
+      {isBulkEditModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-stone-150 shadow-xl max-w-md w-full overflow-hidden animate-fade-in">
+            <header className="px-5 py-4 bg-stone-50 border-b border-stone-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-extrabold text-stone-900 uppercase tracking-wide">Bulk Edit {selectedRecordIds.length} Entries</h3>
+                <p className="text-[10px] text-stone-450 mt-0.5">Updating selected contributions in {activeTab}</p>
+              </div>
+              <button
+                onClick={() => setIsBulkEditModalOpen(false)}
+                className="p-1 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </header>
+
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-stone-500 bg-stone-50 p-3 rounded-xl border border-stone-100">
+                Only filled-out values below will be applied to the {selectedRecordIds.length} selected records. Empty fields will remain unmodified.
+              </p>
+
+              <div className="space-y-4">
+                {/* Amount */}
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] text-stone-450 font-bold uppercase tracking-wider">
+                    New Monthly Amount (₹)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2 text-xs font-bold text-stone-400">₹</span>
+                    <input
+                      type="number"
+                      placeholder="Leave blank to keep existing amount"
+                      value={bulkEditAmount}
+                      onChange={(e) => setBulkEditAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full pl-8 pr-3.5 py-2 text-xs border border-stone-250 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Period */}
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] text-stone-450 font-bold uppercase tracking-wider">
+                    New Payment Month
+                  </label>
+                  <select
+                    value={bulkEditMonth}
+                    onChange={(e) => setBulkEditMonth(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs border border-stone-250 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">-- Keep Existing Months --</option>
+                    {MONTHS.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Payment Date */}
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] text-stone-450 font-bold uppercase tracking-wider">
+                    New Payment Date
+                  </label>
+                  <input
+                    type="date"
+                    value={bulkEditDate}
+                    onChange={(e) => setBulkEditDate(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs border border-stone-250 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <footer className="p-4 bg-stone-50 border-t border-stone-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBulkEditModalOpen(false)}
+                className="px-4 py-2 bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkEdit}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer hover:shadow-xs transition-all"
+              >
+                Apply Bulk Updates
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirm Modal */}
+      {isBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-stone-150 shadow-xl max-w-md w-full overflow-hidden animate-fade-in">
+            <header className="px-5 py-4 bg-rose-50 border-b border-rose-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-extrabold text-rose-900 uppercase tracking-wide">Confirm Bulk Deletion</h3>
+                <p className="text-[10px] text-rose-700 mt-0.5">Destructive action for {selectedRecordIds.length} entries</p>
+              </div>
+              <button
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                className="p-1 hover:bg-rose-100 rounded-lg text-rose-500 hover:text-rose-900 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </header>
+
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-stone-600 font-medium leading-relaxed">
+                Are you sure you want to permanently delete these <strong className="text-stone-900">{selectedRecordIds.length}</strong> financial records in {activeTab}?
+              </p>
+              <p className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold">
+                ⚠️ This process is completely irreversible and will remove these receipts permanently from the central database.
+              </p>
+            </div>
+
+            <footer className="p-4 bg-stone-50 border-t border-stone-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                className="px-4 py-2 bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs shadow-xs cursor-pointer hover:shadow-xs transition-all"
+              >
+                Delete Permanently ({selectedRecordIds.length})
+              </button>
             </footer>
           </div>
         </div>

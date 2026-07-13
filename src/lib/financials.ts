@@ -201,27 +201,12 @@ class FinancialsDataManager {
       }
       
       const records = (data || []) as FinancialRecord[];
-      if (records.length > 0) {
-        try {
-          localStorage.setItem('sy_cached_financial_records', JSON.stringify(records));
-          localStorage.setItem('sy_has_database_financials', 'true');
-        } catch (e) {
-          console.warn('Failed to write financials cache:', e);
-        }
-        return records;
-      }
-      
-      // Fallback to local storage cache if database returned 0 records (e.g. restricted by old RLS policies)
       try {
-        const cached = localStorage.getItem('sy_cached_financial_records');
-        if (cached) {
-          const cachedRecords = JSON.parse(cached) as FinancialRecord[];
-          if (cachedRecords.length > 0) {
-            return cachedRecords;
-          }
-        }
-      } catch (_) {}
-      
+        localStorage.setItem('sy_cached_financial_records', JSON.stringify(records));
+        localStorage.setItem('sy_has_database_financials', records.length > 0 ? 'true' : 'false');
+      } catch (e) {
+        console.warn('Failed to write financials cache:', e);
+      }
       return records;
     } catch (err: any) {
       console.error('Supabase financial_records queries failed:', err?.message || err);
@@ -235,11 +220,65 @@ class FinancialsDataManager {
     }
   }
 
+  async checkBialAssignmentConflict(name: string, area: string, excludeId?: string): Promise<void> {
+    const normalizedName = name.trim().toLowerCase();
+    const stripPrefix = (s: string) => {
+      return s
+        .replace(/^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)/gi, '')
+        .trim();
+    };
+    const strippedMember = stripPrefix(normalizedName);
+
+    try {
+      // 1. Check Profiles table for assigned bial
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('name, bial')
+        .not('bial', 'is', null);
+
+      if (profileData && profileData.length > 0) {
+        const matchedProfile = profileData.find(p => {
+          if (!p.bial) return false;
+          const pName = p.name.trim().toLowerCase();
+          return pName === normalizedName || stripPrefix(pName) === strippedMember;
+        });
+
+        if (matchedProfile && matchedProfile.bial && matchedProfile.bial !== area) {
+          throw new Error(`Validation Error: "${name}" is officially assigned to ${matchedProfile.bial} in their profile. They cannot be assigned to "${area}".`);
+        }
+      }
+
+      // 2. Check existing financial_records for any existing assignment to a different Bial
+      const { data: existingRecords } = await supabase
+        .from('financial_records')
+        .select('id, name, area');
+
+      if (existingRecords && existingRecords.length > 0) {
+        const match = existingRecords.find(r => {
+          if (excludeId && r.id === excludeId) return false;
+          const rName = r.name.trim().toLowerCase();
+          return (rName === normalizedName || stripPrefix(rName) === strippedMember) && r.area !== area;
+        });
+
+        if (match) {
+          throw new Error(`Validation Error: "${name}" has already been assigned to ${match.area} in other records. They are not allowed to be assigned to "${area}".`);
+        }
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes('Validation Error')) {
+        throw err;
+      }
+      console.warn('Silent warning on database bial validation check:', err?.message || err);
+    }
+  }
+
   async addFinancialRecord(
     record: Omit<FinancialRecord, 'id' | 'created_at' | 'created_by_email' | 'created_by_name'>, 
     activeUserEmail: string, 
     activeUserName: string
   ): Promise<FinancialRecord> {
+    await this.checkBialAssignmentConflict(record.name, record.area);
+
     const newRecord: FinancialRecord = {
       ...record,
       id: crypto.randomUUID(),
@@ -270,8 +309,63 @@ class FinancialsDataManager {
     return newRecord;
   }
 
+  async bulkAddFinancialRecords(
+    recordsList: Omit<FinancialRecord, 'id' | 'created_at' | 'created_by_email' | 'created_by_name'>[],
+    activeUserEmail: string,
+    activeUserName: string
+  ): Promise<FinancialRecord[]> {
+    // Validate each record before batch insert
+    for (const record of recordsList) {
+      await this.checkBialAssignmentConflict(record.name, record.area);
+    }
+
+    const newRecords: FinancialRecord[] = recordsList.map(record => ({
+      ...record,
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      created_by_email: activeUserEmail,
+      created_by_name: activeUserName
+    }));
+
+    try {
+      const { error } = await supabase
+        .from('financial_records')
+        .insert(newRecords);
+
+      if (error) throw error;
+
+      try {
+        const cachedStr = localStorage.getItem('sy_cached_financial_records');
+        const currentCached = cachedStr ? JSON.parse(cachedStr) : [];
+        const updatedCache = [...newRecords, ...currentCached];
+        localStorage.setItem('sy_cached_financial_records', JSON.stringify(updatedCache));
+        localStorage.setItem('sy_has_database_financials', 'true');
+      } catch (_) {}
+    } catch (err: any) {
+      console.error('Supabase financial bulk insert failed:', err?.message || err);
+      throw err;
+    }
+
+    return newRecords;
+  }
+
   async updateFinancialRecord(id: string, updated: Partial<FinancialRecord>): Promise<FinancialRecord> {
     try {
+      if (updated.name || updated.area) {
+        // Fetch existing record to construct the complete updated representation for checking conflicts
+        const { data: existing } = await supabase
+          .from('financial_records')
+          .select('name, area')
+          .eq('id', id)
+          .maybeSingle();
+
+        const checkName = updated.name !== undefined ? updated.name : (existing?.name || '');
+        const checkArea = updated.area !== undefined ? updated.area : (existing?.area || '');
+        if (checkName && checkArea) {
+          await this.checkBialAssignmentConflict(checkName, checkArea, id);
+        }
+      }
+
       const { error } = await supabase
         .from('financial_records')
         .update(updated)

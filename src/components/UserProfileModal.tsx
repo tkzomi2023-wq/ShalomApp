@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog } from '../types';
+import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar } from '../types';
 import { useAuth } from '../lib/auth';
 import { supabase, db } from '../lib/supabase';
 import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock } from 'lucide-react';
@@ -49,6 +49,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>(member.status);
   const [avatar, setAvatar] = useState(member.avatar || '');
   const [emailNotifications, setEmailNotifications] = useState<boolean>(member.email_notifications !== false);
+  const [bial, setBial] = useState(member.bial || '');
   const [userRecords, setUserRecords] = useState<FinancialRecord[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
 
@@ -100,6 +101,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     setStatus(member.status);
     setAvatar(member.avatar || '');
     setEmailNotifications(member.email_notifications !== false);
+    setBial(member.bial || '');
     if (initialEditMode) {
       setIsEditing(true);
     } else {
@@ -244,7 +246,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         role: isCurrentUserAdmin ? role : member.role,
         status: isCurrentUserAdmin ? status : member.status,
         avatar,
-        email_notifications: emailNotifications
+        email_notifications: emailNotifications,
+        bial: bial || undefined
       };
       await onUpdate(updated);
       setIsEditing(false);
@@ -323,9 +326,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               }`}
               title={canEdit ? "Tap to update profile photo" : "Member photo"}
             >
-              {avatar ? (
+              {avatar || getDefaultAvatar(gender) ? (
                 <img 
-                  src={avatar} 
+                  src={avatar || getDefaultAvatar(gender)} 
                   alt={name} 
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
                   referrerPolicy="no-referrer"
@@ -378,20 +381,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   )}
                 </div>
 
-                {avatar ? (
+                {avatar || getDefaultAvatar(gender) ? (
                   <div className="flex items-center gap-3">
                     <img 
-                      src={avatar} 
+                      src={avatar || getDefaultAvatar(gender)} 
                       alt="Avatar preview" 
                       className="w-12 h-12 rounded-lg object-cover border border-stone-200 dark:border-stone-800"
                       referrerPolicy="no-referrer"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-[10px] font-semibold text-stone-700 dark:text-stone-300 truncate">
-                        {avatar.startsWith('data:') ? 'Newly Selected File' : 'Current Profile Photo Link'}
+                        {avatar ? (avatar.startsWith('data:') ? 'Newly Selected File' : 'Current Profile Photo Link') : 'Default Gender Icon'}
                       </p>
                       <p className="text-[9px] text-stone-400 truncate">
-                        {avatar.startsWith('data:') ? 'Saved after clicking "Save Details" below' : 'Synchronized with Supabase'}
+                        {avatar ? (avatar.startsWith('data:') ? 'Saved after clicking "Save Details" below' : 'Synchronized with Supabase') : 'Automatically applied based on gender'}
                       </p>
                     </div>
                   </div>
@@ -588,6 +591,49 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   />
                 ) : (
                   <p className="text-stone-800 dark:text-stone-200 font-semibold">{address || 'No residential address on file.'}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Bial Assignment */}
+          <div className="space-y-1.5 pt-2">
+            <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Bial Assignment
+            </h5>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                {isEditing ? (
+                  <div className="flex flex-col gap-1">
+                    <select
+                      value={bial}
+                      id="user-profile-bial-select"
+                      onChange={e => setBial(e.target.value)}
+                      className="w-full text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1.5 rounded-md border border-stone-200 font-semibold"
+                    >
+                      <option value="">-- No Bial Assigned --</option>
+                      {Array.from({ length: 12 }, (_, i) => `Bial ${i + 1}`).map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-stone-400 mt-0.5">
+                      Assigning or correcting Bial directly affects financial records, receipts, and membership metrics.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-stone-400 uppercase tracking-wide">Current Bial</p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-400 text-sm">
+                        {bial || 'No Bial Assigned'}
+                      </p>
+                    </div>
+                    {bial && (
+                      <span className="text-xs px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-extrabold">
+                        Active
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

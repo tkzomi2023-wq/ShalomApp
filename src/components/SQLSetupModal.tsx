@@ -54,6 +54,16 @@ export const SQLSetupModal: React.FC<SQLSetupModalProps> = ({ isOpen, onClose })
             </span>
           </div>
 
+          <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-xs flex flex-col gap-1 shadow-xs">
+            <span className="font-bold flex items-center gap-1">📍 User Profile Bial Assignment Update</span>
+            <span>
+              To enable explicit Bial assignments on member profiles (allowing you to assign and correct Bial information directly from their profile pages), copy the updated SQL script below or execute this single line in your Supabase SQL Editor:
+              <code className="block mt-1.5 p-2 bg-stone-900 text-stone-100 rounded font-mono text-[11px] select-all">
+                ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;
+              </code>
+            </span>
+          </div>
+
           <div>
             <p className="mb-2">
               To activate real-time synchronization with your live Supabase database, copy the schema SQL script below and execute it in your <strong>Supabase SQL Editor</strong>.

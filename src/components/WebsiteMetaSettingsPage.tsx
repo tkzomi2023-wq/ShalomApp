@@ -14,6 +14,15 @@ interface WebsiteMetaSettingsPageProps {
   currentUser: any;
 }
 
+import { getApiUrl, apiFetch, safeJsonParse } from '../lib/api';
+
+const isNetlify = typeof window !== 'undefined' && (
+  window.location.hostname.includes('netlify') ||
+  window.location.hostname.includes('static') ||
+  window.location.hostname.includes('github.io') ||
+  (window.location.hostname.endsWith('.app') && !window.location.hostname.includes('run.app') && !window.location.hostname.includes('google'))
+);
+
 export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = ({ currentUser }) => {
   const [config, setConfig] = useState<MetaConfig>({
     title: '',
@@ -26,13 +35,14 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isFallbackMode, setIsFallbackMode] = useState<boolean>(false);
 
   const fetchConfig = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/meta-config');
+      const response = await apiFetch('/api/meta-config');
       if (response.ok) {
-        const data = await response.json();
+        const data = await safeJsonParse(response);
         setConfig({
           title: data.title || '',
           description: data.description || '',
@@ -41,9 +51,31 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
           favicon: data.favicon || '',
           siteUrl: data.siteUrl || ''
         });
+        setIsFallbackMode(false);
+        // Sync local cache
+        localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
+      } else {
+        throw new Error(`Server returned error status ${response.status}`);
       }
     } catch (err) {
-      console.error('Failed to fetch website meta config:', err);
+      console.warn('Backend API `/api/meta-config` is not available. Switching to Client-Side Fallback Mode:', err);
+      setIsFallbackMode(true);
+      try {
+        const cached = localStorage.getItem('sy_local_meta_config');
+        if (cached) {
+          const data = JSON.parse(cached);
+          setConfig({
+            title: data.title || '',
+            description: data.description || '',
+            keywords: data.keywords || '',
+            ogImage: data.ogImage || '',
+            favicon: data.favicon || '',
+            siteUrl: data.siteUrl || ''
+          });
+        }
+      } catch (e) {
+        console.error('Failed to parse cached local config:', e);
+      }
     } finally {
       setLoading(false);
     }
@@ -58,8 +90,40 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     setSaving(true);
     setFeedback(null);
 
+    const updateClientSideInstant = () => {
+      if (config.title) {
+        document.title = config.title;
+      }
+      if (config.favicon) {
+        let faviconLink = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel="shortcut icon"]');
+        if (!faviconLink) {
+          faviconLink = document.createElement('link');
+          faviconLink.setAttribute('rel', 'icon');
+          document.head.appendChild(faviconLink);
+        }
+        faviconLink.setAttribute('href', config.favicon);
+      }
+    };
+
+    if (isFallbackMode) {
+      // Direct LocalStorage fallback mode saving
+      try {
+        localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
+        updateClientSideInstant();
+        setFeedback({ 
+          type: 'success', 
+          message: 'Website meta details and OG image settings successfully saved locally! (Fallback Mode Active due to static Netlify hosting)' 
+        });
+      } catch (err: any) {
+        setFeedback({ type: 'error', message: err.message || 'Failed to save settings locally.' });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     try {
-      const response = await fetch('/api/meta-config', {
+      const response = await apiFetch('/api/meta-config', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -72,26 +136,26 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
 
       if (response.ok) {
         setFeedback({ type: 'success', message: 'Website meta details and OG image settings successfully saved!' });
-        // Update client-side document title instantly
-        if (config.title) {
-          document.title = config.title;
-        }
-        // Update client-side favicon link tag instantly
-        if (config.favicon) {
-          let faviconLink = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel="shortcut icon"]');
-          if (!faviconLink) {
-            faviconLink = document.createElement('link');
-            faviconLink.setAttribute('rel', 'icon');
-            document.head.appendChild(faviconLink);
-          }
-          faviconLink.setAttribute('href', config.favicon);
-        }
+        updateClientSideInstant();
+        localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
       } else {
-        const errData = await response.json();
+        const errData = await safeJsonParse(response);
         setFeedback({ type: 'error', message: errData.error || 'Failed to save settings' });
       }
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'An error occurred while saving.' });
+      console.warn('Network error while saving settings via API, falling back to LocalStorage:', err);
+      // Fallback
+      try {
+        localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
+        updateClientSideInstant();
+        setIsFallbackMode(true);
+        setFeedback({ 
+          type: 'success', 
+          message: 'Website meta details saved successfully to browser cache. (Switched to Fallback Mode)' 
+        });
+      } catch (e: any) {
+        setFeedback({ type: 'error', message: `An error occurred: ${err.message || err}` });
+      }
     } finally {
       setSaving(false);
     }
