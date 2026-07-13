@@ -185,12 +185,17 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       const res = await apiFetch('/api/birthday-email/status');
       if (res.ok) {
         const data = await safeJsonParse(res);
-        setStatusData(data);
+        const normalizedData = {
+          lastRunDate: data?.lastRunDate || null,
+          logs: Array.isArray(data?.logs) ? data.logs : [],
+          smtpConfigured: !!data?.smtpConfigured
+        };
+        setStatusData(normalizedData);
         setIsFallbackMode(false);
         // Cache locally
-        localStorage.setItem('sy_local_birthday_logs', JSON.stringify(data.logs || []));
-        if (data.lastRunDate) {
-          localStorage.setItem('sy_local_last_run_date', data.lastRunDate);
+        localStorage.setItem('sy_local_birthday_logs', JSON.stringify(normalizedData.logs));
+        if (normalizedData.lastRunDate) {
+          localStorage.setItem('sy_local_last_run_date', normalizedData.lastRunDate);
         }
       } else {
         throw new Error(`Server returned error status ${res.status}`);
@@ -200,7 +205,13 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       setIsFallbackMode(true);
       // Load local cache
       const cachedLogs = localStorage.getItem('sy_local_birthday_logs');
-      const parsedLogs = cachedLogs ? JSON.parse(cachedLogs) : [];
+      let parsedLogs: BirthdayLog[] = [];
+      try {
+        parsedLogs = cachedLogs ? JSON.parse(cachedLogs) : [];
+        if (!Array.isArray(parsedLogs)) parsedLogs = [];
+      } catch (e) {
+        console.warn('Failed to parse cached logs, resetting:', e);
+      }
       const hasSmtpCached = !!localStorage.getItem('sy_local_smtp_config');
       setStatusData({
         lastRunDate: localStorage.getItem('sy_local_last_run_date') || null,
@@ -1201,7 +1212,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
               <RefreshCw className="w-6 h-6 animate-spin text-stone-300" />
               <span>Fetching dispatch logs...</span>
             </div>
-          ) : !statusData || statusData.logs.length === 0 ? (
+          ) : !statusData || !Array.isArray(statusData.logs) || statusData.logs.length === 0 ? (
             <div className="py-12 text-center bg-stone-50 rounded-2xl border border-stone-100 text-stone-400 text-xs flex flex-col items-center justify-center gap-2">
               <Info className="w-8 h-8 text-stone-300" />
               <span className="font-bold text-stone-500">No logs found</span>
@@ -1209,7 +1220,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
             </div>
           ) : (
             <div className="space-y-3.5 max-h-[480px] overflow-y-auto pr-1">
-              {statusData.logs.map((log) => (
+              {(statusData.logs || []).map((log) => (
                 <div key={log.id} className="p-4 rounded-2xl border border-stone-150 hover:border-stone-250 transition-colors bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">

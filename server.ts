@@ -144,7 +144,13 @@ function loadLogsStore(): LogsStore {
   try {
     if (fs.existsSync(LOGS_FILE_PATH)) {
       const data = fs.readFileSync(LOGS_FILE_PATH, "utf-8");
-      return JSON.parse(data) as LogsStore;
+      const parsed = JSON.parse(data);
+      if (parsed) {
+        return {
+          lastRunDate: parsed.lastRunDate || null,
+          logs: Array.isArray(parsed.logs) ? parsed.logs : []
+        };
+      }
     }
   } catch (err) {
     console.error("Failed to read birthday logs file:", err);
