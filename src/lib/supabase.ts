@@ -4,7 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { Member, UserRole, DEFAULT_ADMIN_EMAIL, BirthdayWish, ChatMessage } from '../types';
+import { Member, UserRole, DEFAULT_ADMIN_EMAIL, BirthdayWish, ChatMessage, BirthdayLog } from '../types';
 
 // Define global interface for ImportMeta to satisfy the TypeScript compiler for Vite's env vars
 declare global {
@@ -179,6 +179,24 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 2b. Enforce Bial field protection in profiles table: only 'tkpaite2016@gmail.com' can modify this field
+CREATE OR REPLACE FUNCTION public.check_profile_bial_security()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (OLD.bial IS DISTINCT FROM NEW.bial) THEN
+    IF (LOWER(COALESCE(auth.jwt() ->> 'email', '')) != 'tkpaite2016@gmail.com') THEN
+      RAISE EXCEPTION 'Permission Denied: Only tkpaite2016@gmail.com is authorized to assign or change the Bial group.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS enforce_profile_bial_security ON public.profiles;
+CREATE TRIGGER enforce_profile_bial_security
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.check_profile_bial_security();
 
 -- 3. Bial Configuration Table
 CREATE TABLE IF NOT EXISTS public.bial_configs (
@@ -361,6 +379,142 @@ DROP POLICY IF EXISTS "Allow authenticated delete of global_chat_messages" ON pu
 CREATE POLICY "Allow authenticated delete of global_chat_messages" ON public.global_chat_messages
   FOR DELETE USING (
     auth.uid() IS NOT NULL
+  );
+
+-- 8. Birthday Logs table (Stores logs of sent birthday checks/emails)
+CREATE TABLE IF NOT EXISTS public.birthday_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  timestamp TEXT NOT NULL,
+  celebrants TEXT[] NOT NULL,
+  recipient_count INTEGER NOT NULL,
+  recipients TEXT[] NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error_message TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Enable RLS for birthday_logs
+ALTER TABLE public.birthday_logs ENABLE ROW LEVEL SECURITY;
+
+-- Allow any authenticated user to read birthday logs
+DROP POLICY IF EXISTS "Allow authenticated read of birthday_logs" ON public.birthday_logs;
+CREATE POLICY "Allow authenticated read of birthday_logs" ON public.birthday_logs
+  FOR SELECT USING (
+    auth.uid() IS NOT NULL
+  );
+
+-- Allow any authenticated user to insert birthday logs
+DROP POLICY IF EXISTS "Allow authenticated insert of birthday_logs" ON public.birthday_logs;
+CREATE POLICY "Allow authenticated insert of birthday_logs" ON public.birthday_logs
+  FOR INSERT WITH CHECK (
+    auth.uid() IS NOT NULL
+  );
+
+-- Allow any authenticated user to delete birthday logs (for clear history if needed)
+DROP POLICY IF EXISTS "Allow authenticated delete of birthday_logs" ON public.birthday_logs;
+CREATE POLICY "Allow authenticated delete of birthday_logs" ON public.birthday_logs
+  FOR DELETE USING (
+    auth.uid() IS NOT NULL
+  );
+
+-- 9. Meta Configs table (Stores website header, SEO, and social meta configs)
+CREATE TABLE IF NOT EXISTS public.meta_configs (
+  id TEXT PRIMARY KEY DEFAULT 'singleton',
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  keywords TEXT NOT NULL,
+  og_image TEXT NOT NULL,
+  favicon TEXT NOT NULL,
+  site_url TEXT NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Enable RLS for meta_configs
+ALTER TABLE public.meta_configs ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read of meta_configs (so anyone can see SEO meta on shared URLs)
+DROP POLICY IF EXISTS "Allow public read of meta_configs" ON public.meta_configs;
+CREATE POLICY "Allow public read of meta_configs" ON public.meta_configs
+  FOR SELECT USING (true);
+
+-- Allow any authenticated user to update/insert meta_configs
+DROP POLICY IF EXISTS "Allow authenticated insert/update of meta_configs" ON public.meta_configs;
+CREATE POLICY "Allow authenticated insert/update of meta_configs" ON public.meta_configs
+  FOR ALL USING (
+    auth.uid() IS NOT NULL
+  );
+
+-- 10. SMTP Configs table (Stores SMTP settings securely)
+CREATE TABLE IF NOT EXISTS public.smtp_configs (
+  id TEXT PRIMARY KEY DEFAULT 'singleton',
+  host TEXT NOT NULL,
+  port TEXT NOT NULL,
+  "user" TEXT NOT NULL,
+  pass TEXT NOT NULL,
+  "from" TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Enable RLS for smtp_configs
+ALTER TABLE public.smtp_configs ENABLE ROW LEVEL SECURITY;
+
+-- Allow authenticated users to view/manage SMTP config
+DROP POLICY IF EXISTS "Allow authenticated management of smtp_configs" ON public.smtp_configs;
+CREATE POLICY "Allow authenticated management of smtp_configs" ON public.smtp_configs
+  FOR ALL USING (
+    auth.uid() IS NOT NULL
+  );
+
+-- 11. Storage Buckets and Security Policies for avatars and thumbnails
+-- Enable storage buckets
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('thumbnails', 'thumbnails', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Policies for avatars bucket
+DROP POLICY IF EXISTS "Allow public read access to avatars" ON storage.objects;
+CREATE POLICY "Allow public read access to avatars" ON storage.objects
+  FOR SELECT USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Allow authenticated users to upload avatars" ON storage.objects;
+CREATE POLICY "Allow authenticated users to upload avatars" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'avatars' AND auth.role() = 'authenticated'
+  );
+
+DROP POLICY IF EXISTS "Allow authenticated users to update avatars" ON storage.objects;
+CREATE POLICY "Allow authenticated users to update avatars" ON storage.objects
+  FOR UPDATE USING (
+    bucket_id = 'avatars' AND auth.role() = 'authenticated'
+  );
+
+DROP POLICY IF EXISTS "Allow authenticated users to delete avatars" ON storage.objects;
+CREATE POLICY "Allow authenticated users to delete avatars" ON storage.objects
+  FOR DELETE USING (
+    bucket_id = 'avatars' AND auth.role() = 'authenticated'
+  );
+
+-- Policies for thumbnails bucket
+DROP POLICY IF EXISTS "Allow public read access to thumbnails" ON storage.objects;
+CREATE POLICY "Allow public read access to thumbnails" ON storage.objects
+  FOR SELECT USING (bucket_id = 'thumbnails');
+
+DROP POLICY IF EXISTS "Allow authenticated users to upload thumbnails" ON storage.objects;
+CREATE POLICY "Allow authenticated users to upload thumbnails" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'thumbnails' AND auth.role() = 'authenticated'
+  );
+
+DROP POLICY IF EXISTS "Allow authenticated users to update thumbnails" ON storage.objects;
+CREATE POLICY "Allow authenticated users to update thumbnails" ON storage.objects
+  FOR UPDATE USING (
+    bucket_id = 'thumbnails' AND auth.role() = 'authenticated'
   );
 `;
 
@@ -589,6 +743,25 @@ class HybridDatabaseManager {
         }
       }
 
+      // Enforce Bial field protection at the JS API layer: only tkpaite2016@gmail.com can set or change Bial.
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const editorEmail = authSession?.user?.email || '';
+      const isAllowedToEditBial = editorEmail.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+
+      if (!isAllowedToEditBial) {
+        if (existingProfile) {
+          if (existingProfile.bial !== newMember.bial) {
+            console.warn(`[createOrUpdateMember] Unauthorized Bial change attempted by ${editorEmail}. Reverting Bial modification.`);
+            newMember.bial = existingProfile.bial;
+          }
+        } else {
+          if (newMember.bial !== undefined && newMember.bial !== null && newMember.bial !== '') {
+            console.warn(`[createOrUpdateMember] Unauthorized Bial insert attempted by ${editorEmail}. Reverting Bial modification.`);
+            newMember.bial = undefined;
+          }
+        }
+      }
+
       if (existingProfile) {
         // It exists, so we perform an UPDATE
         const isAdmin = await this.isCurrentUserAdmin();
@@ -717,6 +890,63 @@ class HybridDatabaseManager {
       }
       console.error("Could not create/update profile:", err.message || err);
       throw err;
+    }
+
+    // Sync financial records Bial if the member has a bial set
+    try {
+      if (newMember.bial) {
+        const { data: recs, error: fetchRecsErr } = await supabase
+          .from('financial_records')
+          .select('id, name, area');
+
+        if (!fetchRecsErr && recs && recs.length > 0) {
+          const normalizedNewName = newMember.name.trim().toLowerCase();
+          const stripPrefix = (s: string) => {
+            return s
+              .replace(/^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)/gi, '')
+              .trim();
+          };
+          const strippedNewMember = stripPrefix(normalizedNewName);
+
+          const matchingRecs = recs.filter(r => {
+            const rName = r.name.trim().toLowerCase();
+            return rName === normalizedNewName || stripPrefix(rName) === strippedNewMember;
+          });
+
+          const toUpdate = matchingRecs.filter(r => r.area !== newMember.bial);
+          if (toUpdate.length > 0) {
+            console.log(`[createOrUpdateMember] Syncing ${toUpdate.length} financial records to new Bial "${newMember.bial}" for member "${newMember.name}"`);
+            
+            let newAddress = '';
+            const { data: bialConfig } = await supabase
+              .from('bial_configs')
+              .select('area')
+              .eq('id', newMember.bial)
+              .maybeSingle();
+            
+            if (bialConfig && bialConfig.area && bialConfig.area !== 'TBD') {
+              newAddress = bialConfig.area;
+            }
+
+            for (const r of toUpdate) {
+              const updateData: any = { area: newMember.bial };
+              if (newAddress) {
+                updateData.address = newAddress;
+              }
+              await supabase
+                .from('financial_records')
+                .update(updateData)
+                .eq('id', r.id);
+            }
+
+            try {
+              localStorage.removeItem('sy_cached_financial_records');
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (syncErr) {
+      console.warn('[createOrUpdateMember] Silently ignored financial records sync error:', syncErr);
     }
 
     return newMember;
@@ -976,6 +1206,88 @@ class HybridDatabaseManager {
       throw error;
     }
     return true;
+  }
+
+  // --- Birthday Logs API (Supabase & LocalStorage hybrid persistence) ---
+  async getBirthdayLogs(): Promise<BirthdayLog[]> {
+    try {
+      const { data, error } = await supabase
+        .from('birthday_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw error;
+      }
+      
+      const logs = (data || []).map((row: any) => ({
+        id: row.id,
+        timestamp: row.timestamp,
+        celebrants: Array.isArray(row.celebrants) ? row.celebrants : [],
+        recipientCount: row.recipient_count || 0,
+        recipients: Array.isArray(row.recipients) ? row.recipients : [],
+        subject: row.subject || '',
+        body: row.body || '',
+        status: row.status as 'sent' | 'simulated' | 'failed' | 'checked_no_birthdays',
+        errorMessage: row.error_message || undefined
+      }));
+      
+      // Update local storage cache
+      localStorage.setItem('sy_local_birthday_logs', JSON.stringify(logs));
+      return logs;
+    } catch (err: any) {
+      console.warn('Supabase birthday_logs select failed, falling back to local storage cache:', err.message || err);
+      const localLogsStr = localStorage.getItem('sy_local_birthday_logs');
+      if (localLogsStr) {
+        try {
+          return JSON.parse(localLogsStr) as BirthdayLog[];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    }
+  }
+
+  async saveBirthdayLog(log: BirthdayLog): Promise<void> {
+    try {
+      // Ensure the ID is a valid UUID, otherwise let Supabase generate one or pass null
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(log.id);
+      const insertId = isUUID ? log.id : undefined;
+
+      const { error } = await supabase
+        .from('birthday_logs')
+        .insert({
+          id: insertId,
+          timestamp: log.timestamp,
+          celebrants: log.celebrants,
+          recipient_count: log.recipientCount,
+          recipients: log.recipients,
+          subject: log.subject,
+          body: log.body,
+          status: log.status,
+          error_message: log.errorMessage || null
+        });
+      
+      if (error) {
+        throw error;
+      }
+    } catch (err: any) {
+      console.warn('Supabase birthday_logs insert failed, keeping in local cache only:', err.message || err);
+    }
+
+    // Always keep local storage cache updated
+    try {
+      const localLogsStr = localStorage.getItem('sy_local_birthday_logs') || '[]';
+      const localLogs = JSON.parse(localLogsStr) as BirthdayLog[];
+      // Avoid duplicate by ID/timestamp
+      if (!localLogs.some(item => item.id === log.id || (item.timestamp === log.timestamp && item.subject === log.subject))) {
+        localLogs.unshift(log);
+        localStorage.setItem('sy_local_birthday_logs', JSON.stringify(localLogs.slice(0, 50)));
+      }
+    } catch (e) {
+      console.warn('Failed to save log to local storage cache:', e);
+    }
   }
 
   // --- Birthday Wishes API ---

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#022c22" />
+      <stop offset="40%" stop-color="#064e3b" />
+      <stop offset="100%" stop-color="#022c22" />
+    </linearGradient>
+    
+    <!-- Glowing blur for layout depth -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="60" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- Hard card drop shadow -->
+    <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- Deep, premium emerald-950 rich background -->
+  <rect width="1200" height="630" fill="url(#bgGrad)" />
+  
+  <!-- Subtle background ambient glows -->
+  <circle cx="1000" cy="150" r="250" fill="#10b981" opacity="0.15" filter="url(#glow)" />
+  <circle cx="200" cy="480" r="200" fill="#059669" opacity="0.1" filter="url(#glow)" />
+
+  <!-- LEFT COLUMN: Branding & Typography -->
+  
+  <!-- Official Badge -->
+  <g transform="translate(80, 100)">
+    <rect width="180" height="34" rx="17" fill="#022c22" stroke="#10b981" stroke-width="1.5" />
+    <text x="90" y="21" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="11px" fill="#34d399" text-anchor="middle" letter-spacing="1.5px">OFFICIAL CLUB SPACE</text>
+  </g>
+
+  <!-- Main Title -->
+  <text x="80" y="220" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="76px" fill="#ffffff" letter-spacing="-1px">
+    Shalom <tspan fill="#34d399">Youth</tspan>
+  </text>
+
+  <!-- Tagline / Subtitle -->
+  <text x="80" y="270" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="20px" fill="#a7f3d0" opacity="0.9">
+    Centralized Member Management Administrative Core
+  </text>
+  
+  <!-- Description -->
+  <text x="80" y="310" font-family="system-ui, -apple-system, sans-serif" font-weight="normal" font-size="15px" fill="#d1fae5" opacity="0.75">
+    Designed for secure registration, dynamic roles, and seamless records tracking.
+  </text>
+
+  <!-- Feature Bullet 1 -->
+  <g transform="translate(80, 370)">
+    <circle cx="12" cy="-6" r="11" fill="#10b981" />
+    <path d="M 7 -6 L 10 -3 L 17 -10" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="36" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="16px" fill="#ffffff">Real-time Supabase Database Sync</text>
+  </g>
+
+  <!-- Feature Bullet 2 -->
+  <g transform="translate(80, 420)">
+    <circle cx="12" cy="-6" r="11" fill="#10b981" />
+    <path d="M 7 -6 L 10 -3 L 17 -10" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="36" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="16px" fill="#ffffff">Interactive Role &amp; Permissions Management</text>
+  </g>
+
+  <!-- Feature Bullet 3 -->
+  <g transform="translate(80, 470)">
+    <circle cx="12" cy="-6" r="11" fill="#10b981" />
+    <path d="M 7 -6 L 10 -3 L 17 -10" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="36" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="16px" fill="#ffffff">Officer Bearer (OB) Control Panel</text>
+  </g>
+
+
+  <!-- RIGHT COLUMN: Elegant Glassmorphic Showcase & Centered App Icon -->
+  <g filter="url(#card-shadow)">
+    <!-- Glassmorphic outer container -->
+    <rect x="740" y="115" width="400" height="400" rx="48" fill="#042f1a" fill-opacity="0.3" stroke="#10b981" stroke-width="2.5" stroke-opacity="0.25" />
+    
+    <!-- White glowing badge logo in center -->
+    <rect x="820" y="195" width="240" height="240" rx="54" fill="#ffffff" />
+    
+    <!-- Embedded high-res fellowship green cross logo -->
+    <g transform="translate(820, 195) scale(0.46875)">
+      <!-- Outer green rounded arms -->
+      <rect x="184" y="96" width="144" height="320" rx="72" fill="#059669" />
+      <rect x="96" y="184" width="320" height="144" rx="72" fill="#059669" />
+      
+      <!-- Inner hollow white rounded arms -->
+      <rect x="232" y="144" width="48" height="224" rx="24" fill="#ffffff" />
+      <rect x="144" y="232" width="224" height="48" rx="24" fill="#ffffff" />
+      
+      <!-- Quadrant circles -->
+      <circle cx="140" cy="140" r="28" fill="#059669" />
+      <circle cx="372" cy="140" r="28" fill="#059669" />
+      <circle cx="372" cy="372" r="28" fill="#059669" />
+      <circle cx="140" cy="372" r="28" fill="#059669" />
+    </g>
+  </g>
+</svg>

@@ -126,4 +126,24 @@ export function getDefaultAvatar(gender?: 'Male' | 'Female' | string): string {
   return '';
 }
 
+export function getCleanAvatar(avatarUrl: string | undefined): string {
+  if (!avatarUrl) return '';
+  if (avatarUrl.includes('|||')) {
+    return avatarUrl.split('|||')[0];
+  }
+  return avatarUrl;
+}
+
+export interface BirthdayLog {
+  id: string;
+  timestamp: string;
+  celebrants: string[];
+  recipientCount: number;
+  recipients: string[];
+  subject: string;
+  body: string;
+  status: 'sent' | 'simulated' | 'failed' | 'checked_no_birthdays';
+  errorMessage?: string;
+}
+
 

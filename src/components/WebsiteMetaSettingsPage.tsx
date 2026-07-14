@@ -135,7 +135,11 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       });
 
       if (response.ok) {
-        setFeedback({ type: 'success', message: 'Website meta details and OG image settings successfully saved!' });
+        const successData = await safeJsonParse(response);
+        setFeedback({ 
+          type: 'success', 
+          message: successData.message || 'Website meta details and OG image settings successfully saved!' 
+        });
         updateClientSideInstant();
         localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
       } else {

@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Member, UserRole, ALL_ROLES, OB_ROLES, isOBUser, DEFAULT_ADMIN_EMAIL, formatMemberName, getDefaultAvatar } from '../types';
+import { Member, UserRole, ALL_ROLES, OB_ROLES, isOBUser, DEFAULT_ADMIN_EMAIL, formatMemberName, getDefaultAvatar, getCleanAvatar } from '../types';
 import { RoleBadge } from './RoleBadge';
 import { 
   Search, 
@@ -22,10 +22,12 @@ import {
   FileText,
   X,
   AlertTriangle,
-  ShieldCheck
+  ShieldCheck,
+  IdCard
 } from 'lucide-react';
 import { financialsDb, BialConfig } from '../lib/financials';
 import { useAuth } from '../lib/auth';
+import { MemberIDCardModal } from './MemberIDCardModal';
 
 interface MemberTableProps {
   members: Member[];
@@ -74,7 +76,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+  const [itemsPerPage, setItemsPerPage] = useState<number>(20);
+  const [idCardMember, setIdCardMember] = useState<Member | null>(null);
 
   // PDF & Bial States
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
@@ -606,21 +609,21 @@ export const MemberTable: React.FC<MemberTableProps> = ({
               <thead>
                 <tr className="bg-stone-50 dark:bg-stone-950/20 text-stone-400 font-extrabold uppercase tracking-wider border-b border-stone-150 dark:border-stone-850">
                   {isCurrentUserAdmin && (
-                    <th className="py-3 px-4 w-10">
+                    <th className="py-2.5 sm:py-3 px-2 sm:px-4 w-10 text-center">
                       <input
                         type="checkbox"
                         checked={isAllOnPageSelected}
                         onChange={handleToggleSelectAllPage}
-                        className="w-4 h-4 rounded border-stone-300 dark:border-stone-750 text-emerald-600 focus:ring-emerald-500/30 accent-emerald-600 cursor-pointer"
+                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded border-stone-300 dark:border-stone-750 text-emerald-600 focus:ring-emerald-500/30 accent-emerald-600 cursor-pointer"
                         title="Select/deselect all on this page"
                       />
                     </th>
                   )}
-                  <th className="py-3 px-4">Member Info</th>
-                  <th className="py-3 px-4">Approval Status</th>
-                  <th className="py-3 px-4">Assigned Role</th>
-                  <th className="py-3 px-4">Address Details</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Member Info</th>
+                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Approval Status</th>
+                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Assigned Role</th>
+                  <th className="py-2.5 sm:py-3 px-2 sm:px-4 hidden md:table-cell">Address Details</th>
+                  <th className="py-2.5 sm:py-3 px-2 sm:px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100 dark:divide-stone-850 text-stone-700">
@@ -633,7 +636,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       className={`hover:bg-emerald-50/20 dark:hover:bg-stone-850/40 transition-colors ${selectedMemberIds.includes(member.id) ? 'bg-emerald-50/10 dark:bg-emerald-950/10' : ''}`}
                     >
                       {isCurrentUserAdmin && (
-                        <td className="py-3.5 px-4 w-10">
+                        <td className="py-2 sm:py-3.5 px-2 sm:px-4 w-10 text-center">
                           <input
                             type="checkbox"
                             checked={selectedMemberIds.includes(member.id)}
@@ -645,33 +648,33 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                 setSelectedMemberIds(prev => [...prev, member.id]);
                               }
                             }}
-                            className="w-4 h-4 rounded border-stone-300 dark:border-stone-750 text-emerald-600 focus:ring-emerald-500/30 accent-emerald-600 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded border-stone-300 dark:border-stone-750 text-emerald-600 focus:ring-emerald-500/30 accent-emerald-600 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                           />
                         </td>
                       )}
                       {/* Member Identifiers */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
+                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                        <div className="flex items-center gap-2 sm:gap-3">
                           <div 
                             onClick={() => onOpenProfile(member)}
-                            className={`w-10 h-10 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${member.avatar || getDefaultAvatar(member.gender) ? '' : 'p-2.5'} font-bold flex items-center justify-center text-sm cursor-pointer select-none`}
+                            className={`w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? '' : 'p-1.5 sm:p-2.5'} font-bold flex items-center justify-center text-xs sm:text-sm cursor-pointer select-none`}
                           >
-                            {member.avatar || getDefaultAvatar(member.gender) ? (
-                              <img src={member.avatar || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            {getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? (
+                              <img src={getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             ) : (
                               member.name.charAt(0).toUpperCase()
                             )}
                           </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
                               <button
                                 onClick={() => onOpenProfile(member)}
-                                className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left"
+                                className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left text-[11px] sm:text-xs truncate max-w-[100px] sm:max-w-none"
                               >
                                 {formatMemberName(member.name, member.gender)}
                               </button>
                               <span 
-                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shrink-0 ${
                                   onlineUserIds.includes(member.id) 
                                     ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
                                     : 'bg-stone-300 dark:bg-stone-700'
@@ -679,7 +682,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                 title={onlineUserIds.includes(member.id) ? "Online" : "Offline"}
                               />
                             </div>
-                            <span className="text-stone-400 block break-words text-[10px] sm:text-xs">
+                            <span className="text-stone-400 block break-words text-[9px] sm:text-[11px]">
                               {member.email} {member.phone ? `• ${member.phone}` : ''}
                             </span>
                           </div>
@@ -687,26 +690,26 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       </td>
 
                       {/* Approval Status */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1.5">
+                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                        <div className="flex items-center gap-1">
                           {member.status === 'approved' ? (
-                            <span className="inline-flex items-center gap-1 text-emerald-600 font-bold text-[10px] uppercase tracking-wide bg-emerald-50 px-2 py-0.5 rounded-md">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Approved
+                            <span className="inline-flex items-center gap-0.5 sm:gap-1 text-emerald-600 font-bold text-[9px] sm:text-[10px] uppercase tracking-wide bg-emerald-50 dark:bg-emerald-950/20 px-1 sm:px-2 py-0.5 rounded-md">
+                              <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Approved
                             </span>
                           ) : member.status === 'rejected' ? (
-                            <span className="inline-flex items-center gap-1 text-rose-600 font-bold text-[10px] uppercase tracking-wide bg-rose-50 px-2 py-0.5 rounded-md">
-                              <XCircle className="w-3.5 h-3.5" /> Rejected
+                            <span className="inline-flex items-center gap-0.5 sm:gap-1 text-rose-600 font-bold text-[9px] sm:text-[10px] uppercase tracking-wide bg-rose-50 dark:bg-rose-950/20 px-1 sm:px-2 py-0.5 rounded-md">
+                              <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Rejected
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-amber-600 font-bold text-[10px] uppercase tracking-wide bg-amber-50 px-2 py-0.5 rounded-md">
-                              <ShieldAlert className="w-3.5 h-3.5" /> Pending Review
+                            <span className="inline-flex items-center gap-0.5 sm:gap-1 text-amber-600 font-bold text-[9px] sm:text-[10px] uppercase tracking-wide bg-amber-50 dark:bg-amber-950/20 px-1 sm:px-2 py-0.5 rounded-md">
+                              <ShieldAlert className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span className="hidden sm:inline">Pending Review</span><span className="sm:inline">Pending</span>
                             </span>
                           )}
                         </div>
                       </td>
 
                       {/* Role selection Dropdown for Admin */}
-                      <td className="py-3.5 px-4">
+                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
                         {canChangeRole && !isDefaultAdmin ? (
                           <select
                             value={member.role}
@@ -724,7 +727,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                 });
                               }
                             }}
-                            className="bg-stone-50 border border-stone-200 rounded-lg p-1 text-[11px] font-medium text-stone-700 hover:bg-stone-100 transition-colors focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                            className="bg-stone-50 border border-stone-200 rounded-lg p-0.5 sm:p-1 text-[10px] sm:text-[11px] font-medium text-stone-700 hover:bg-stone-100 transition-colors focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                           >
                             {ALL_ROLES.map(r => (
                               <option key={r} value={r}>
@@ -738,25 +741,25 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       </td>
 
                       {/* Address info */}
-                      <td className="py-3.5 px-4 text-stone-500 text-[11px] max-w-xs truncate">
+                      <td className="py-2 sm:py-3.5 px-2 sm:px-4 text-stone-500 text-[11px] max-w-xs truncate hidden md:table-cell">
                         {member.address || <span className="italic text-stone-300">No Address Provided</span>}
                       </td>
 
                       {/* Immediate action triggers */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <td className="py-2 sm:py-3.5 px-2 sm:px-4 text-right">
+                        <div className="flex items-center justify-end gap-1 sm:gap-1.5">
                           {isCurrentUserAdmin && member.status === 'pending' && (
                             <>
                               <button
                                 onClick={() => handleQuickApprove(member.id, member.role)}
-                                className="p-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] uppercase tracking-wide flex items-center gap-1 transition-all cursor-pointer"
+                                className="p-1 px-1.5 sm:px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[9px] sm:text-[10px] uppercase tracking-wide flex items-center gap-0.5 sm:gap-1 transition-all cursor-pointer whitespace-nowrap"
                                 title="Approve Membership"
                               >
-                                <Check className="w-3 h-3" /> Approve
+                                <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Approve
                               </button>
                               <button
                                 onClick={() => handleQuickReject(member.id, member.role)}
-                                className="p-1 px-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg text-[10px] hover:text-stone-900 transition-colors cursor-pointer"
+                                className="p-1 px-1 sm:px-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg text-[9px] sm:text-[10px] hover:text-stone-900 transition-colors cursor-pointer"
                                 title="Reject Membership"
                               >
                                 Reject
@@ -767,29 +770,40 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                           {currentUser && (isCurrentUserAdmin || currentUser.id === member.id || currentUser.email.toLowerCase() === member.email.toLowerCase()) && (
                             <button
                               onClick={() => onOpenProfile(member)}
-                              className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
+                              className="p-1 sm:p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
                               title="Detailed Member profile card"
                             >
-                              <Edit2 className="w-4 h-4" />
+                              <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            </button>
+                          )}
+
+                          {member.status === 'approved' && (
+                            <button
+                              type="button"
+                              onClick={() => setIdCardMember(member)}
+                              className="p-1 sm:p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-all cursor-pointer"
+                              title="View & Print Member ID Card"
+                            >
+                              <IdCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             </button>
                           )}
 
                           {isCurrentUserAdmin && !isDefaultAdmin && (
                             deleteConfirmId === member.id ? (
-                              <div className="inline-flex items-center gap-1">
+                              <div className="inline-flex items-center gap-0.5 sm:gap-1">
                                 <button
                                   onClick={() => {
                                     onDeleteMember(member.id);
                                     setDeleteConfirmId(null);
                                   }}
-                                  className="px-2 py-1 bg-rose-600 text-white font-bold rounded-lg text-[9px] uppercase tracking-wide cursor-pointer"
+                                  className="px-1.5 py-0.5 bg-rose-600 text-white font-bold rounded-lg text-[8px] sm:text-[9px] uppercase tracking-wide cursor-pointer"
                                   title="Confirm Delete"
                                 >
                                   Confirm
                                 </button>
                                 <button
                                   onClick={() => setDeleteConfirmId(null)}
-                                  className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-605 font-bold rounded-lg text-[9px] uppercase tracking-wide cursor-pointer"
+                                  className="px-1.5 py-0.5 bg-stone-100 hover:bg-stone-200 text-stone-605 font-bold rounded-lg text-[8px] sm:text-[9px] uppercase tracking-wide cursor-pointer"
                                   title="Cancel"
                                 >
                                   Cancel
@@ -798,10 +812,10 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             ) : (
                               <button
                                 onClick={() => setDeleteConfirmId(member.id)}
-                                className="p-1.5 text-stone-450 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                className="p-1 sm:p-1.5 text-stone-450 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer"
                                 title="Delete Record"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                               </button>
                             )
                           )}
@@ -848,8 +862,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                     </div>
                   )}
                   <div className="w-12 h-12 shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 font-extrabold flex items-center justify-center text-lg shadow-inner select-none">
-                    {member.avatar || getDefaultAvatar(member.gender) ? (
-                      <img src={member.avatar || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    {getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? (
+                      <img src={getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       member.name.charAt(0).toUpperCase()
                     )}
@@ -898,12 +912,26 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
                 {/* Quick actions row */}
                 <div className="pt-3 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2.5 text-xs">
-                  <button
-                    onClick={() => onOpenProfile(member)}
-                    className="text-stone-500 hover:text-stone-800 font-bold cursor-pointer"
-                  >
-                    View Card
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onOpenProfile(member)}
+                      className="text-stone-500 hover:text-stone-800 font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      View Card
+                    </button>
+                    {member.status === 'approved' && (
+                      <>
+                        <span className="text-stone-300 dark:text-stone-700">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setIdCardMember(member)}
+                          className="text-emerald-650 hover:text-emerald-800 font-black cursor-pointer flex items-center gap-0.5 whitespace-nowrap"
+                        >
+                          <IdCard className="w-3 h-3 text-emerald-600 shrink-0" /> ID Badge
+                        </button>
+                      </>
+                    )}
+                  </div>
                   
                   <div className="flex gap-1.5">
                     {isCurrentUserAdmin && member.status === 'pending' && (
@@ -955,91 +983,131 @@ export const MemberTable: React.FC<MemberTableProps> = ({
       )}
 
       {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-stone-150 dark:border-stone-800 bg-white dark:bg-stone-900 px-4 py-3.5 sm:px-6 rounded-2xl shadow-xxs">
-          <div className="flex flex-1 justify-between sm:hidden">
+      {(filteredMembers.length > 10 || totalPages > 1) && (
+        <div className="flex flex-col sm:flex-row items-center justify-between border-t border-stone-150 dark:border-stone-800 bg-white dark:bg-stone-900 px-4 py-3.5 sm:px-6 rounded-2xl shadow-xxs gap-4">
+          <div className="flex w-full items-center justify-between sm:hidden">
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1}
-              className="relative inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-850 px-4 py-2 text-xs font-bold text-stone-700 dark:text-stone-350 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="relative inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-850 px-3 py-1.5 text-xs font-bold text-stone-700 dark:text-stone-350 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               Previous
             </button>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-stone-500 dark:text-stone-400">
+                Page {currentPage} of {Math.max(1, totalPages)}
+              </span>
+              <span className="text-stone-300 dark:text-stone-700">|</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="text-[11px] font-bold text-stone-600 dark:text-stone-300 bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 rounded-lg px-1.5 py-0.5 focus:outline-hidden cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-              className="relative ml-3 inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-850 px-4 py-2 text-xs font-bold text-stone-700 dark:text-stone-350 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              disabled={currentPage === totalPages || totalPages <= 1}
+              className="relative inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-850 px-3 py-1.5 text-xs font-bold text-stone-700 dark:text-stone-350 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               Next
             </button>
           </div>
-          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-            <div>
+
+          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between w-full">
+            <div className="flex items-center gap-4">
               <p className="text-xs text-stone-500 dark:text-stone-400">
-                Showing <span className="font-extrabold text-stone-800 dark:text-stone-200">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                Showing <span className="font-extrabold text-stone-800 dark:text-stone-200">{filteredMembers.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span> to{' '}
                 <span className="font-extrabold text-stone-800 dark:text-stone-200">{Math.min(currentPage * itemsPerPage, filteredMembers.length)}</span> of{' '}
                 <span className="font-extrabold text-stone-800 dark:text-stone-200">{filteredMembers.length}</span> members
               </p>
-            </div>
-            <div>
-              <nav className="isolate inline-flex -space-x-px rounded-xl gap-1" aria-label="Pagination">
-                <button
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1}
-                  className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  First
-                </button>
-                <button
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Prev
-                </button>
-                
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum = currentPage;
-                  if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-                  if (pageNum < 1 || pageNum > totalPages) return null;
-                  
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`relative inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-black transition-all cursor-pointer ${
-                        currentPage === pageNum
-                          ? 'z-10 bg-emerald-600 text-white shadow-xs'
-                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
 
-                <button
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              <div className="flex items-center gap-1.5 border-l border-stone-200 dark:border-stone-800 pl-4">
+                <span className="text-[11px] font-medium text-stone-400 uppercase tracking-wider">Per Page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs font-bold text-stone-700 dark:text-stone-300 bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 rounded-lg px-2 py-1 focus:ring-1 focus:ring-emerald-500 focus:outline-hidden cursor-pointer"
                 >
-                  Next
-                </button>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages}
-                  className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Last
-                </button>
-              </nav>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
             </div>
+
+            {totalPages > 1 && (
+              <div>
+                <nav className="isolate inline-flex -space-x-px rounded-xl gap-1" aria-label="Pagination">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    First
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Prev
+                  </button>
+                  
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum = currentPage;
+                    if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    if (pageNum < 1 || pageNum > totalPages) return null;
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`relative inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-black transition-all cursor-pointer ${
+                          currentPage === pageNum
+                            ? 'z-10 bg-emerald-600 text-white shadow-xs'
+                            : 'text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Next
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Last
+                  </button>
+                </nav>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1389,6 +1457,15 @@ export const MemberTable: React.FC<MemberTableProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Dynamic Member ID Card Overlay */}
+      {idCardMember && (
+        <MemberIDCardModal
+          member={idCardMember}
+          isOpen={idCardMember !== null}
+          onClose={() => setIdCardMember(null)}
+        />
       )}
 
     </div>

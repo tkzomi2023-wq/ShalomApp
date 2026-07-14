@@ -1,20 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, RefreshCw, CheckCircle, Info, Calendar, Users, Eye, EyeOff, Copy, Check, AlertCircle, Sparkles, Send, Heart, TrendingUp, Award } from 'lucide-react';
-import { Member, BirthdayWish } from '../types';
+import { Member, BirthdayWish, BirthdayLog } from '../types';
 import { db } from '../lib/supabase';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, Cell } from 'recharts';
-
-interface BirthdayLog {
-  id: string;
-  timestamp: string;
-  celebrants: string[];
-  recipientCount: number;
-  recipients: string[];
-  subject: string;
-  body: string;
-  status: 'sent' | 'simulated' | 'failed' | 'checked_no_birthdays';
-  errorMessage?: string;
-}
 
 interface StatusResponse {
   lastRunDate: string | null;
@@ -150,6 +138,36 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
         throw new Error(`Server returned error status ${res.status}`);
       }
 
+      // Save a log in birthday_logs for manual dispatch
+      try {
+        const todayTimeStr = new Date().toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        const subject = `🎉 Happy Birthday, ${selectedMember.name}! 🎂 - Shalom Youth Fellowship`;
+        const htmlContent = `<div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb;">
+          <h1 style="color: #8b5cf6;">Birthday Celebration! 🎉</h1>
+          <p>Today is a very special day! We celebrate the birthday of: <strong>${selectedMember.name}</strong></p>
+        </div>`;
+        const newLog: BirthdayLog = {
+          id: crypto.randomUUID(),
+          timestamp: todayTimeStr,
+          celebrants: [selectedMember.name],
+          recipientCount: 1,
+          recipients: [selectedMember.email || ''],
+          subject,
+          body: htmlContent,
+          status: 'sent'
+        };
+        await db.saveBirthdayLog(newLog);
+      } catch (logErr) {
+        console.warn('Failed to save manual birthday wish log to DB:', logErr);
+      }
+
       setManualFeedback({
         type: 'success',
         message: `Successfully emailed personalized birthday wish card to ${selectedMember.name}!`
@@ -183,11 +201,22 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
     try {
       setLoading(true);
       const res = await apiFetch('/api/birthday-email/status');
+      
+      let dbLogs: BirthdayLog[] = [];
+      try {
+        dbLogs = await db.getBirthdayLogs();
+      } catch (dbErr) {
+        console.warn('Failed to fetch birthday_logs from Supabase DB:', dbErr);
+      }
+
       if (res.ok) {
         const data = await safeJsonParse(res);
+        const finalLogs = dbLogs.length > 0 ? dbLogs : (Array.isArray(data?.logs) ? data.logs : []);
+        const finalLastRunDate = dbLogs.length > 0 ? dbLogs[0].timestamp : (data?.lastRunDate || null);
+
         const normalizedData = {
-          lastRunDate: data?.lastRunDate || null,
-          logs: Array.isArray(data?.logs) ? data.logs : [],
+          lastRunDate: finalLastRunDate,
+          logs: finalLogs,
           smtpConfigured: !!data?.smtpConfigured
         };
         setStatusData(normalizedData);
@@ -201,8 +230,15 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
         throw new Error(`Server returned error status ${res.status}`);
       }
     } catch (err) {
-      console.warn('Backend API `/api/birthday-email/status` is not available. Switching to Client-Side Fallback Mode:', err);
-      setIsFallbackMode(true);
+      console.warn('Backend API `/api/birthday-email/status` is not fully available. Loading from DB and local cache:', err);
+      
+      let dbLogs: BirthdayLog[] = [];
+      try {
+        dbLogs = await db.getBirthdayLogs();
+      } catch (dbErr) {
+        console.warn('Failed to fetch birthday_logs from Supabase DB during fallback:', dbErr);
+      }
+
       // Load local cache
       const cachedLogs = localStorage.getItem('sy_local_birthday_logs');
       let parsedLogs: BirthdayLog[] = [];
@@ -212,10 +248,14 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       } catch (e) {
         console.warn('Failed to parse cached logs, resetting:', e);
       }
+
+      const finalLogs = dbLogs.length > 0 ? dbLogs : parsedLogs;
+      const finalLastRunDate = dbLogs.length > 0 ? dbLogs[0].timestamp : (localStorage.getItem('sy_local_last_run_date') || null);
       const hasSmtpCached = !!localStorage.getItem('sy_local_smtp_config');
+
       setStatusData({
-        lastRunDate: localStorage.getItem('sy_local_last_run_date') || null,
-        logs: parsedLogs,
+        lastRunDate: finalLastRunDate,
+        logs: finalLogs,
         smtpConfigured: hasSmtpCached
       });
     } finally {
@@ -487,12 +527,18 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       if (!dobString) return false;
       const parts = dobString.split('-');
       if (parts.length === 3) {
+        const dobYear = parseInt(parts[0], 10);
         const dobMonth = parseInt(parts[1], 10);
         const dobDay = parseInt(parts[2], 10);
+        
+        // Skip if the birthday year is the current year or in the future
+        if (dobYear >= ist.year) return false;
+        
         return ist.month === dobMonth && ist.date === dobDay;
       }
       const dobDate = new Date(dobString);
       if (isNaN(dobDate.getTime())) return false;
+      if (dobDate.getFullYear() >= ist.year) return false;
       return (dobDate.getMonth() + 1) === ist.month && dobDate.getDate() === ist.date;
     };
 
@@ -616,6 +662,55 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
         type: 'success',
         message: result.status || result.message || 'Birthday task ran successfully!'
       });
+
+      // Construct and save a proper database/cache log for this run
+      if (result && result.success) {
+        const celebrantNames = Array.isArray(result.sentTo) ? result.sentTo.map((item: any) => item.name) : [];
+        const isSent = Array.isArray(result.sentTo) && result.sentTo.some((item: any) => item.status === 'sent');
+        
+        const todayString = new Date().toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        });
+        const todayTimeStr = new Date().toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+
+        const subject = celebrantNames.length > 0 
+          ? `🎉 Happy Birthday, ${celebrantNames.join(', ')}! 🎂 - Shalom Youth Fellowship`
+          : `System Birthday Scan - ${todayString}`;
+
+        const htmlContent = celebrantNames.length > 0 
+          ? `<div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb;">
+              <h1 style="color: #8b5cf6;">Birthday Celebration! 🎉</h1>
+              <p>Today is a very special day! We celebrate the birthdays of: <strong>${celebrantNames.join(', ')}</strong></p>
+            </div>`
+          : `<div style="padding: 20px; text-align: center; color: #6b7280;">No celebrants today. Scan completed successfully.</div>`;
+
+        const newLog: BirthdayLog = {
+          id: crypto.randomUUID(),
+          timestamp: todayTimeStr,
+          celebrants: celebrantNames,
+          recipientCount: members.length,
+          recipients: Array.isArray(result.sentTo) ? result.sentTo.map((item: any) => item.email) : [],
+          subject,
+          body: htmlContent,
+          status: celebrantNames.length > 0 ? (isSent ? 'sent' : 'simulated') : 'checked_no_birthdays'
+        };
+
+        try {
+          await db.saveBirthdayLog(newLog);
+        } catch (dbErr) {
+          console.warn('Failed to save triggered birthday log to database:', dbErr);
+        }
+      }
+
       fetchStatus();
       fetchAllWishes();
     } catch (err: any) {
@@ -1275,6 +1370,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                       value={smtpPass}
                       onChange={(e) => setSmtpPass(e.target.value)}
                       placeholder="Enter SMTP password or app password"
+                      autoComplete="new-password"
                       className="w-full text-xs p-3 pr-20 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
                     />
                     <div className="absolute right-2 flex items-center gap-1.5">

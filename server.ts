@@ -24,12 +24,12 @@ interface MetaConfig {
 }
 
 const defaultMeta: MetaConfig = {
-  title: "Shalom Youth Fellowship - MZP",
-  description: "Connecting youth, empowering faith, and celebrating fellowship at Shalom Youth Fellowship (Mizo Presbyterian Church).",
-  keywords: "Shalom Youth, Youth Fellowship, Mizo Presbyterian Church, MZP, Christian Youth",
-  ogImage: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=1200&auto=format&fit=crop",
+  title: "Shalom Youth Fellowship - JSAG",
+  description: "Connecting youth, empowering faith, and celebrating fellowship at Shalom Youth Fellowship (Assembly of God Church)",
+  keywords: "Shalom Youth, Youth Fellowship, Mizoram Assemblies of God Church, JSAG, CA, Christian Youth",
+  ogImage: "/og-image.png",
   favicon: "/favicon.ico",
-  siteUrl: "https://shalomyouthfellowship.mzp"
+  siteUrl: "https://shalomyouthfellowship.jsag"
 };
 
 function getMetaConfig(): MetaConfig {
@@ -188,15 +188,21 @@ const isBirthdayToday = (dobString?: string): boolean => {
   if (!dobString) return false;
   const parts = dobString.split('-');
   if (parts.length === 3) {
+    const dobYear = parseInt(parts[0], 10);
     const dobMonth = parseInt(parts[1], 10);
     const dobDay = parseInt(parts[2], 10);
     const ist = getCurrentISTTime();
+    
+    // Skip if the birthday year is the current year or in the future
+    if (dobYear >= ist.year) return false;
+    
     return ist.month === dobMonth && ist.date === dobDay;
   }
   
   const dobDate = new Date(dobString);
   if (isNaN(dobDate.getTime())) return false;
   const ist = getCurrentISTTime();
+  if (dobDate.getFullYear() >= ist.year) return false;
   return (dobDate.getMonth() + 1) === ist.month && dobDate.getDate() === ist.date;
 };
 
@@ -557,16 +563,42 @@ app.get("/api/birthday-email/smtp-config", (req, res) => {
 });
 
 // REST API endpoint to save SMTP configuration (Only accessible to tkpaite2016@gmail.com)
-app.post("/api/birthday-email/smtp-config", (req, res) => {
+app.post("/api/birthday-email/smtp-config", async (req, res) => {
   const { requesterEmail, host, port, user, pass, from } = req.body;
   if (!requesterEmail || requesterEmail.toLowerCase() !== "tkpaite2016@gmail.com") {
     return res.status(403).json({ error: "Access Denied: SMTP configurations are restricted." });
   }
 
   try {
-    const config: SmtpConfig = { host, port, user, pass, from };
+    const existing = getSmtpConfig();
+    const finalPass = (pass !== undefined && pass !== null) ? pass : (existing?.pass || "");
+    const config: SmtpConfig = { host, port, user, pass: finalPass, from };
+    
+    // 1. Save locally
     fs.writeFileSync(SMTP_CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
-    res.json({ success: true, message: "SMTP configuration successfully updated." });
+
+    // 2. Upsert in Supabase for persistence across deployments/restarts
+    const { error: dbError } = await supabase
+      .from("smtp_configs")
+      .upsert({
+        id: "singleton",
+        host,
+        port,
+        user,
+        pass: finalPass,
+        from,
+        updated_at: new Date().toISOString()
+      });
+
+    if (dbError) {
+      console.warn("[SMTP Config Sync] Supabase upsert failed (operating on local file fallback):", dbError.message);
+    }
+
+    res.json({ 
+      success: true, 
+      message: "SMTP configuration successfully updated and persisted to database.",
+      dbSynced: !dbError
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to save SMTP configurations" });
   }
@@ -843,13 +875,107 @@ setTimeout(() => {
   });
 }, 10000);
 
+// Helper to pull meta config from Supabase on server boot
+async function syncMetaConfigFromDb() {
+  try {
+    const { data, error } = await supabase
+      .from("meta_configs")
+      .select("*")
+      .eq("id", "singleton")
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        console.log("[MetaConfig Sync] No meta_config row found in Supabase. Initializing table with default JSAG settings...");
+        const { error: insertError } = await supabase
+          .from("meta_configs")
+          .insert({
+            id: "singleton",
+            title: defaultMeta.title,
+            description: defaultMeta.description,
+            keywords: defaultMeta.keywords,
+            og_image: defaultMeta.ogImage,
+            favicon: defaultMeta.favicon,
+            site_url: defaultMeta.siteUrl,
+            updated_at: new Date().toISOString()
+          });
+        
+        if (insertError) {
+          console.error("[MetaConfig Sync] Failed to insert default JSAG meta configurations in Supabase:", insertError.message);
+        } else {
+          console.log("[MetaConfig Sync] Successfully populated 'meta_configs' table with default JSAG configurations.");
+        }
+      } else {
+        console.log("[MetaConfig Sync] Supabase table 'meta_configs' select returned error (may not be created yet):", error.message);
+      }
+      return;
+    }
+
+    if (data) {
+      const dbConfig: MetaConfig = {
+        title: data.title || defaultMeta.title,
+        description: data.description || defaultMeta.description,
+        keywords: data.keywords || defaultMeta.keywords,
+        ogImage: data.og_image || defaultMeta.ogImage,
+        favicon: data.favicon || defaultMeta.favicon,
+        siteUrl: data.site_url || defaultMeta.siteUrl
+      };
+      fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(dbConfig, null, 2), "utf-8");
+      console.log("[MetaConfig Sync] Successfully synchronized metadata settings from Supabase database to local cache.");
+    }
+  } catch (err: any) {
+    console.error("[MetaConfig Sync] Error pulling meta config from Supabase:", err.message || err);
+  }
+}
+
+// Helper to pull SMTP config from Supabase on server boot
+async function syncSmtpConfigFromDb() {
+  try {
+    const { data, error } = await supabase
+      .from("smtp_configs")
+      .select("*")
+      .eq("id", "singleton")
+      .single();
+
+    if (error) {
+      console.log("[SMTP Config Sync] Supabase table 'smtp_configs' select returned error (may not be created yet):", error.message);
+      return;
+    }
+
+    if (data) {
+      const dbConfig: SmtpConfig = {
+        host: data.host,
+        port: data.port,
+        user: data.user,
+        pass: data.pass,
+        from: data.from
+      };
+      fs.writeFileSync(SMTP_CONFIG_FILE, JSON.stringify(dbConfig, null, 2), "utf-8");
+      console.log("[SMTP Config Sync] Successfully synchronized SMTP credentials from Supabase database to local cache.");
+    }
+  } catch (err: any) {
+    console.error("[SMTP Config Sync] Error pulling SMTP config from Supabase:", err.message || err);
+  }
+}
+
+// Trigger initial configurations synchronization 3 seconds after server start
+setTimeout(() => {
+  console.log("[Scheduler] Performing initial meta & SMTP configurations sync with Supabase...");
+  syncMetaConfigFromDb().catch(err => {
+    console.error("[Scheduler] Meta configurations sync error:", err);
+  });
+  syncSmtpConfigFromDb().catch(err => {
+    console.error("[Scheduler] SMTP configurations sync error:", err);
+  });
+}, 3000);
+
 
 // REST API endpoints for Website Meta / OG Configurations
 app.get("/api/meta-config", (req, res) => {
   res.json(getMetaConfig());
 });
 
-app.post("/api/meta-config", (req, res) => {
+app.post("/api/meta-config", async (req, res) => {
   const { requesterEmail, title, description, keywords, ogImage, favicon, siteUrl } = req.body;
   if (!requesterEmail || requesterEmail.toLowerCase() !== "tkpaite2016@gmail.com") {
     return res.status(403).json({ error: "Access Denied: Meta configuration is restricted to tkpaite2016@gmail.com." });
@@ -857,9 +983,39 @@ app.post("/api/meta-config", (req, res) => {
 
   try {
     const config: MetaConfig = { title, description, keywords, ogImage, favicon, siteUrl };
+    // 1. Persist locally first
     fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
-    res.json({ success: true, message: "Meta configurations successfully updated." });
+
+    // 2. Persist in Supabase Database
+    const { error: dbError } = await supabase
+      .from("meta_configs")
+      .upsert({
+        id: "singleton",
+        title,
+        description,
+        keywords,
+        og_image: ogImage,
+        favicon,
+        site_url: siteUrl,
+        updated_at: new Date().toISOString()
+      });
+
+    if (dbError) {
+      console.warn("[MetaConfig Sync] DB upsert failed, operating on local cache:", dbError.message);
+      return res.json({
+        success: true,
+        message: "Meta configurations saved locally, but database sync was skipped. (Ensure the 'meta_configs' table exists in Supabase by running the setup SQL)",
+        dbSynced: false
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Meta configurations successfully saved and synchronized in the Supabase database too!",
+      dbSynced: true
+    });
   } catch (err: any) {
+    console.error("[MetaConfig Sync] Error during meta configuration save:", err);
     res.status(500).json({ error: err.message || "Failed to save meta configurations" });
   }
 });

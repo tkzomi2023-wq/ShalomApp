@@ -5,13 +5,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar, DEFAULT_ADMIN_EMAIL } from '../types';
+import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar, DEFAULT_ADMIN_EMAIL, getCleanAvatar } from '../types';
 import { useAuth } from '../lib/auth';
 import { supabase, db } from '../lib/supabase';
-import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock } from 'lucide-react';
+import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard } from 'lucide-react';
 import { RoleBadge } from './RoleBadge';
-import { FinancialRecord, financialsDb, MONTHS } from '../lib/financials';
+import { FinancialRecord, financialsDb, MONTHS, BIAL_IDS } from '../lib/financials';
 import { getActivityLogs } from '../lib/activity';
+import { MemberIDCardModal } from './MemberIDCardModal';
 
 interface UserProfileModalProps {
   member: Member;
@@ -31,13 +32,130 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   initialEditMode = false
 }) => {
   const { user: currentUser } = useAuth();
+  const getOriginalAvatar = (url: string | undefined): string => {
+    if (!url) return '';
+    if (url.includes('|||')) {
+      return url.split('|||')[1];
+    }
+    return url;
+  };
   const canChangeRole = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+  const canEditBial = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [isAvatarUploading, setIsAvatarUploading] = useState(false);
   const [avatarUploadError, setAvatarUploadError] = useState<string | null>(null);
   const [avatarUploadProgress, setAvatarUploadProgress] = useState<number>(0);
   
   const [isSaving, setIsSaving] = useState(false);
+  const [showIdCard, setShowIdCard] = useState(false);
+
+  // Client-side AI Background removal states
+  const [removeBgToggle, setRemoveBgToggle] = useState<boolean>(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [originalPreviewUrl, setOriginalPreviewUrl] = useState<string>('');
+  const [transparentPreviewUrl, setTransparentPreviewUrl] = useState<string>('');
+  const [transparentBlob, setTransparentBlob] = useState<Blob | null>(null);
+  const [isProcessingBg, setIsProcessingBg] = useState<boolean>(false);
+  const [bgRemovalProgress, setBgRemovalProgress] = useState<string>('');
+  const [bgRemovalError, setBgRemovalError] = useState<string | null>(null);
+  const [originalUploadedUrl, setOriginalUploadedUrl] = useState<string>('');
+  const [transparentUploadedUrl, setTransparentUploadedUrl] = useState<string>('');
+  const [isTransparentApplied, setIsTransparentApplied] = useState<boolean>(false);
+
+  const runBackgroundRemoval = async (fileToProcess: File) => {
+    setIsProcessingBg(true);
+    setBgRemovalError(null);
+    setBgRemovalProgress('Initializing AI model...');
+    setIsTransparentApplied(false);
+    try {
+      const { removeBackground } = await import('@imgly/background-removal');
+      
+      const processedBlob = await removeBackground(fileToProcess, {
+        output: {
+          layout: 'isomorphic'
+        } as any,
+        progress: (key, current, total) => {
+          const pct = total ? Math.round((current / total) * 100) : 0;
+          let phase = 'Processing...';
+          if (key.includes('fetch')) phase = 'Downloading AI assets';
+          else if (key.includes('model')) phase = 'Loading AI neural network';
+          setBgRemovalProgress(`${phase}: ${pct}%`);
+        }
+      });
+      
+      const previewUrl = URL.createObjectURL(processedBlob);
+      setTransparentPreviewUrl(previewUrl);
+      setTransparentBlob(processedBlob);
+      setBgRemovalProgress('Saving transparent image to cloud...');
+      
+      const ext = 'png';
+      const filePath = `${member.id}/avatar_transparent_${Date.now()}.${ext}`;
+      const imageUrl = await db.uploadToStorage('avatars', filePath, new File([processedBlob], `avatar_transparent.${ext}`, { type: 'image/png' }));
+      
+      setTransparentUploadedUrl(imageUrl);
+      setAvatar(imageUrl);
+      setIsTransparentApplied(true);
+      
+      if (!isEditing && (originalUploadedUrl || imageUrl)) {
+        const origUrl = originalUploadedUrl || imageUrl;
+        const compoundUrl = `${imageUrl}|||${origUrl}`;
+        const updated: Member = {
+          ...member,
+          avatar: compoundUrl
+        };
+        onUpdate(updated);
+      }
+    } catch (err: any) {
+      console.error('Error removing background:', err);
+      setBgRemovalError(err.message || 'Failed to remove background. Please try another image.');
+    } finally {
+      setIsProcessingBg(false);
+      setBgRemovalProgress('');
+    }
+  };
+
+  const handleToggleChange = async (checked: boolean) => {
+    setRemoveBgToggle(checked);
+    if (checked) {
+      if (transparentUploadedUrl) {
+        setAvatar(transparentUploadedUrl);
+        setIsTransparentApplied(true);
+      } else if (selectedFile) {
+        await runBackgroundRemoval(selectedFile);
+      } else if (avatar) {
+        // AI starts working instantly by fetching and processing the existing profile picture
+        setIsProcessingBg(true);
+        setBgRemovalProgress('Fetching current profile picture...');
+        try {
+          const response = await fetch(avatar);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.statusText}`);
+          }
+          const blob = await response.blob();
+          const ext = blob.type.split('/').pop() || 'png';
+          const file = new File([blob], `avatar_original.${ext}`, { type: blob.type || 'image/png' });
+          setSelectedFile(file);
+          setOriginalPreviewUrl(avatar);
+          setOriginalUploadedUrl(avatar);
+          await runBackgroundRemoval(file);
+        } catch (e: any) {
+          console.error("Failed to fetch current avatar to remove background:", e);
+          setBgRemovalError("Could not fetch the existing profile picture automatically. Please select or upload a new photo directly to remove its background.");
+          setIsProcessingBg(false);
+          setBgRemovalProgress('');
+        }
+      } else {
+        setBgRemovalError("No profile picture found to process. Please upload a profile photo first.");
+      }
+    } else {
+      if (originalUploadedUrl) {
+        setAvatar(originalUploadedUrl);
+      } else {
+        setAvatar(getOriginalAvatar(member.avatar));
+      }
+      setIsTransparentApplied(false);
+    }
+  };
   
   // Field values
   const [name, setName] = useState(member.name);
@@ -100,9 +218,36 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     setAddress(member.address || '');
     setRole(member.role);
     setStatus(member.status);
-    setAvatar(member.avatar || '');
+    const rawAvatar = member.avatar || '';
+    const cleanAvatar = getCleanAvatar(rawAvatar);
+    const originalAvatar = getOriginalAvatar(rawAvatar);
+    const hasTransparentAvatar = rawAvatar.includes('|||') || rawAvatar.includes('_transparent_');
+
+    setAvatar(cleanAvatar);
     setEmailNotifications(member.email_notifications !== false);
     setBial(member.bial || '');
+    
+    // Reset or initialize background removal states based on current database state
+    setRemoveBgToggle(hasTransparentAvatar);
+    setIsTransparentApplied(hasTransparentAvatar);
+    setSelectedFile(null);
+    setBgRemovalProgress('');
+    setBgRemovalError(null);
+    setIsProcessingBg(false);
+    setTransparentBlob(null);
+
+    if (hasTransparentAvatar) {
+      setTransparentUploadedUrl(cleanAvatar);
+      setTransparentPreviewUrl(cleanAvatar);
+      setOriginalUploadedUrl(originalAvatar);
+      setOriginalPreviewUrl(originalAvatar);
+    } else {
+      setTransparentUploadedUrl('');
+      setTransparentPreviewUrl('');
+      setOriginalUploadedUrl(cleanAvatar);
+      setOriginalPreviewUrl(cleanAvatar);
+    }
+
     if (initialEditMode) {
       setIsEditing(true);
     } else {
@@ -187,6 +332,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       return;
     }
 
+    // Set local state
+    setSelectedFile(file);
+    const origUrl = URL.createObjectURL(file);
+    setOriginalPreviewUrl(origUrl);
+    setTransparentPreviewUrl('');
+    setTransparentBlob(null);
+    setTransparentUploadedUrl('');
+    setBgRemovalError(null);
+    setIsTransparentApplied(false);
+
     setIsAvatarUploading(true);
     setAvatarUploadError(null);
     setAvatarUploadProgress(10);
@@ -208,15 +363,21 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       
       clearInterval(progressInterval);
       setAvatarUploadProgress(100);
-      setAvatar(imageUrl);
+      setOriginalUploadedUrl(imageUrl);
       
-      // Auto-save picture details immediately ONLY if not editing
-      if (!isEditing) {
-        const updated: Member = {
-          ...member,
-          avatar: imageUrl
-        };
-        onUpdate(updated);
+      if (removeBgToggle) {
+        setAvatar(imageUrl);
+        await runBackgroundRemoval(file);
+      } else {
+        setAvatar(imageUrl);
+        // Auto-save picture details immediately ONLY if not editing
+        if (!isEditing) {
+          const updated: Member = {
+            ...member,
+            avatar: imageUrl
+          };
+          onUpdate(updated);
+        }
       }
     } catch (err: any) {
       clearInterval(progressInterval);
@@ -229,13 +390,40 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   const handleSave = async () => {
-    if (!dob) {
-      alert('Date of Birth is compulsory! Please provide your birthday so we can celebrate with community alerts and custom themes.');
+    if (removeBgToggle && bgRemovalError) {
+      alert('Background removal failed. Please turn off "Remove Background" or retry with a different image before saving.');
+      return;
+    }
+
+    if (removeBgToggle && transparentPreviewUrl && !isTransparentApplied) {
+      alert('You have successfully removed the background but have not set it as your active profile picture yet. Please click the "Set Background Removed Image as Profile Picture" button first to apply it, and then save changes.');
+      return;
+    }
+
+    if (isProcessingBg) {
+      alert('Background removal is still processing. Please wait for it to complete.');
+      return;
+    }
+
+    if (isAvatarUploading) {
+      alert('Profile photo is still uploading. Please wait for the upload to complete.');
       return;
     }
     
     setIsSaving(true);
     try {
+      let finalAvatar = avatar;
+      if (avatar === '') {
+        finalAvatar = '';
+      } else if (removeBgToggle && transparentUploadedUrl) {
+        const origUrl = originalUploadedUrl || getOriginalAvatar(member.avatar) || avatar;
+        finalAvatar = `${transparentUploadedUrl}|||${origUrl}`;
+      } else if (!removeBgToggle && originalUploadedUrl) {
+        finalAvatar = originalUploadedUrl;
+      } else if (!removeBgToggle) {
+        finalAvatar = getOriginalAvatar(member.avatar);
+      }
+
       const updated: Member = {
         ...member,
         name,
@@ -246,9 +434,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         address,
         role: canChangeRole ? role : member.role,
         status: isCurrentUserAdmin ? status : member.status,
-        avatar,
+        avatar: finalAvatar,
         email_notifications: emailNotifications,
-        bial: bial || undefined
+        bial: canEditBial ? (bial || undefined) : member.bial
       };
       await onUpdate(updated);
       setIsEditing(false);
@@ -346,8 +534,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 </div>
               )}
 
-              {/* Hover overlay if editable and not uploading */}
-              {canEdit && !isAvatarUploading && (
+              {/* Processing overlay */}
+              {isProcessingBg && (
+                <div className="absolute inset-0 bg-stone-900/70 flex flex-col items-center justify-center text-white z-10">
+                  <span className="w-5 h-5 border-2 border-t-transparent border-emerald-400 rounded-full animate-spin"></span>
+                  <span className="text-[8px] font-bold mt-1 uppercase tracking-wider text-emerald-400 animate-pulse">Processing AI...</span>
+                </div>
+              )}
+
+              {/* Hover overlay if editable and not uploading or processing */}
+              {canEdit && !isAvatarUploading && !isProcessingBg && (
                 <div className="absolute inset-0 bg-stone-900/60 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                   <Camera className="w-5 h-5 text-emerald-200" />
                   <span className="text-[9px] font-black tracking-wider uppercase mt-1">Update</span>
@@ -374,7 +570,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   {avatar && isEditing && (
                     <button
                       type="button"
-                      onClick={() => setAvatar('')}
+                      onClick={() => {
+                        setAvatar('');
+                        setOriginalUploadedUrl('');
+                        setOriginalPreviewUrl('');
+                        setTransparentUploadedUrl('');
+                        setTransparentPreviewUrl('');
+                        setIsTransparentApplied(false);
+                        setRemoveBgToggle(false);
+                      }}
                       className="text-[9px] font-black text-rose-600 dark:text-rose-400 hover:underline uppercase tracking-wider cursor-pointer"
                     >
                       Clear / Reset
@@ -445,6 +649,164 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                         Dismiss
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Remove Background Toggle (Only when editing and user can edit) */}
+                {isEditing && (
+                  <div className="pt-2 border-t border-stone-150 dark:border-stone-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={removeBgToggle}
+                          onChange={(e) => handleToggleChange(e.target.checked)}
+                          className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-stone-300 cursor-pointer"
+                        />
+                        <span className="text-[11px] font-bold text-stone-700 dark:text-stone-300 flex items-center gap-1">
+                          <Scissors className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          Remove Background (Client AI)
+                        </span>
+                      </label>
+                      <span className="text-[9px] text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded font-mono">
+                        OFF by default
+                      </span>
+                    </div>
+
+                    {/* Processing State */}
+                    {isProcessingBg && (
+                      <div className="p-3 bg-emerald-500/5 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-xl text-[10px] leading-relaxed border border-emerald-500/25 space-y-2 animate-pulse">
+                        <div className="flex items-center justify-between font-bold uppercase tracking-wider text-[9px]">
+                          <div className="flex items-center gap-2">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            <span>AI Background Removal Active</span>
+                          </div>
+                          <span className="text-stone-500 dark:text-stone-400 font-mono lowercase tracking-normal font-medium">{bgRemovalProgress}</span>
+                        </div>
+                        
+                        {/* Progress bar container */}
+                        <div className="w-full h-2.5 bg-stone-150 dark:bg-stone-800 rounded-full overflow-hidden">
+                          {(() => {
+                            const match = bgRemovalProgress.match(/: (\d+)%/);
+                            const percent = match ? parseInt(match[1], 10) : 35;
+                            return (
+                              <div 
+                                className="h-full bg-linear-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(16,185,129,0.4)]"
+                                style={{ width: `${percent}%` }}
+                              />
+                            );
+                          })()}
+                        </div>
+                        <p className="text-[9px] text-center text-stone-500 dark:text-stone-400 font-mono">
+                          Please do not close this modal or click "Save" while the AI is processing.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Background Removal Error */}
+                    {bgRemovalError && (
+                      <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 rounded-lg text-[10px] leading-relaxed border border-rose-100 dark:border-rose-900/30">
+                        <p className="font-bold flex items-center gap-1 uppercase tracking-wider text-[9px]">
+                          ⚠️ Background Removal Failed
+                        </p>
+                        <p>{bgRemovalError}</p>
+                      </div>
+                    )}
+
+                    {/* Side-by-side previews when active */}
+                    {removeBgToggle && (originalPreviewUrl || transparentPreviewUrl) && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-3 mt-2">
+                          {/* Original Image Card */}
+                          <div className="border border-stone-150 dark:border-stone-850 rounded-xl p-2 bg-stone-50/50 dark:bg-stone-950/40 flex flex-col items-center">
+                            <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">Original</span>
+                            <div className="h-20 w-20 rounded-lg border border-stone-150 dark:border-stone-800 overflow-hidden bg-stone-100">
+                              <img 
+                                src={originalPreviewUrl || avatar} 
+                                alt="Original" 
+                                className="h-full w-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Transparent PNG Card with Chess-board representation */}
+                          <div className="border border-stone-150 dark:border-stone-850 rounded-xl p-2 bg-white dark:bg-stone-900 flex flex-col items-center relative overflow-hidden">
+                            <div className="absolute inset-0 opacity-[0.04] dark:opacity-[0.08] pointer-events-none" style={{
+                              backgroundImage: 'radial-gradient(#000 1px, transparent 1px), radial-gradient(#000 1px, transparent 1px)',
+                              backgroundSize: '12px 12px',
+                              backgroundPosition: '0 0, 6px 6px'
+                            }}></div>
+                            <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider mb-1.5 z-10 flex items-center gap-1">
+                              <Sparkles className="w-2.5 h-2.5 text-yellow-500 animate-pulse" />
+                              Transparent Preview
+                            </span>
+                            <div className="h-20 w-20 rounded-lg border border-stone-150 dark:border-stone-800 overflow-hidden bg-stone-100 dark:bg-stone-800 z-10 flex items-center justify-center">
+                              {transparentPreviewUrl ? (
+                                <img 
+                                  src={transparentPreviewUrl} 
+                                  alt="Transparent Preview" 
+                                  className="h-full w-full object-contain"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="text-center p-1 text-stone-400 text-[8px] leading-tight">
+                                  {isProcessingBg ? 'Processing...' : 'Upload a photo to see transparent preview'}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Set profile picture and Download buttons */}
+                        {transparentPreviewUrl && (
+                          <div className="space-y-2">
+                            {isTransparentApplied ? (
+                              <div className="flex items-center gap-2 justify-center bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 p-2.5 rounded-lg text-[10px] font-bold border border-emerald-200/50">
+                                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                <span>Applied successfully! This image is now set as your active profile picture. Click "Save Changes" below to finalize.</span>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (transparentUploadedUrl) {
+                                    setAvatar(transparentUploadedUrl);
+                                    setIsTransparentApplied(true);
+                                  } else {
+                                    alert('Transparent image is ready locally, but the cloud upload is still completing. Please wait a brief moment and try again.');
+                                  }
+                                }}
+                                className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-xs hover:shadow-md cursor-pointer uppercase tracking-wider animate-pulse"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                                Set Background Removed Image as Profile Picture
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!transparentPreviewUrl) return;
+                                const link = document.createElement('a');
+                                link.href = transparentPreviewUrl;
+                                link.download = `transparent_${selectedFile?.name || 'profile'}.png`;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              }}
+                              className="w-full py-1.5 px-3 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-[10px] rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-stone-200 dark:border-stone-800"
+                            >
+                              <Download className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                              Download Transparent PNG
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -525,7 +887,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <Calendar className="w-4 h-4 text-stone-400 shrink-0" />
                 <div>
                   <p className="text-[10px] text-stone-400 uppercase tracking-wide">
-                    Date of Birth {isEditing && <span className="text-rose-500 font-extrabold font-sans text-[9px] lowercase tracking-normal">(Compulsory 🎂)</span>}
+                    Date of Birth {isEditing && <span className="text-stone-400 font-normal font-sans text-[9px] lowercase tracking-normal">(Optional 🎂)</span>}
                   </p>
                   {isEditing ? (
                     <input
@@ -609,16 +971,29 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     <select
                       value={bial}
                       id="user-profile-bial-select"
+                      disabled={!canEditBial}
                       onChange={e => setBial(e.target.value)}
-                      className="w-full text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1.5 rounded-md border border-stone-200 font-semibold"
+                      className={`w-full text-xs px-2 py-1.5 rounded-md border font-semibold ${
+                        canEditBial
+                          ? 'bg-stone-50 dark:bg-stone-850 border-stone-200 text-stone-800 dark:text-stone-100'
+                          : 'bg-stone-100 dark:bg-stone-900 border-stone-250 text-stone-400 cursor-not-allowed opacity-75'
+                      }`}
                     >
                       <option value="">-- No Bial Assigned --</option>
-                      {Array.from({ length: 12 }, (_, i) => `Bial ${i + 1}`).map(b => (
+                      {BIAL_IDS.map(b => (
                         <option key={b} value={b}>{b}</option>
                       ))}
                     </select>
-                    <p className="text-[10px] text-stone-400 mt-0.5">
-                      Assigning or correcting Bial directly affects financial records, receipts, and membership metrics.
+                    <p className="text-[10px] mt-0.5 font-medium">
+                      {canEditBial ? (
+                        <span className="text-stone-450">
+                          Assigning or correcting Bial directly affects financial records, receipts, and membership metrics.
+                        </span>
+                      ) : (
+                        <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                          Bial assignment is locked. Contact the administrator (tkpaite2016@gmail.com) to update your Bial.
+                        </span>
+                      )}
                     </p>
                   </div>
                 ) : (
@@ -906,12 +1281,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   </button>
                   <button
                     onClick={handleSave}
-                    disabled={isSaving}
+                    disabled={isSaving || isProcessingBg || isAvatarUploading}
                     className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 disabled:opacity-50 text-white font-bold text-[11px] rounded-lg shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer"
                   >
                     {isSaving ? (
                       <>
                         <Clock className="w-3.5 h-3.5 animate-spin" /> Saving...
+                      </>
+                    ) : isProcessingBg ? (
+                      <>
+                        <Clock className="w-3.5 h-3.5 animate-spin" /> Processing AI...
+                      </>
+                    ) : isAvatarUploading ? (
+                      <>
+                        <Clock className="w-3.5 h-3.5 animate-spin" /> Uploading...
                       </>
                     ) : (
                       <>
@@ -932,14 +1315,36 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           )}
 
           {!isEditing && (
-            <button
-              onClick={onClose}
-              className="px-3.5 py-1.5 bg-stone-950 text-white hover:bg-stone-800 dark:bg-stone-800 dark:hover:bg-stone-700 font-bold text-[11px] rounded-lg cursor-pointer"
-            >
-              Close Card
-            </button>
+            <div className="flex items-center justify-between w-full">
+              {member.status === 'approved' ? (
+                <button
+                  type="button"
+                  onClick={() => setShowIdCard(true)}
+                  className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 text-emerald-750 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 rounded-lg text-[11px] font-black transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <IdCard className="w-3.5 h-3.5" /> Print/View ID Card
+                </button>
+              ) : (
+                <div />
+              )}
+              <button
+                onClick={onClose}
+                className="px-3.5 py-1.5 bg-stone-950 text-white hover:bg-stone-800 dark:bg-stone-800 dark:hover:bg-stone-700 font-bold text-[11px] rounded-lg cursor-pointer"
+              >
+                Close Card
+              </button>
+            </div>
           )}
         </div>
+
+        {/* Dynamic Printable ID Card Modal */}
+        {showIdCard && (
+          <MemberIDCardModal
+            member={member}
+            isOpen={showIdCard}
+            onClose={() => setShowIdCard(false)}
+          />
+        )}
 
       </motion.div>
     </motion.div>

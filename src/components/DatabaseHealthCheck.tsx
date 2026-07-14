@@ -220,7 +220,7 @@ export function DatabaseHealthCheck() {
             animate={{ opacity: 1, y: -4, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.95 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute bottom-full right-0 mb-2 w-80 bg-white dark:bg-stone-900 rounded-2xl shadow-xl border border-stone-200 dark:border-stone-800 p-4 z-40 text-left overflow-hidden"
+            className="fixed bottom-16 left-1/2 -translate-x-1/2 sm:absolute sm:bottom-full sm:right-0 sm:left-auto sm:translate-x-0 mb-2 w-[calc(100vw-24px)] sm:w-80 bg-white dark:bg-stone-900 rounded-2xl shadow-xl border border-stone-200 dark:border-stone-800 p-4 z-50 text-left overflow-hidden"
           >
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-stone-800">

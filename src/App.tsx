@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, AuthProvider } from './lib/auth';
 import { db, supabase } from './lib/supabase';
-import { Member, UserRole, isOBUser, DEFAULT_ADMIN_EMAIL, ALL_ROLES, formatMemberName, BirthdayWish, ChatMessage, getDefaultAvatar } from './types';
+import { Member, UserRole, isOBUser, DEFAULT_ADMIN_EMAIL, ALL_ROLES, formatMemberName, BirthdayWish, ChatMessage, getDefaultAvatar, getCleanAvatar } from './types';
 import { getActivityLogs, addActivityLog, clearActivityLogs } from './lib/activity';
 import { RoleBadge } from './components/RoleBadge';
 import { SQLSetupModal } from './components/SQLSetupModal';
@@ -1759,8 +1759,8 @@ function AppContent() {
               className="w-9 h-9 rounded-full overflow-hidden bg-emerald-80 text-emerald-200 hover:text-white font-black flex items-center justify-center text-xs border-2 border-emerald-700/50 cursor-pointer shrink-0"
               title="My Account Details"
             >
-              {user.avatar || getDefaultAvatar(user.gender) ? (
-                <img src={user.avatar || getDefaultAvatar(user.gender)} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              {getCleanAvatar(user.avatar) || getDefaultAvatar(user.gender) ? (
+                <img src={getCleanAvatar(user.avatar) || getDefaultAvatar(user.gender)} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
                 user.name.charAt(0).toUpperCase()
               )}
@@ -3231,7 +3231,7 @@ function AppContent() {
 
                         const isOwnMessage = msg.user_id === user.id;
                         const senderMember = members.find((m) => m.id === msg.user_id);
-                        const avatarUrl = senderMember?.avatar || msg.user_avatar || (senderMember ? getDefaultAvatar(senderMember.gender) : '');
+                        const avatarUrl = getCleanAvatar(senderMember?.avatar) || msg.user_avatar || (senderMember ? getDefaultAvatar(senderMember.gender) : '');
                         const isDeleted = msg.message === "This message was deleted";
                         const repliesCount = chatMessages.filter(m => m.parent_id === msg.id).length;
                         const isEditing = editingMsgId === msg.id;
@@ -3659,7 +3659,7 @@ function AppContent() {
                     <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 border border-violet-200 shadow-xxs">
                       {(() => {
                         const parentSenderMember = members.find(m => m.id === activeThreadParent.user_id);
-                        const parentAvatarUrl = activeThreadParent.user_avatar || (parentSenderMember ? getDefaultAvatar(parentSenderMember.gender) : '');
+                        const parentAvatarUrl = getCleanAvatar(parentSenderMember?.avatar || activeThreadParent.user_avatar) || (parentSenderMember ? getDefaultAvatar(parentSenderMember.gender) : '');
                         return parentAvatarUrl ? (
                           <img
                             src={parentAvatarUrl}
@@ -3706,7 +3706,7 @@ function AppContent() {
                       .map((msg) => {
                         const isOwnReply = msg.user_id === user.id;
                         const senderMember = members.find((m) => m.id === msg.user_id);
-                        const avatarUrl = senderMember?.avatar || msg.user_avatar || (senderMember ? getDefaultAvatar(senderMember.gender) : '');
+                        const avatarUrl = getCleanAvatar(senderMember?.avatar) || msg.user_avatar || (senderMember ? getDefaultAvatar(senderMember.gender) : '');
                         const isDeleted = msg.message === "This message was deleted";
                         const isEditingReply = editingMsgId === msg.id;
 

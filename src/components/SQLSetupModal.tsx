@@ -55,6 +55,13 @@ export const SQLSetupModal: React.FC<SQLSetupModalProps> = ({ isOpen, onClose })
           </div>
 
           <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-xs flex flex-col gap-1 shadow-xs">
+            <span className="font-bold flex items-center gap-1">🖼️ Avatars & Thumbnails Storage Policies</span>
+            <span>
+              The SQL script below now automatically initializes the <strong>avatars</strong> and <strong>thumbnails</strong> storage buckets and configures safe security policies. This allows authenticated members to upload, update, and crop their profile picture, while keeping them public for the community directory.
+            </span>
+          </div>
+
+          <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-xs flex flex-col gap-1 shadow-xs">
             <span className="font-bold flex items-center gap-1">📍 User Profile Bial & Theme Update</span>
             <span>
               To enable explicit Bial assignments and persistent device-synced theme preferences on member profiles, copy the updated SQL script below or execute these commands in your Supabase SQL Editor:

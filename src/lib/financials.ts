@@ -4,6 +4,7 @@
  */
 
 import { supabase, db } from './supabase';
+import { DEFAULT_ADMIN_EMAIL } from '../types';
 
 export interface FinancialRecord {
   id: string;
@@ -220,6 +221,47 @@ class FinancialsDataManager {
     }
   }
 
+  async syncProfileBialFromFinancialRecord(name: string, area: string): Promise<void> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserEmail = session?.user?.email;
+      if (!currentUserEmail || currentUserEmail.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+        // Only tkpaite2016@gmail.com is authorized to change/assign Bial on profiles
+        return;
+      }
+
+      const normalizedName = name.trim().toLowerCase();
+      const stripPrefix = (s: string) => {
+        return s
+          .replace(/^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)/gi, '')
+          .trim();
+      };
+      const strippedMember = stripPrefix(normalizedName);
+
+      // Fetch profiles to find a match
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, bial');
+
+      if (profiles && profiles.length > 0) {
+        const matchedProfile = profiles.find(p => {
+          const pName = p.name.trim().toLowerCase();
+          return pName === normalizedName || stripPrefix(pName) === strippedMember;
+        });
+
+        if (matchedProfile && matchedProfile.bial !== area) {
+          console.log(`[syncProfileBialFromFinancialRecord] Syncing profile Bial for "${matchedProfile.name}" to "${area}"`);
+          await supabase
+            .from('profiles')
+            .update({ bial: area })
+            .eq('id', matchedProfile.id);
+        }
+      }
+    } catch (err) {
+      console.warn('[syncProfileBialFromFinancialRecord] Sync profile Bial failed:', err);
+    }
+  }
+
   async checkBialAssignmentConflict(name: string, area: string, excludeId?: string): Promise<void> {
     const normalizedName = name.trim().toLowerCase();
     const stripPrefix = (s: string) => {
@@ -244,7 +286,11 @@ class FinancialsDataManager {
         });
 
         if (matchedProfile && matchedProfile.bial && matchedProfile.bial !== area) {
-          throw new Error(`Validation Error: "${name}" is officially assigned to ${matchedProfile.bial} in their profile. They cannot be assigned to "${area}".`);
+          const { data: { session } } = await supabase.auth.getSession();
+          const currentUserEmail = session?.user?.email;
+          if (currentUserEmail?.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+            throw new Error(`Validation Error: "${name}" is officially assigned to ${matchedProfile.bial} in their profile. Only the administrator (${DEFAULT_ADMIN_EMAIL}) can change their official Bial assignment.`);
+          }
         }
       }
 
@@ -261,7 +307,11 @@ class FinancialsDataManager {
         });
 
         if (match) {
-          throw new Error(`Validation Error: "${name}" has already been assigned to ${match.area} in other records. They are not allowed to be assigned to "${area}".`);
+          const { data: { session } } = await supabase.auth.getSession();
+          const currentUserEmail = session?.user?.email;
+          if (currentUserEmail?.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+            throw new Error(`Validation Error: "${name}" has already been assigned to ${match.area} in other records. Only the administrator can change this assignment.`);
+          }
         }
       }
     } catch (err: any) {
@@ -301,6 +351,9 @@ class FinancialsDataManager {
         localStorage.setItem('sy_cached_financial_records', JSON.stringify(currentCached));
         localStorage.setItem('sy_has_database_financials', 'true');
       } catch (_) {}
+
+      // Realtime synchronization: Grab/sync this Bial to the user's profile
+      await this.syncProfileBialFromFinancialRecord(newRecord.name, newRecord.area);
     } catch (err: any) {
       console.error('Supabase financial insert failed:', err?.message || err);
       throw err;
@@ -341,6 +394,11 @@ class FinancialsDataManager {
         localStorage.setItem('sy_cached_financial_records', JSON.stringify(updatedCache));
         localStorage.setItem('sy_has_database_financials', 'true');
       } catch (_) {}
+
+      // Realtime synchronization: Grab/sync these Bials to the users' profiles
+      for (const rec of newRecords) {
+        await this.syncProfileBialFromFinancialRecord(rec.name, rec.area);
+      }
     } catch (err: any) {
       console.error('Supabase financial bulk insert failed:', err?.message || err);
       throw err;
@@ -397,6 +455,11 @@ class FinancialsDataManager {
         }
       }
     } catch (_) {}
+
+    // Realtime synchronization: Grab/sync the updated Bial to the user's profile
+    if (data) {
+      await this.syncProfileBialFromFinancialRecord(data.name, data.area);
+    }
 
     return data as FinancialRecord;
   }

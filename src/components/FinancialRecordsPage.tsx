@@ -300,6 +300,12 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       // Reload
       const recs = await financialsDb.getFinancialRecords();
       setRecords(recs);
+      try {
+        const mems = await db.getMembers();
+        setMembers(mems.filter(m => m.status === 'approved'));
+      } catch (err) {
+        console.warn('Could not reload members after record update:', err);
+      }
       closeForm();
     } catch (err: any) {
       setFormError(err.message || 'Operation failed');
@@ -2946,11 +2952,28 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 )}
 
                 {isBialMismatched && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl flex items-center gap-2 font-semibold">
-                    <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 animate-pulse" />
-                    <span>
-                      <strong>{formName}</strong> is associated with <strong>{selectedUserAssignedBial}</strong>. You can still save this record under <strong>{formArea}</strong>, but please double check if this is correct.
-                    </span>
+                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl flex items-center justify-between gap-3 font-semibold">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 animate-pulse" />
+                      <span>
+                        <strong>{formName}</strong> is associated with <strong>{selectedUserAssignedBial}</strong>. You can still save this record under <strong>{formArea}</strong>, but please double check if this is correct.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedUserAssignedBial) {
+                          setFormArea(selectedUserAssignedBial);
+                          const config = bialConfigs.find(c => c.id === selectedUserAssignedBial);
+                          if (config && config.area && config.area !== 'TBD') {
+                            setFormAddress(config.area);
+                          }
+                        }
+                      }}
+                      className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 active:bg-amber-300 text-amber-950 font-bold rounded-lg text-[10px] uppercase tracking-wider shrink-0 transition-colors cursor-pointer border border-amber-200"
+                    >
+                      Use Profile Bial
+                    </button>
                   </div>
                 )}
 
