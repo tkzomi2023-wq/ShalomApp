@@ -21,6 +21,7 @@ import { SchedulePage } from './components/SchedulePage';
 import BirthdayEmailSettingsPage from './components/BirthdayEmailSettingsPage';
 import { WebsiteMetaSettingsPage } from './components/WebsiteMetaSettingsPage';
 import { DatabaseHealthCheck } from './components/DatabaseHealthCheck';
+import { FootballModule } from './components/FootballModule';
 import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -83,7 +84,8 @@ import {
   ArrowLeft,
   Pin,
   PinOff,
-  ChevronsDown
+  ChevronsDown,
+  Trophy
 } from 'lucide-react';
 
 const isBirthdayToday = (dobString?: string, todayDate: Date = new Date()): boolean => {
@@ -333,7 +335,7 @@ function AppContent() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectionSuccess, setConnectionSuccess] = useState<boolean | null>(null);
-  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings'>('directory');
+  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football'>('directory');
   
   // Keep track of the current date to auto-dismiss birthday banners and effects when the day rolls over.
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -2322,6 +2324,13 @@ function AppContent() {
                     <span>Meta Settings</span>
                   </button>
                 )}
+                <button
+                  onClick={() => setCurrentTab('football')}
+                  className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                >
+                  <Trophy className="w-3.5 h-3.5 shrink-0" />
+                  <span>Football Predictions</span>
+                </button>
               </div>
 
               {/* Preferences Toggle / Layout Customize Menu */}
@@ -2387,7 +2396,9 @@ function AppContent() {
               )}
             </div>
 
-            {currentTab === 'financials' && (isOBUser(user.role) || user.role === 'ECM') ? (
+            {currentTab === 'football' ? (
+              <FootballModule currentUser={user} />
+            ) : currentTab === 'financials' && (isOBUser(user.role) || user.role === 'ECM') ? (
               <FinancialRecordsPage 
                 currentUser={user} 
                 onAddLog={(action, details) => {

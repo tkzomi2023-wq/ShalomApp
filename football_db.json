@@ -1,0 +1,328 @@
+{
+  "teams": [
+    {
+      "id": 2384,
+      "name": "USA",
+      "logo": "https://media.api-sports.io/football/teams/2384.png",
+      "code": "USA",
+      "group": "Group A"
+    },
+    {
+      "id": 16,
+      "name": "Mexico",
+      "logo": "https://media.api-sports.io/football/teams/16.png",
+      "code": "MEX",
+      "group": "Group A"
+    },
+    {
+      "id": 15,
+      "name": "Canada",
+      "logo": "https://media.api-sports.io/football/teams/15.png",
+      "code": "CAN",
+      "group": "Group B"
+    },
+    {
+      "id": 26,
+      "name": "Argentina",
+      "logo": "https://media.api-sports.io/football/teams/26.png",
+      "code": "ARG",
+      "group": "Group B"
+    },
+    {
+      "id": 2,
+      "name": "France",
+      "logo": "https://media.api-sports.io/football/teams/2.png",
+      "code": "FRA",
+      "group": "Group C"
+    },
+    {
+      "id": 9,
+      "name": "Spain",
+      "logo": "https://media.api-sports.io/football/teams/9.png",
+      "code": "ESP",
+      "group": "Group C"
+    },
+    {
+      "id": 10,
+      "name": "England",
+      "logo": "https://media.api-sports.io/football/teams/10.png",
+      "code": "ENG",
+      "group": "Group D"
+    },
+    {
+      "id": 6,
+      "name": "Brazil",
+      "logo": "https://media.api-sports.io/football/teams/6.png",
+      "code": "BRA",
+      "group": "Group D"
+    },
+    {
+      "id": 25,
+      "name": "Germany",
+      "logo": "https://media.api-sports.io/football/teams/25.png",
+      "code": "GER",
+      "group": "Group E"
+    },
+    {
+      "id": 7,
+      "name": "Italy",
+      "logo": "https://media.api-sports.io/football/teams/7.png",
+      "code": "ITA",
+      "group": "Group E"
+    },
+    {
+      "id": 27,
+      "name": "Portugal",
+      "logo": "https://media.api-sports.io/football/teams/27.png",
+      "code": "POR",
+      "group": "Group F"
+    },
+    {
+      "id": 1118,
+      "name": "Netherlands",
+      "logo": "https://media.api-sports.io/football/teams/1118.png",
+      "code": "NED",
+      "group": "Group F"
+    },
+    {
+      "id": 3,
+      "name": "Croatia",
+      "logo": "https://media.api-sports.io/football/teams/3.png",
+      "code": "CRO",
+      "group": "Group G"
+    },
+    {
+      "id": 28,
+      "name": "Morocco",
+      "logo": "https://media.api-sports.io/football/teams/28.png",
+      "code": "MAR",
+      "group": "Group G"
+    },
+    {
+      "id": 12,
+      "name": "Japan",
+      "logo": "https://media.api-sports.io/football/teams/12.png",
+      "code": "JPN",
+      "group": "Group H"
+    },
+    {
+      "id": 13,
+      "name": "Senegal",
+      "logo": "https://media.api-sports.io/football/teams/13.png",
+      "code": "SEN",
+      "group": "Group H"
+    }
+  ],
+  "matches": [
+    {
+      "id": 1001,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Group Stage - 1",
+      "home_team_id": 2384,
+      "away_team_id": 16,
+      "kickoff": "2026-07-01T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 2,
+      "away_score": 1,
+      "winner_team_id": 2384,
+      "venue": "MetLife Stadium",
+      "stadium": "East Rutherford"
+    },
+    {
+      "id": 1002,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Group Stage - 1",
+      "home_team_id": 26,
+      "away_team_id": 15,
+      "kickoff": "2026-07-02T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 3,
+      "away_score": 0,
+      "winner_team_id": 26,
+      "venue": "Mercedes-Benz Stadium",
+      "stadium": "Atlanta"
+    },
+    {
+      "id": 1003,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Group Stage - 1",
+      "home_team_id": 2,
+      "away_team_id": 9,
+      "kickoff": "2026-07-03T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 2,
+      "away_score": 2,
+      "winner_team_id": null,
+      "venue": "Estadio Azteca",
+      "stadium": "Mexico City"
+    },
+    {
+      "id": 1004,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Group Stage - 2",
+      "home_team_id": 10,
+      "away_team_id": 6,
+      "kickoff": "2026-07-04T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 2,
+      "away_score": 1,
+      "winner_team_id": 10,
+      "venue": "Hard Rock Stadium",
+      "stadium": "Miami"
+    },
+    {
+      "id": 1005,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Group Stage - 2",
+      "home_team_id": 25,
+      "away_team_id": 7,
+      "kickoff": "2026-07-05T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 1,
+      "away_score": 0,
+      "winner_team_id": 25,
+      "venue": "BC Place",
+      "stadium": "Vancouver"
+    },
+    {
+      "id": 1006,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Group Stage - 2",
+      "home_team_id": 27,
+      "away_team_id": 1118,
+      "kickoff": "2026-07-06T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 2,
+      "away_score": 0,
+      "winner_team_id": 27,
+      "venue": "SoFi Stadium",
+      "stadium": "Los Angeles"
+    },
+    {
+      "id": 3001,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Round of 16",
+      "home_team_id": 2384,
+      "away_team_id": 25,
+      "kickoff": "2026-07-08T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 1,
+      "away_score": 0,
+      "winner_team_id": 2384,
+      "venue": "Lumen Field",
+      "stadium": "Seattle"
+    },
+    {
+      "id": 3002,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Round of 16",
+      "home_team_id": 27,
+      "away_team_id": 3,
+      "kickoff": "2026-07-09T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 1,
+      "away_score": 2,
+      "winner_team_id": 3,
+      "venue": "Lincoln Financial Field",
+      "stadium": "Philadelphia"
+    },
+    {
+      "id": 4001,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Quarter-finals",
+      "home_team_id": 28,
+      "away_team_id": 12,
+      "kickoff": "2026-07-11T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 0,
+      "away_score": 2,
+      "winner_team_id": 12,
+      "venue": "NRG Stadium",
+      "stadium": "Houston"
+    },
+    {
+      "id": 4002,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Quarter-finals",
+      "home_team_id": 13,
+      "away_team_id": 2,
+      "kickoff": "2026-07-12T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 1,
+      "away_score": 2,
+      "winner_team_id": 2,
+      "venue": "Arrowhead Stadium",
+      "stadium": "Kansas City"
+    },
+    {
+      "id": 5001,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Semi-finals",
+      "home_team_id": 9,
+      "away_team_id": 2,
+      "kickoff": "2026-07-14T18:07:03.724Z",
+      "status": "FT",
+      "home_score": 2,
+      "away_score": 1,
+      "winner_team_id": 9,
+      "venue": "MetLife Stadium",
+      "stadium": "East Rutherford"
+    },
+    {
+      "id": 5002,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Semi-finals",
+      "home_team_id": 10,
+      "away_team_id": 26,
+      "kickoff": "2026-07-15T22:07:03.724Z",
+      "status": "NS",
+      "home_score": null,
+      "away_score": null,
+      "winner_team_id": null,
+      "venue": "Mercedes-Benz Stadium",
+      "stadium": "Atlanta"
+    },
+    {
+      "id": 6001,
+      "tournament": "FIFA World Cup",
+      "season": "2026",
+      "round": "Final",
+      "home_team_id": 9,
+      "away_team_id": 10,
+      "kickoff": "2026-07-18T18:07:03.724Z",
+      "status": "NS",
+      "home_score": null,
+      "away_score": null,
+      "winner_team_id": null,
+      "venue": "SoFi Stadium",
+      "stadium": "Los Angeles"
+    }
+  ],
+  "predictions": [],
+  "logs": [
+    {
+      "timestamp": "2026-07-15T18:07:03.724Z",
+      "type": "reset",
+      "message": "Football Database forced reset to official 2026 starting bracket."
+    }
+  ],
+  "settings": {
+    "competitionId": 1,
+    "competitionName": "FIFA World Cup",
+    "season": "2026",
+    "syncInterval": 12,
+    "lastSyncTime": "2026-07-15T18:07:03.724Z"
+  }
+}

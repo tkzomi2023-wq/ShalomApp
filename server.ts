@@ -5,9 +5,16 @@ import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import { supabase } from "./src/lib/supabase";
 import { GoogleGenAI, Type } from "@google/genai";
+import { createFootballRouter, initFootballSchedulers } from "./src/lib/footballServer";
 
 const app = express();
 const PORT = 3000;
+
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Mount Football router
+app.use("/api/football", createFootballRouter());
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -17,9 +24,6 @@ const ai = new GoogleGenAI({
     }
   }
 });
-
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const LOGS_FILE_PATH = path.join(process.cwd(), "birthday_logs.json");
 const SMTP_CONFIG_FILE = path.join(process.cwd(), "smtp_config.json");
@@ -975,6 +979,8 @@ setTimeout(() => {
   syncSmtpConfigFromDb().catch(err => {
     console.error("[Scheduler] SMTP configurations sync error:", err);
   });
+  // Initialize Football prediction background sync schedules
+  initFootballSchedulers();
 }, 3000);
 
 
