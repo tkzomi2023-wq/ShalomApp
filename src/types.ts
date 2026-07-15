@@ -29,6 +29,7 @@ export interface Member {
   address?: string;
   avatar?: string;
   email_notifications?: boolean;
+  hide_notifications_ui?: boolean;
   bial?: string;
   theme?: 'light' | 'dark';
 }

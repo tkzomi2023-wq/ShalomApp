@@ -35,6 +35,7 @@ interface MemberTableProps {
   onDeleteMember: (id: string) => void;
   onBatchApproveMembers?: (ids: string[]) => void;
   onBatchDeleteMembers?: (ids: string[]) => void;
+  onBulkAssignBial?: (ids: string[], bial: string) => Promise<void>;
   onOpenProfile: (member: Member) => void;
   isCurrentUserAdmin: boolean;
   onlineUserIds?: string[];
@@ -46,6 +47,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   onDeleteMember,
   onBatchApproveMembers,
   onBatchDeleteMembers,
+  onBulkAssignBial,
   onOpenProfile,
   isCurrentUserAdmin,
   onlineUserIds = []
@@ -117,7 +119,12 @@ export const MemberTable: React.FC<MemberTableProps> = ({
     loadData();
   }, [members]);
 
-  const getMemberBial = (memberName: string, memberAddress?: string): string => {
+  const getMemberBial = (member: Member): string => {
+    if (member.bial) {
+      return member.bial;
+    }
+    const memberName = member.name;
+    const memberAddress = member.address;
     const normalizedName = memberName.trim().toLowerCase();
     
     const stripPrefix = (s: string) => {
@@ -234,7 +241,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
       });
       
       const rows = sortedList.map((m, idx) => {
-        const bial = getMemberBial(m.name, m.address);
+        const bial = getMemberBial(m);
         const row = [(idx + 1).toString()];
         AVAILABLE_COLUMNS.forEach(col => {
           if (selectedColumns.includes(col.id)) {
@@ -564,6 +571,35 @@ export const MemberTable: React.FC<MemberTableProps> = ({
             >
               Deselect All
             </button>
+
+            {onBulkAssignBial && (
+              <div className="flex items-center gap-1.5 bg-white dark:bg-stone-900 border border-stone-250 dark:border-stone-800 rounded-xl px-2.5 py-1.5 shadow-xs">
+                <span className="text-[9px] font-black uppercase text-stone-500 tracking-wider">Assign Bial:</span>
+                <select
+                  onChange={async (e) => {
+                    const targetBial = e.target.value;
+                    if (!targetBial) return;
+                    if (confirm(`Are you sure you want to assign the ${selectedMemberIds.length} selected members to "${targetBial}"?`)) {
+                      await onBulkAssignBial(selectedMemberIds, targetBial);
+                      setSelectedMemberIds([]);
+                    }
+                    e.target.value = '';
+                  }}
+                  className="bg-transparent border-0 p-0 pr-6 text-[11px] font-extrabold text-stone-700 dark:text-stone-300 focus:ring-0 cursor-pointer focus:outline-none"
+                >
+                  <option value="">Select Bial...</option>
+                  {bialConfigs.length > 0 ? (
+                    bialConfigs.map(b => (
+                      <option key={b.id} value={b.id}>{b.area || b.id}</option>
+                    ))
+                  ) : (
+                    Array.from({ length: 10 }).map((_, i) => (
+                      <option key={`Bial ${i+1}`} value={`Bial ${i+1}`}>Bial {i+1}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+            )}
             
             {onBatchApproveMembers && (
               <button
@@ -622,6 +658,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4">Member Info</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4">Approval Status</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4">Assigned Role</th>
+                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Bial Area</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4 hidden md:table-cell">Address Details</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4 text-right">Actions</th>
                 </tr>
@@ -738,6 +775,13 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                         ) : (
                           <RoleBadge role={member.role} />
                         )}
+                      </td>
+
+                      {/* Bial Area info */}
+                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
+                          {getMemberBial(member)}
+                        </span>
                       </td>
 
                       {/* Address info */}

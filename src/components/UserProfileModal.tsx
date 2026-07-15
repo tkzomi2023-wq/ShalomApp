@@ -51,6 +51,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   // Client-side AI Background removal states
   const [removeBgToggle, setRemoveBgToggle] = useState<boolean>(false);
+  const [passportCropToggle, setPassportCropToggle] = useState<boolean>(true); // default true for automatic high quality professional cropping
+  const [isCroppingPassport, setIsCroppingPassport] = useState<boolean>(false);
+  const [passportCropError, setPassportCropError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [originalPreviewUrl, setOriginalPreviewUrl] = useState<string>('');
   const [transparentPreviewUrl, setTransparentPreviewUrl] = useState<string>('');
@@ -114,6 +117,74 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   };
 
+  const runPassportCrop = async (imageFile: File): Promise<File> => {
+    setIsCroppingPassport(true);
+    setPassportCropError(null);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+      });
+      reader.readAsDataURL(imageFile);
+      const base64Image = await base64Promise;
+
+      const res = await fetch("/api/detect-face", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64Image })
+      });
+      if (!res.ok) {
+        throw new Error("Failed to contact the face-detection AI service.");
+      }
+      const coords = await res.json();
+      if (!coords || typeof coords.top !== 'number') {
+        throw new Error("Invalid response from face-detection AI service.");
+      }
+
+      const img = new Image();
+      const loadPromise = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Failed to load original image for cropping."));
+      });
+      img.src = base64Image;
+      await loadPromise;
+
+      const sx = Math.max(0, Math.min(img.width - 10, coords.left * img.width));
+      const sy = Math.max(0, Math.min(img.height - 10, coords.top * img.height));
+      const sWidth = Math.max(10, Math.min(img.width - sx, (coords.right - coords.left) * img.width));
+      const sHeight = Math.max(10, Math.min(img.height - sy, (coords.bottom - coords.top) * img.height));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 400;
+      canvas.height = 400;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("Could not initialize 2D canvas context.");
+      }
+
+      ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, 400, 400);
+
+      const blobPromise = new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("Failed to generate cropped image blob."));
+        }, "image/jpeg", 0.95);
+      });
+      const croppedBlob = await blobPromise;
+
+      const ext = 'jpg';
+      const croppedFile = new File([croppedBlob], `avatar_passport_${Date.now()}.${ext}`, { type: 'image/jpeg' });
+      return croppedFile;
+    } catch (err: any) {
+      console.warn("Passport auto-cropping failed, defaulting to original image:", err);
+      setPassportCropError(err.message || "Face detection failed. Defaulting to full image.");
+      return imageFile;
+    } finally {
+      setIsCroppingPassport(false);
+    }
+  };
+
   const handleToggleChange = async (checked: boolean) => {
     setRemoveBgToggle(checked);
     if (checked) {
@@ -168,6 +239,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>(member.status);
   const [avatar, setAvatar] = useState(member.avatar || '');
   const [emailNotifications, setEmailNotifications] = useState<boolean>(member.email_notifications !== false);
+  const [hideNotificationsUI, setHideNotificationsUI] = useState<boolean>(member.hide_notifications_ui === true);
+  const [activeTab, setActiveTab] = useState<'personal' | 'roles' | 'financial'>('personal');
   const [bial, setBial] = useState(member.bial || '');
   const [userRecords, setUserRecords] = useState<FinancialRecord[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
@@ -225,6 +298,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
     setAvatar(cleanAvatar);
     setEmailNotifications(member.email_notifications !== false);
+    setHideNotificationsUI(member.hide_notifications_ui === true);
     setBial(member.bial || '');
     
     // Reset or initialize background removal states based on current database state
@@ -357,9 +431,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }, 120);
 
     try {
-      const ext = file.name.split('.').pop() || 'png';
+      let fileToUpload = file;
+      if (passportCropToggle) {
+        setAvatarUploadProgress(20);
+        const croppedFile = await runPassportCrop(file);
+        fileToUpload = croppedFile;
+      }
+
+      const ext = fileToUpload.name.split('.').pop() || 'png';
       const filePath = `${member.id}/avatar_${Date.now()}.${ext}`;
-      const imageUrl = await db.uploadToStorage('avatars', filePath, file);
+      const imageUrl = await db.uploadToStorage('avatars', filePath, fileToUpload);
       
       clearInterval(progressInterval);
       setAvatarUploadProgress(100);
@@ -367,7 +448,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       
       if (removeBgToggle) {
         setAvatar(imageUrl);
-        await runBackgroundRemoval(file);
+        await runBackgroundRemoval(fileToUpload);
       } else {
         setAvatar(imageUrl);
         // Auto-save picture details immediately ONLY if not editing
@@ -436,6 +517,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         status: isCurrentUserAdmin ? status : member.status,
         avatar: finalAvatar,
         email_notifications: emailNotifications,
+        hide_notifications_ui: hideNotificationsUI,
         bial: canEditBial ? (bial || undefined) : member.bial
       };
       await onUpdate(updated);
@@ -655,6 +737,49 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 {/* Remove Background Toggle (Only when editing and user can edit) */}
                 {isEditing && (
                   <div className="pt-2 border-t border-stone-150 dark:border-stone-800 space-y-2">
+                    <div className="flex items-center justify-between pb-1 border-b border-stone-100 dark:border-stone-850">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={passportCropToggle}
+                          onChange={(e) => setPassportCropToggle(e.target.checked)}
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-stone-300 cursor-pointer"
+                        />
+                        <span className="text-[11px] font-bold text-stone-700 dark:text-stone-300 flex items-center gap-1">
+                          <User className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                          Smart Passport Photo Auto-Crop (AI)
+                        </span>
+                      </label>
+                      <span className="text-[9px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 px-1.5 py-0.5 rounded font-mono font-bold">
+                        ON by default
+                      </span>
+                    </div>
+
+                    {/* Passport Cropping Loading State */}
+                    {isCroppingPassport && (
+                      <div className="p-3 bg-amber-500/5 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-xl text-[10px] leading-relaxed border border-amber-500/25 space-y-1.5 animate-pulse">
+                        <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[9px]">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                          </span>
+                          <span>AI Face Detection & Passport Alignment Active...</span>
+                        </div>
+                        <p className="text-[9px] text-stone-500 dark:text-stone-400">
+                          Detecting head + shoulders to automatically crop into a standard chest-up passport size...
+                        </p>
+                      </div>
+                    )}
+
+                    {passportCropError && (
+                      <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 rounded-lg text-[10px] leading-relaxed border border-rose-100 dark:border-rose-900/30">
+                        <p className="font-bold flex items-center gap-1 uppercase tracking-wider text-[9px]">
+                          ⚠️ Passport Crop Warning
+                        </p>
+                        <p>{passportCropError}</p>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 cursor-pointer select-none">
                         <input
@@ -841,428 +966,522 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 Status: {member.status}
               </span>
             </div>
+                {/* Tabs Navigation */}
+          <div className="flex border-b border-stone-100 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-950 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setActiveTab('personal')}
+              className={`flex-1 py-1.5 px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'personal'
+                  ? 'bg-white dark:bg-stone-850 text-emerald-700 dark:text-emerald-400 shadow-xs border border-stone-150 dark:border-stone-800'
+                  : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'
+              }`}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>Personal Info</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('roles')}
+              className={`flex-1 py-1.5 px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'roles'
+                  ? 'bg-white dark:bg-stone-850 text-emerald-700 dark:text-emerald-400 shadow-xs border border-stone-150 dark:border-stone-800'
+                  : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Org Roles</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('financial')}
+              className={`flex-1 py-1.5 px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'financial'
+                  ? 'bg-white dark:bg-stone-850 text-emerald-700 dark:text-emerald-400 shadow-xs border border-stone-150 dark:border-stone-800'
+                  : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'
+              }`}
+            >
+              <Coins className="w-3.5 h-3.5" />
+              <span>Financials</span>
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            
-            {/* Contact Information */}
-            <div className="space-y-3">
-              <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5">
-                Contact Details
-              </h5>
-              
-              <div className="flex items-center gap-2.5">
-                <Mail className="w-4 h-4 text-stone-400 shrink-0" />
-                <div className="truncate">
-                  <p className="text-[10px] text-stone-400 uppercase tracking-wide">Email</p>
-                  <p className="font-semibold text-stone-900 dark:text-white truncate">{member.email}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5">
-                <Phone className="w-4 h-4 text-stone-400 shrink-0" />
-                <div>
-                  <p className="text-[10px] text-stone-400 uppercase tracking-wide">Phone Number</p>
-                  {isEditing ? (
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={e => setPhone(e.target.value)}
-                      className="text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1 rounded-md border border-stone-200 mt-0.5"
-                    />
-                  ) : (
-                    <p className="font-semibold text-stone-900 dark:text-white">{phone || 'Not Provided'}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Demographics / Personal Information */}
-            <div className="space-y-3">
-              <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5">
-                Demographics
-              </h5>
-
-              <div className="flex items-center gap-2.5">
-                <Calendar className="w-4 h-4 text-stone-400 shrink-0" />
-                <div>
-                  <p className="text-[10px] text-stone-400 uppercase tracking-wide">
-                    Date of Birth {isEditing && <span className="text-stone-400 font-normal font-sans text-[9px] lowercase tracking-normal">(Optional 🎂)</span>}
-                  </p>
-                  {isEditing ? (
-                    <input
-                      type="date"
-                      value={dob}
-                      onChange={e => setDob(e.target.value)}
-                      className="text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1 rounded-md border border-stone-200 mt-0.5"
-                    />
-                  ) : (
-                    <p className="font-semibold text-stone-900 dark:text-white">{dob || 'Not Provided'}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5">
-                <HeartPulse className="w-4 h-4 text-stone-400 shrink-0" />
-                <div className="flex-1">
-                  <p className="text-[10px] text-stone-400 uppercase tracking-wide">Blood Group & Gender</p>
-                  {isEditing ? (
-                    <div className="grid grid-cols-2 gap-1.5 mt-0.5">
-                      <select
-                        value={gender || ''}
-                        onChange={e => setGender((e.target.value as 'Male' | 'Female') || undefined)}
-                        className="text-xs bg-stone-50 border px-1.5 py-0.5 rounded-md"
-                      >
-                        <option value="">Gender</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                      </select>
-                      <input
-                        type="text"
-                        value={bloodGroup}
-                        onChange={e => setBloodGroup(e.target.value)}
-                        placeholder="Blood"
-                        className="text-xs bg-stone-50 border px-1.5 py-0.5 rounded-md w-full"
-                      />
+          {/* Tab contents */}
+          {activeTab === 'personal' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Contact Information */}
+                <div className="space-y-3">
+                  <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5">
+                    Contact Details
+                  </h5>
+                  
+                  <div className="flex items-center gap-2.5">
+                    <Mail className="w-4 h-4 text-stone-400 shrink-0" />
+                    <div className="truncate">
+                      <p className="text-[10px] text-stone-400 uppercase tracking-wide">Email</p>
+                      <p className="font-semibold text-stone-900 dark:text-white truncate">{member.email}</p>
                     </div>
-                  ) : (
-                    <p className="font-semibold text-stone-900 dark:text-white">
-                      {gender || 'Unspecified'} {bloodGroup ? `(${bloodGroup})` : ''}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* Residential Address */}
-          <div className="space-y-1.5">
-            <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5">
-              Address & Residence
-            </h5>
-            <div className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 text-stone-400 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                {isEditing ? (
-                  <textarea
-                    rows={2}
-                    value={address}
-                    onChange={e => setAddress(e.target.value)}
-                    className="w-full text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1 rounded-md border border-stone-200"
-                    placeholder="Enter resident address details"
-                  />
-                ) : (
-                  <p className="text-stone-800 dark:text-stone-200 font-semibold">{address || 'No residential address on file.'}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Bial Assignment */}
-          <div className="space-y-1.5 pt-2">
-            <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Bial Assignment
-            </h5>
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                {isEditing ? (
-                  <div className="flex flex-col gap-1">
-                    <select
-                      value={bial}
-                      id="user-profile-bial-select"
-                      disabled={!canEditBial}
-                      onChange={e => setBial(e.target.value)}
-                      className={`w-full text-xs px-2 py-1.5 rounded-md border font-semibold ${
-                        canEditBial
-                          ? 'bg-stone-50 dark:bg-stone-850 border-stone-200 text-stone-800 dark:text-stone-100'
-                          : 'bg-stone-100 dark:bg-stone-900 border-stone-250 text-stone-400 cursor-not-allowed opacity-75'
-                      }`}
-                    >
-                      <option value="">-- No Bial Assigned --</option>
-                      {BIAL_IDS.map(b => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] mt-0.5 font-medium">
-                      {canEditBial ? (
-                        <span className="text-stone-450">
-                          Assigning or correcting Bial directly affects financial records, receipts, and membership metrics.
-                        </span>
-                      ) : (
-                        <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                          Bial assignment is locked. Contact the administrator (tkpaite2016@gmail.com) to update your Bial.
-                        </span>
-                      )}
-                    </p>
                   </div>
-                ) : (
-                  <div className="p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80 flex items-center justify-between">
+
+                  <div className="flex items-center gap-2.5">
+                    <Phone className="w-4 h-4 text-stone-400 shrink-0" />
                     <div>
-                      <p className="text-[10px] text-stone-400 uppercase tracking-wide">Current Bial</p>
-                      <p className="font-bold text-emerald-700 dark:text-emerald-400 text-sm">
-                        {bial || 'No Bial Assigned'}
-                      </p>
+                      <p className="text-[10px] text-stone-400 uppercase tracking-wide">Phone Number</p>
+                      {isEditing ? (
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={e => setPhone(e.target.value)}
+                          className="text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1 rounded-md border border-stone-200 dark:border-stone-800 mt-0.5 focus:ring-1 focus:ring-emerald-500"
+                        />
+                      ) : (
+                        <p className="font-semibold text-stone-900 dark:text-white">{phone || 'Not Provided'}</p>
+                      )}
                     </div>
-                    {bial && (
-                      <span className="text-xs px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-extrabold">
-                        Active
-                      </span>
+                  </div>
+                </div>
+
+                {/* Demographics */}
+                <div className="space-y-3">
+                  <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5">
+                    Demographics
+                  </h5>
+
+                  <div className="flex items-center gap-2.5">
+                    <Calendar className="w-4 h-4 text-stone-400 shrink-0" />
+                    <div>
+                      <p className="text-[10px] text-stone-400 uppercase tracking-wide">
+                        Date of Birth {isEditing && <span className="text-stone-400 font-normal font-sans text-[9px] lowercase tracking-normal">(Optional 🎂)</span>}
+                      </p>
+                      {isEditing ? (
+                        <input
+                          type="date"
+                          value={dob}
+                          onChange={e => setDob(e.target.value)}
+                          className="text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1 rounded-md border border-stone-200 dark:border-stone-800 mt-0.5 focus:ring-1 focus:ring-emerald-500"
+                        />
+                      ) : (
+                        <p className="font-semibold text-stone-900 dark:text-white">{dob || 'Not Provided'}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <HeartPulse className="w-4 h-4 text-stone-400 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[10px] text-stone-400 uppercase tracking-wide">Blood Group & Gender</p>
+                      {isEditing ? (
+                        <div className="grid grid-cols-2 gap-1.5 mt-0.5">
+                          <select
+                            value={gender || ''}
+                            onChange={e => setGender((e.target.value as 'Male' | 'Female') || undefined)}
+                            className="text-xs bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 px-1.5 py-1 rounded-md focus:ring-1 focus:ring-emerald-500"
+                          >
+                            <option value="">Gender</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                          </select>
+                          <input
+                            type="text"
+                            value={bloodGroup}
+                            onChange={e => setBloodGroup(e.target.value)}
+                            placeholder="Blood"
+                            className="text-xs bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 px-1.5 py-1 rounded-md w-full focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                      ) : (
+                        <p className="font-semibold text-stone-900 dark:text-white">
+                          {gender || 'Unspecified'} {bloodGroup ? `(${bloodGroup})` : ''}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Residential Address */}
+              <div className="space-y-1.5">
+                <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5">
+                  Address & Residence
+                </h5>
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-stone-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    {isEditing ? (
+                      <textarea
+                        rows={2}
+                        value={address}
+                        onChange={e => setAddress(e.target.value)}
+                        className="w-full text-xs bg-stone-50 dark:bg-stone-850 px-2 py-1 rounded-md border border-stone-200 dark:border-stone-800 focus:ring-1 focus:ring-emerald-500"
+                        placeholder="Enter resident address details"
+                      />
+                    ) : (
+                      <p className="text-stone-800 dark:text-stone-200 font-semibold">{address || 'No residential address on file.'}</p>
                     )}
                   </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Preferences setting toggle */}
-          <div className="space-y-2 border-t pt-4 border-stone-100 dark:border-stone-800">
-            <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5">
-              <Bell className="w-3.5 h-3.5 text-emerald-600" /> Preferences
-            </h5>
-            <div className="flex items-center justify-between p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80">
-              <div className="space-y-0.5">
-                <span className="font-bold text-stone-850 dark:text-stone-150">Email Notifications</span>
-                <p className="text-[10px] text-stone-450 dark:text-stone-400">Receive schedule and service updates instantly</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={emailNotifications} 
-                  disabled={!canEdit}
-                  onChange={e => {
-                    const newVal = e.target.checked;
-                    setEmailNotifications(newVal);
-                    // Direct auto-save if editing is not active
-                    if (!isEditing) {
-                      onUpdate({
-                        ...member,
-                        email_notifications: newVal
-                      });
-                    }
-                  }}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-stone-200 peer-focus:outline-hidden rounded-full peer dark:bg-stone-750 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-              </label>
-            </div>
-          </div>
-
-          {/* Security & Password section (Only for the user themselves) */}
-          {isSelf && (
-            <div className="space-y-3 border-t pt-4 border-stone-100 dark:border-stone-800">
-              <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Account Security
-              </h5>
-              <div className="p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80 space-y-3">
-                <p className="text-[10px] text-stone-400">
-                  Update your account password. If you logged in with a temporary password, please set a strong, memorable one.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[9px] font-bold text-stone-450 uppercase mb-0.5">New Password</label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                      placeholder="Min 6 characters"
-                      className="w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white text-stone-800 dark:text-white dark:bg-stone-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-stone-450 uppercase mb-0.5">Confirm New Password</label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={e => setConfirmPassword(e.target.value)}
-                      placeholder="Repeat password"
-                      className="w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white text-stone-800 dark:text-white dark:bg-stone-900"
-                    />
-                  </div>
-                </div>
-
-                {passwordStatusMsg && (
-                  <p className={`text-[10px] font-bold ${passwordStatusMsg.isError ? 'text-rose-600' : 'text-emerald-600'}`}>
-                    {passwordStatusMsg.text}
-                  </p>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handlePasswordUpdate}
-                  disabled={passwordUpdating || !newPassword}
-                  className="w-full py-1.5 px-3 bg-stone-900 hover:bg-stone-850 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  {passwordUpdating ? 'Updating...' : 'Update Login Password'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Contribution Breakdown Grid */}
-          <div className="space-y-3 border-t pt-4 border-stone-100 dark:border-stone-800">
-            <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5">
-              <Coins className="w-3.5 h-3.5 text-emerald-600" /> Financial Contribution Audit ({currentYear} YTD)
-            </h5>
-            
-            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl border border-emerald-100/80 dark:border-emerald-900/30 flex items-center justify-between">
-              <span className="font-bold text-stone-700 dark:text-stone-300">Jan - {MONTHS[currentMonthIndex]} Cumulative Sum:</span>
-              <span className="font-mono text-xs font-black text-emerald-700 dark:text-emerald-400 bg-emerald-100/50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-md">₹{totalAddUp.toLocaleString('en-IN')}</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {monthlySumMap.map(({ month, total }) => (
-                <div 
-                  key={month} 
-                  className="p-2 bg-stone-50 dark:bg-stone-950/10 rounded-lg border border-stone-150 dark:border-stone-800/80 flex items-center justify-between font-mono"
-                >
-                  <span className="text-stone-500 dark:text-stone-400 font-bold text-[10px]">{month.slice(0, 3)}</span>
-                  <span className={`font-bold ${total > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-stone-400 dark:text-stone-550'}`}>
-                    {total > 0 ? `₹${total.toLocaleString('en-IN')}` : '₹0'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Admin Override controls */}
-          {isEditing && isCurrentUserAdmin && (
-            <div className="p-4 bg-stone-50 dark:bg-stone-950/20 border border-stone-150 dark:border-stone-800 rounded-xl space-y-3">
-              <h5 className="font-bold text-stone-900 dark:text-white flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Administrative Access overrides
-              </h5>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">
-                    Set User Role
-                  </label>
-                  {canChangeRole ? (
-                    <select
-                      value={role}
-                      onChange={e => setRole(e.target.value as UserRole)}
-                      className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white"
-                    >
-                      {ALL_ROLES.map(r => (
-                        <option key={r} value={r}>
-                          {r === 'standard' ? 'standard (Member)' : r}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="py-1 flex items-center">
-                      <RoleBadge role={member.role} />
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">
-                    Membership status
-                  </label>
-                  <select
-                    value={status}
-                    onChange={e => setStatus(e.target.value as any)}
-                    disabled={member.role !== 'standard' && !canChangeRole}
-                    className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white disabled:bg-stone-100 dark:disabled:bg-stone-800 disabled:text-stone-400 disabled:cursor-not-allowed"
-                  >
-                    <option value="pending">pending (review)</option>
-                    <option value="approved">approved</option>
-                    <option value="rejected">rejected</option>
-                  </select>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Member Activity Timeline */}
-          <div className="space-y-3 border-t pt-4 border-stone-100 dark:border-stone-800">
-            <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5 justify-between">
-              <span className="flex items-center gap-1.5">
-                <History className="w-3.5 h-3.5 text-emerald-600" /> Account Audit History
-              </span>
-              <span className="text-[9px] px-1.5 py-0.2 bg-stone-100 dark:bg-stone-800 text-stone-500 rounded font-mono font-bold uppercase leading-none">
-                {sortedMemberLogs.length} {sortedMemberLogs.length === 1 ? 'event' : 'events'}
-              </span>
-            </h5>
-
-            <p className="text-[10px] text-stone-400 dark:text-stone-400">
-              A transparent history of administrative, profile status, and system modifications related to this account.
-            </p>
-
-            {sortedMemberLogs.length > 0 ? (
-              <div className="relative pl-4 space-y-4 border-l border-stone-200 dark:border-stone-800 ml-1.5 py-1">
-                {sortedMemberLogs.map((log) => {
-                  const isActionByAdmin = log.userId !== member.id || log.action === 'Admin Action' || log.action === 'Member Manual Provision';
-                  
-                  return (
-                    <div key={log.id} className="relative group">
-                      {/* Timeline Dot */}
-                      <span className={`absolute -left-[20.5px] top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-white dark:bg-stone-900 flex items-center justify-center transition-transform group-hover:scale-115 ${
-                        log.action === 'Member Manual Provision'
-                          ? 'border-blue-500 text-blue-500'
-                          : log.action === 'Member Removed'
-                          ? 'border-rose-500 text-rose-500'
-                          : isActionByAdmin
-                          ? 'border-emerald-500 text-emerald-500'
-                          : 'border-amber-500 text-amber-500'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          log.action === 'Member Manual Provision'
-                            ? 'bg-blue-500'
-                            : log.action === 'Member Removed'
-                            ? 'bg-rose-500'
-                            : isActionByAdmin
-                            ? 'bg-emerald-500'
-                            : 'bg-amber-500'
-                        }`} />
-                      </span>
-
-                      {/* Timeline Content */}
-                      <div className="bg-stone-50/75 dark:bg-stone-950/20 p-2.5 rounded-xl border border-stone-150 dark:border-stone-850/80 hover:border-stone-300 dark:hover:border-stone-700 transition-colors">
-                        <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
-                          <span className="font-extrabold text-stone-800 dark:text-white text-[10px] flex items-center gap-1">
-                            {log.action}
-                            {isActionByAdmin && (
-                              <span className="text-[8px] bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 font-bold px-1 rounded uppercase tracking-wide leading-none">
-                                Admin Override
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-[8.5px] text-stone-400 font-mono flex items-center gap-1 shrink-0">
-                            <Clock className="w-2.5 h-2.5" />
-                            {new Date(log.created_at).toLocaleString('en-IN', {
-                              dateStyle: 'short',
-                              timeStyle: 'short'
-                            })}
-                          </span>
-                        </div>
-
-                        <p className="text-[10px] text-stone-600 dark:text-stone-300 font-medium leading-relaxed">
-                          {log.details}
-                        </p>
-
-                        <div className="mt-1.5 pt-1.5 border-t border-dashed border-stone-200 dark:border-stone-800 flex items-center justify-between text-[8.5px] text-stone-400 font-bold">
-                          <span>
-                            By: <span className="text-stone-500 dark:text-stone-300">{log.userName}</span>
-                          </span>
-                          <span className="font-mono text-[8px] tracking-wide truncate max-w-[120px] sm:max-w-none" title={log.userEmail}>
-                            {log.userEmail}
-                          </span>
-                        </div>
+              {/* Security & Password section (Only for the user themselves) */}
+              {isSelf && (
+                <div className="space-y-3 border-t pt-4 border-stone-100 dark:border-stone-800">
+                  <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Account Security
+                  </h5>
+                  <div className="p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80 space-y-3">
+                    <p className="text-[10px] text-stone-400">
+                      Update your account password. If you logged in with a temporary password, please set a strong, memorable one.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[9px] font-bold text-stone-450 uppercase mb-0.5">New Password</label>
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                          placeholder="Min 6 characters"
+                          className="w-full px-2.5 py-1.5 text-xs border border-stone-200 dark:border-stone-800 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white text-stone-800 dark:text-white dark:bg-stone-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-stone-450 uppercase mb-0.5">Confirm New Password</label>
+                        <input
+                          type="password"
+                          value={confirmPassword}
+                          onChange={e => setConfirmPassword(e.target.value)}
+                          placeholder="Repeat password"
+                          className="w-full px-2.5 py-1.5 text-xs border border-stone-200 dark:border-stone-800 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white text-stone-800 dark:text-white dark:bg-stone-900"
+                        />
                       </div>
                     </div>
-                  );
-                })}
+
+                    {passwordStatusMsg && (
+                      <p className={`text-[10px] font-bold ${passwordStatusMsg.isError ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {passwordStatusMsg.text}
+                      </p>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handlePasswordUpdate}
+                      disabled={passwordUpdating || !newPassword}
+                      className="w-full py-1.5 px-3 bg-stone-900 hover:bg-stone-850 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      {passwordUpdating ? 'Updating...' : 'Update Login Password'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'roles' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4"
+            >
+              {/* Bial Assignment */}
+              <div className="space-y-1.5">
+                <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Bial Assignment
+                </h5>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    {isEditing ? (
+                      <div className="flex flex-col gap-1">
+                        <select
+                          value={bial}
+                          id="user-profile-bial-select"
+                          disabled={!canEditBial}
+                          onChange={e => setBial(e.target.value)}
+                          className={`w-full text-xs px-2 py-1.5 rounded-md border font-semibold ${
+                            canEditBial
+                              ? 'bg-stone-50 dark:bg-stone-850 border-stone-200 text-stone-800 dark:text-stone-100'
+                              : 'bg-stone-100 dark:bg-stone-900 border-stone-250 text-stone-400 cursor-not-allowed opacity-75'
+                          }`}
+                        >
+                          <option value="">-- No Bial Assigned --</option>
+                          {BIAL_IDS.map(b => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] mt-0.5 font-medium">
+                          {canEditBial ? (
+                            <span className="text-stone-450">
+                              Assigning or correcting Bial directly affects financial records, receipts, and membership metrics.
+                            </span>
+                          ) : (
+                            <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                              Bial assignment is locked. Contact the administrator (tkpaite2016@gmail.com) to update your Bial.
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] text-stone-400 uppercase tracking-wide">Current Bial</p>
+                          <p className="font-bold text-emerald-700 dark:text-emerald-400 text-sm">
+                            {bial || 'No Bial Assigned'}
+                          </p>
+                        </div>
+                        {bial && (
+                          <span className="text-xs px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-extrabold">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-950/10 border border-dashed border-stone-200 dark:border-stone-850 flex flex-col items-center justify-center text-center text-stone-400 py-6">
-                <History className="w-6 h-6 text-stone-300 mb-1.5" />
-                <span className="font-bold text-[10px] text-stone-500">No account activity recorded yet</span>
-                <p className="text-[9px] text-stone-400 max-w-xs mt-0.5">
-                  Administrative overrides or status adjustments will be automatically documented here.
+
+              {/* Admin Override controls */}
+              {isEditing && isCurrentUserAdmin && (
+                <div className="p-4 bg-stone-50 dark:bg-stone-950/20 border border-stone-150 dark:border-stone-800 rounded-xl space-y-3">
+                  <h5 className="font-bold text-stone-900 dark:text-white flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" /> Administrative Access overrides
+                  </h5>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                        Set User Role
+                      </label>
+                      {canChangeRole ? (
+                        <select
+                          value={role}
+                          onChange={e => setRole(e.target.value as UserRole)}
+                          className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white"
+                        >
+                          {ALL_ROLES.map(r => (
+                            <option key={r} value={r}>
+                              {r === 'standard' ? 'standard (Member)' : r}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="py-1 flex items-center">
+                          <RoleBadge role={member.role} />
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                        Membership status
+                      </label>
+                      <select
+                        value={status}
+                        onChange={e => setStatus(e.target.value as any)}
+                        disabled={member.role !== 'standard' && !canChangeRole}
+                        className="w-full text-xs bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-750 p-1.5 rounded-lg focus:outline-hidden cursor-pointer text-stone-900 dark:text-white disabled:bg-stone-100 dark:disabled:bg-stone-800 disabled:text-stone-400 disabled:cursor-not-allowed"
+                      >
+                        <option value="pending">pending (review)</option>
+                        <option value="approved">approved</option>
+                        <option value="rejected">rejected</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Preferences setting toggles */}
+              <div className="space-y-2.5">
+                <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5">
+                  <Bell className="w-3.5 h-3.5 text-emerald-600" /> Notification Preferences
+                </h5>
+
+                <div className="grid grid-cols-1 gap-2">
+                  {/* Email Notifications Toggle */}
+                  <div className="flex items-center justify-between p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-stone-850 dark:text-stone-150">Email Notifications</span>
+                      <p className="text-[10px] text-stone-450 dark:text-stone-400">Receive schedule and service updates instantly</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={emailNotifications} 
+                        disabled={!canEdit}
+                        onChange={e => {
+                          const newVal = e.target.checked;
+                          setEmailNotifications(newVal);
+                          // Direct auto-save if editing is not active
+                          if (!isEditing) {
+                            onUpdate({
+                              ...member,
+                              email_notifications: newVal
+                            });
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-stone-200 peer-focus:outline-hidden rounded-full peer dark:bg-stone-750 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Hide Notifications Toggle */}
+                  <div className="flex items-center justify-between p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-stone-850 dark:text-stone-150">Hide Notification Bell</span>
+                      <p className="text-[10px] text-stone-450 dark:text-stone-400">Hide the notification panel in the navigation bar</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={hideNotificationsUI} 
+                        disabled={!canEdit}
+                        onChange={e => {
+                          const newVal = e.target.checked;
+                          setHideNotificationsUI(newVal);
+                          // Direct auto-save if editing is not active
+                          if (!isEditing) {
+                            onUpdate({
+                              ...member,
+                              hide_notifications_ui: newVal
+                            });
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-stone-200 peer-focus:outline-hidden rounded-full peer dark:bg-stone-750 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Member Activity Timeline */}
+              <div className="space-y-3 border-t pt-4 border-stone-100 dark:border-stone-800">
+                <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5 justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <History className="w-3.5 h-3.5 text-emerald-600" /> Account Audit History
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.2 bg-stone-100 dark:bg-stone-800 text-stone-500 rounded font-mono font-bold uppercase leading-none">
+                    {sortedMemberLogs.length} {sortedMemberLogs.length === 1 ? 'event' : 'events'}
+                  </span>
+                </h5>
+
+                <p className="text-[10px] text-stone-400 dark:text-stone-450">
+                  A transparent history of administrative, profile status, and system modifications related to this account.
                 </p>
+
+                {sortedMemberLogs.length > 0 ? (
+                  <div className="relative pl-4 space-y-4 border-l border-stone-200 dark:border-stone-800 ml-1.5 py-1">
+                    {sortedMemberLogs.map((log) => {
+                      const isActionByAdmin = log.userId !== member.id || log.action === 'Admin Action' || log.action === 'Member Manual Provision';
+                      
+                      return (
+                        <div key={log.id} className="relative group">
+                          {/* Timeline Dot */}
+                          <span className={`absolute -left-[20.5px] top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-white dark:bg-stone-900 flex items-center justify-center transition-transform group-hover:scale-115 ${
+                            log.action === 'Member Manual Provision'
+                              ? 'border-blue-500 text-blue-500'
+                              : log.action === 'Member Removed'
+                              ? 'border-rose-500 text-rose-500'
+                              : isActionByAdmin
+                              ? 'border-emerald-500 text-emerald-500'
+                              : 'border-amber-500 text-amber-500'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              log.action === 'Member Manual Provision'
+                                ? 'bg-blue-500'
+                                : log.action === 'Member Removed'
+                                ? 'bg-rose-500'
+                                : isActionByAdmin
+                                ? 'bg-emerald-500'
+                                : 'bg-amber-500'
+                            }`} />
+                          </span>
+
+                          {/* Timeline Content */}
+                          <div className="bg-stone-50/75 dark:bg-stone-950/20 p-2.5 rounded-xl border border-stone-150 dark:border-stone-850/80 hover:border-stone-300 dark:hover:border-stone-700 transition-colors">
+                            <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                              <span className="font-extrabold text-stone-800 dark:text-white text-[10px] flex items-center gap-1">
+                                {log.action}
+                                {isActionByAdmin && (
+                                  <span className="text-[8px] bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 font-bold px-1 rounded uppercase tracking-wide leading-none">
+                                    Admin Override
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-[8.5px] text-stone-400 font-mono flex items-center gap-1 shrink-0">
+                                <Clock className="w-2.5 h-2.5" />
+                                {new Date(log.created_at).toLocaleString('en-IN', {
+                                  dateStyle: 'short',
+                                  timeStyle: 'short'
+                                })}
+                              </span>
+                            </div>
+
+                            <p className="text-[10px] text-stone-600 dark:text-stone-300 font-medium leading-relaxed">
+                              {log.details}
+                            </p>
+
+                            <div className="mt-1.5 pt-1.5 border-t border-dashed border-stone-200 dark:border-stone-800 flex items-center justify-between text-[8.5px] text-stone-400 font-bold">
+                              <span>
+                                By: <span className="text-stone-500 dark:text-stone-300">{log.userName}</span>
+                              </span>
+                              <span className="font-mono text-[8px] tracking-wide truncate max-w-[120px] sm:max-w-none" title={log.userEmail}>
+                                {log.userEmail}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-950/10 border border-dashed border-stone-200 dark:border-stone-850 flex flex-col items-center justify-center text-center text-stone-400 py-6">
+                    <History className="w-6 h-6 text-stone-300 mb-1.5" />
+                    <span className="font-bold text-[10px] text-stone-500">No account activity recorded yet</span>
+                    <p className="text-[9px] text-stone-400 max-w-xs mt-0.5">
+                      Administrative overrides or status adjustments will be automatically documented here.
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
+            </motion.div>
+          )}
+
+          {activeTab === 'financial' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4"
+            >
+              {/* Contribution Breakdown Grid */}
+              <div className="space-y-3">
+                <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-emerald-600" /> Financial Contribution Audit ({currentYear} YTD)
+                </h5>
+                
+                <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl border border-emerald-100/80 dark:border-emerald-900/30 flex items-center justify-between">
+                  <span className="font-bold text-stone-700 dark:text-stone-300">Jan - {MONTHS[currentMonthIndex]} Cumulative Sum:</span>
+                  <span className="font-mono text-xs font-black text-emerald-700 dark:text-emerald-400 bg-emerald-100/50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-md">₹{totalAddUp.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {monthlySumMap.map(({ month, total }) => (
+                    <div 
+                      key={month} 
+                      className="p-2 bg-stone-50 dark:bg-stone-950/10 rounded-lg border border-stone-150 dark:border-stone-800/80 flex items-center justify-between font-mono"
+                    >
+                      <span className="text-stone-500 dark:text-stone-400 font-bold text-[10px]">{month.slice(0, 3)}</span>
+                      <span className={`font-bold ${total > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-stone-400 dark:text-stone-550'}`}>
+                        {total > 0 ? `₹${total.toLocaleString('en-IN')}` : '₹0'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
           </div>
 
         </div>

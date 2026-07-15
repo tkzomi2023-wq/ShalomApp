@@ -111,18 +111,32 @@ export function NotificationBell({
   // Helper function to match user's name in schedule text fields
   const matchesUser = (fieldValue?: string) => {
     if (!fieldValue) return false;
-    const normalizedUser = currentUser.name.toLowerCase().trim();
-    const normalizedField = fieldValue.toLowerCase();
 
-    if (normalizedField.includes(normalizedUser)) return true;
+    // Normalize name strings by removing honorific prefixes and extra spaces
+    const normalize = (name: string): string => {
+      // Strip common honorific prefixes (Lia, Tg, Tg.) with or without trailing spaces/dots
+      let cleaned = name.replace(/^(lia|tg\.?)\b/i, "").trim();
+      // If the entire name was just the prefix, return empty string so it never matches
+      if (cleaned.toLowerCase() === 'lia' || cleaned.toLowerCase() === 'tg' || cleaned.toLowerCase() === 'tg.') {
+        return "";
+      }
+      return cleaned.toLowerCase().replace(/\s+/g, " ");
+    };
 
-    // Split the user's name into significant words (min 3 chars) to allow partial matching
-    const nameParts = normalizedUser.split(/\s+/).filter(part => part.length >= 3);
-    if (nameParts.length > 0) {
-      // Check if any significant word is a complete word or part of a word in the field
-      return nameParts.some(part => normalizedField.includes(part));
-    }
-    return false;
+    const cleanUser = normalize(currentUser.name);
+    if (!cleanUser) return false;
+
+    // Split schedule field value by typical separators (e.g. "&", ",", "and", ";", "+")
+    const parts = fieldValue.split(/\s*&\s*|\s*,\s*|\s+and\s+|\s*;\s*|\s*\+\s*/i);
+
+    return parts.some(part => {
+      const cleanPart = normalize(part);
+      if (!cleanPart) return false;
+      
+      // Strict matching: the names must be exactly the same (ignoring prefixes)
+      // This prevents matching generic prefixes like "Lia" or "Tg"
+      return cleanPart === cleanUser;
+    });
   };
 
   // Check if schedule date is upcoming or today

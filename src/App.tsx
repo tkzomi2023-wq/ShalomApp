@@ -15,6 +15,7 @@ import { LoginForm } from './components/LoginForm';
 import { RegistrationForm } from './components/RegistrationForm';
 import { MemberTable } from './components/MemberTable';
 import { UserProfileModal } from './components/UserProfileModal';
+import { BialDiagnosticModal } from './components/BialDiagnosticModal';
 import { FinancialRecordsPage } from './components/FinancialRecordsPage';
 import { SchedulePage } from './components/SchedulePage';
 import BirthdayEmailSettingsPage from './components/BirthdayEmailSettingsPage';
@@ -48,6 +49,7 @@ import {
   Database, 
   Sparkles, 
   ShieldCheck, 
+  ShieldAlert,
   Info, 
   AlertTriangle, 
   AlertCircle,
@@ -392,9 +394,14 @@ function AppContent() {
     const saved = localStorage.getItem('sy_pref_show_quick_metrics');
     return saved !== null ? saved === 'true' : true;
   });
+  const [showMemberDemographics, setShowMemberDemographics] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sy_pref_show_member_demographics');
+    return saved !== null ? saved === 'true' : true;
+  });
   
   // Modals / Portal selectors
   const [isSQLModalOpen, setIsSQLModalOpen] = useState(false);
+  const [isBialDiagnosticOpen, setIsBialDiagnosticOpen] = useState(false);
   
   // Birthday Wishes & Gift Box states
   const [birthdayWishes, setBirthdayWishes] = useState<BirthdayWish[]>([]);
@@ -776,6 +783,27 @@ function AppContent() {
     if (!user) return;
     loadDatabase();
   }, [user?.id]);
+
+  // Deep-link routing: automatically open a member's profile if '?profile=...' is present in the URL
+  useEffect(() => {
+    if (members.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const profileId = params.get('profile');
+      if (profileId) {
+        const found = members.find(m => m.id === profileId);
+        if (found) {
+          setSelectedProfileMember(found);
+          // Cleanly remove the ?profile param from the browser address bar without hard reloading
+          const cleanSearch = window.location.search
+            .replace(new RegExp(`[\\?&]profile=${profileId}`), '')
+            .replace(/^&/, '?')
+            .replace(/\?$/, '');
+          const newUrl = window.location.pathname + cleanSearch;
+          window.history.replaceState({}, '', newUrl);
+        }
+      }
+    }
+  }, [members]);
 
   useEffect(() => {
     if (!user) {
@@ -1312,6 +1340,36 @@ function AppContent() {
     }
   };
 
+  const handleBulkAssignBial = async (ids: string[], bial: string) => {
+    if (!user) return;
+    try {
+      let updatedCount = 0;
+      for (const id of ids) {
+        const memberToUpdate = members.find(m => m.id === id);
+        if (!memberToUpdate) continue;
+        
+        await db.updateMemberBial(id, bial);
+        
+        addActivityLog(
+          user.id,
+          user.email,
+          user.name,
+          'Member Bial Updated',
+          `Assigned "${memberToUpdate.name}" to Bial "${bial}" in profile.`,
+          id,
+          memberToUpdate.name
+        );
+        updatedCount++;
+      }
+      
+      setLogs(getActivityLogs());
+      await loadDatabase();
+      alert(`Successfully assigned ${updatedCount} members to "${bial}"!`);
+    } catch (e: any) {
+      alert(`Database rejected bulk Bial assignment: ${e.message || e}`);
+    }
+  };
+
   const handleBatchApproveMembers = async (ids: string[]) => {
     if (!user) return;
     try {
@@ -1576,6 +1634,82 @@ function AppContent() {
     { name: 'Rejected Requests', value: rejectedCount, color: '#ef4444' }
   ].filter(item => item.value > 0);
 
+  // Demographics computations
+  const membersWithDob = members.filter(m => m.dob && !isNaN(new Date(m.dob).getTime()));
+  const totalWithDob = membersWithDob.length;
+
+  const getAge = (dobStr: string): number => {
+    const dobDate = new Date(dobStr);
+    const today = new Date();
+    let age = today.getFullYear() - dobDate.getFullYear();
+    const m = today.getMonth() - dobDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dobDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  const memberAges = membersWithDob.map(m => getAge(m.dob!));
+  
+  const averageAge = totalWithDob > 0 
+    ? parseFloat((memberAges.reduce((sum, age) => sum + age, 0) / totalWithDob).toFixed(1))
+    : 0;
+
+  // Average age by gender
+  const maleMembersWithDob = membersWithDob.filter(m => m.gender?.toLowerCase() === 'male');
+  const femaleMembersWithDob = membersWithDob.filter(m => m.gender?.toLowerCase() === 'female');
+  
+  const maleAvgAge = maleMembersWithDob.length > 0
+    ? parseFloat((maleMembersWithDob.map(m => getAge(m.dob!)).reduce((sum, age) => sum + age, 0) / maleMembersWithDob.length).toFixed(1))
+    : 0;
+
+  const femaleAvgAge = femaleMembersWithDob.length > 0
+    ? parseFloat((femaleMembersWithDob.map(m => getAge(m.dob!)).reduce((sum, age) => sum + age, 0) / femaleMembersWithDob.length).toFixed(1))
+    : 0;
+
+  // Youngest and Oldest members
+  let youngestMemberName = '';
+  let youngestAge = 999;
+  let oldestMemberName = '';
+  let oldestAge = -1;
+
+  membersWithDob.forEach(m => {
+    const age = getAge(m.dob!);
+    if (age < youngestAge) {
+      youngestAge = age;
+      youngestMemberName = m.name;
+    }
+    if (age > oldestAge) {
+      oldestAge = age;
+      oldestMemberName = m.name;
+    }
+  });
+
+  // Age group ranges count
+  const ageGroups = {
+    under18: 0,
+    range18_22: 0,
+    range23_27: 0,
+    range28_35: 0,
+    over35: 0
+  };
+
+  memberAges.forEach(age => {
+    if (age < 18) ageGroups.under18++;
+    else if (age <= 22) ageGroups.range18_22++;
+    else if (age <= 27) ageGroups.range23_27++;
+    else if (age <= 35) ageGroups.range28_35++;
+    else ageGroups.over35++;
+  });
+
+  const ageGroupDistributionData = [
+    { name: 'Under 18', count: ageGroups.under18, fill: '#ec4899' },
+    { name: '18 - 22', count: ageGroups.range18_22, fill: '#10b981' },
+    { name: '23 - 27', count: ageGroups.range23_27, fill: '#3b82f6' },
+    { name: '28 - 35', count: ageGroups.range28_35, fill: '#f59e0b' },
+    { name: '36 & Over', count: ageGroups.over35, fill: '#8b5cf6' }
+  ];
+
   if (loading) {
     return (
       <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center p-6 text-stone-500">
@@ -1721,15 +1855,17 @@ function AppContent() {
 
           {/* Right Section / Profile avatar / Logout */}
           <div className="flex items-center gap-3">
-            <NotificationBell 
-              currentUser={user} 
-              logs={logs} 
-              currentTab={currentTab}
-              setCurrentTab={setCurrentTab}
-              members={members}
-              chatMessages={chatMessages}
-              onOpenChat={() => setIsChatOpen(true)}
-            />
+            {user && !user.hide_notifications_ui && (
+              <NotificationBell 
+                currentUser={user} 
+                logs={logs} 
+                currentTab={currentTab}
+                setCurrentTab={setCurrentTab}
+                members={members}
+                chatMessages={chatMessages}
+                onOpenChat={() => setIsChatOpen(true)}
+              />
+            )}
 
             <button
               onClick={handleThemeToggle}
@@ -2234,6 +2370,19 @@ function AppContent() {
                     />
                     <span>Role Charts</span>
                   </label>
+
+                  <label className="flex items-center gap-1.5 hover:bg-stone-50/80 p-1.5 px-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-stone-100">
+                    <input
+                      type="checkbox"
+                      checked={showMemberDemographics}
+                      onChange={(e) => {
+                        setShowMemberDemographics(e.target.checked);
+                        localStorage.setItem('sy_pref_show_member_demographics', String(e.target.checked));
+                      }}
+                      className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <span>Demographics</span>
+                  </label>
                 </div>
               )}
             </div>
@@ -2447,6 +2596,15 @@ function AppContent() {
                         <Database className="w-3.5 h-3.5 text-emerald-600" />
                         Database SQL Script Guide
                       </button>
+
+                      <button
+                        onClick={() => setIsBialDiagnosticOpen(true)}
+                        className="w-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/50 font-bold text-xs py-2 px-4 rounded-xl shadow-xxs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                        title="Compare financial records against registered user profiles to check Bial assignments"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                        Bial Assignment Diagnostic Tool
+                      </button>
                     </div>
 
                     <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100/30 text-[11px] leading-normal text-emerald-900 space-y-1">
@@ -2457,6 +2615,127 @@ function AppContent() {
                       <p className="text-emerald-800">
                         As an Officer Bearer (Chairman/Secretary/etc.), you have absolute control over member clearances and roles. Promote users to ECM or OB anytime.
                       </p>
+                    </div>
+                  </div>
+                )}
+
+              </section>
+            )}
+
+            {/* Member Demographics section */}
+            {showMemberDemographics && (
+              <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6 mb-6">
+                
+                {/* Age Group Distribution Chart */}
+                <div className={`${isCurrentUserAdmin ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4`}>
+                  <div className="flex items-center justify-between border-b pb-3 border-stone-100">
+                    <div>
+                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Member Demographics</h4>
+                      <p className="text-[10px] text-stone-400">Age distribution breakdown across the fellowship</p>
+                    </div>
+                    <span className="bg-pink-50 text-pink-700 px-2.5 py-1 text-[10px] font-bold rounded-lg border border-pink-100">
+                      Average Age: {averageAge > 0 ? `${averageAge} yrs` : 'N/A'}
+                    </span>
+                  </div>
+
+                  {totalWithDob > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                      
+                      {/* Age Group Distribution bar chart */}
+                      <div className="md:col-span-7 space-y-2">
+                        <p className="text-[11px] font-bold text-stone-400 text-center uppercase tracking-wide">Age distribution groups</p>
+                        <div className="h-44 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={ageGroupDistributionData} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis dataKey="name" tick={{ fontSize: 9 }} stroke="#888888" />
+                              <YAxis tick={{ fontSize: 9 }} stroke="#888888" allowDecimals={false} />
+                              <ChartTooltip contentStyle={{ fontSize: '10px', borderRadius: '8px' }} />
+                              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                                {ageGroupDistributionData.map((entry, idx) => (
+                                  <Cell key={`cell-${idx}`} fill={entry.fill} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      {/* Gender Specific / Breakdown details */}
+                      <div className="md:col-span-5 flex flex-col justify-center space-y-3 bg-stone-50/50 p-4 rounded-xl border border-stone-100">
+                        <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wide border-b pb-1">Gender breakdowns</div>
+                        
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-stone-500 font-semibold flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
+                            <span>Female Avg Age:</span>
+                          </span>
+                          <span className="font-bold text-stone-850">
+                            {femaleAvgAge > 0 ? `${femaleAvgAge} yrs` : 'N/A'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs border-b border-stone-100 pb-2">
+                          <span className="text-stone-500 font-semibold flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                            <span>Male Avg Age:</span>
+                          </span>
+                          <span className="font-bold text-stone-850">
+                            {maleAvgAge > 0 ? `${maleAvgAge} yrs` : 'N/A'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-stone-500 font-semibold">Youngest member:</span>
+                          <span className="font-bold text-emerald-600 truncate max-w-[140px]" title={youngestMemberName}>
+                            {youngestMemberName ? `${youngestMemberName} (${youngestAge})` : 'N/A'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-stone-500 font-semibold">Oldest member:</span>
+                          <span className="font-bold text-purple-600 truncate max-w-[140px]" title={oldestMemberName}>
+                            {oldestMemberName ? `${oldestMemberName} (${oldestAge})` : 'N/A'}
+                          </span>
+                        </div>
+
+                        <div className="text-[10px] text-stone-400 mt-1 font-medium text-center">
+                          Based on {totalWithDob} of {totalCount} registered members ({Math.round((totalWithDob/totalCount)*100 || 0)}% DOB accuracy)
+                        </div>
+                      </div>
+
+                    </div>
+                  ) : (
+                    <div className="h-44 flex flex-col items-center justify-center text-stone-400 text-xs text-center border-2 border-dashed border-stone-150 rounded-xl bg-stone-50/20 p-4">
+                      <Calendar className="w-8 h-8 text-stone-300 mb-2 animate-pulse" />
+                      <p className="font-semibold">No member Date of Birth registered yet.</p>
+                      <p className="text-[10px] text-stone-400 mt-1">Update member profiles with DOB to calculate demographics.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right side helper info panel (only if isCurrentUserAdmin, matching layout) */}
+                {isCurrentUserAdmin && (
+                  <div className="lg:col-span-4 bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4">
+                    <div className="border-b pb-3 border-stone-100">
+                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Demographic Outlook</h4>
+                      <p className="text-[10px] text-stone-400 font-medium">Core youth representation insights</p>
+                    </div>
+
+                    <div className="space-y-3.5 flex-1 flex flex-col justify-center">
+                      <div className="text-center p-4 bg-amber-50/40 rounded-xl border border-amber-100/50">
+                        <span className="text-2xl font-black text-amber-600">{averageAge > 0 ? `${averageAge}` : 'N/A'}</span>
+                        <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mt-1">Average Youth Age</p>
+                      </div>
+                      
+                      <p className="text-[11px] leading-relaxed text-stone-500 text-center">
+                        The demographics data helps Committee Leaders and Officer Bearers arrange targeted spiritual retreats, age-appropriate study classes, and volunteer tasks.
+                      </p>
+                    </div>
+
+                    <div className="bg-stone-50 p-3.5 rounded-xl border border-stone-100 text-[10px] leading-normal text-stone-500 flex items-center gap-2">
+                      <Info className="w-4 h-4 text-stone-400 shrink-0" />
+                      <span>Encourage members to update their profile DOB to improve analytics precision!</span>
                     </div>
                   </div>
                 )}
@@ -2609,6 +2888,7 @@ function AppContent() {
                 onDeleteMember={handleDeleteMember}
                 onBatchApproveMembers={handleBatchApproveMembers}
                 onBatchDeleteMembers={handleBatchDeleteMembers}
+                onBulkAssignBial={handleBulkAssignBial}
                 onOpenProfile={(member) => setSelectedProfileMember(member)}
                 isCurrentUserAdmin={isCurrentUserAdmin}
                 onlineUserIds={onlineUserIds}
@@ -2648,6 +2928,14 @@ function AppContent() {
 
       {/* SQL script Copy tool */}
       <SQLSetupModal isOpen={isSQLModalOpen} onClose={() => setIsSQLModalOpen(false)} />
+
+      {/* Bial Assignment Diagnostic Tool Modal */}
+      <BialDiagnosticModal 
+        isOpen={isBialDiagnosticOpen} 
+        onClose={() => setIsBialDiagnosticOpen(false)} 
+        members={members} 
+        onRefresh={loadDatabase} 
+      />
 
       {/* Message Retention Policy Modal */}
       {isRetentionModalOpen && (

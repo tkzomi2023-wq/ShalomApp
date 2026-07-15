@@ -24,6 +24,62 @@ const isNetlify = typeof window !== 'undefined' && (
   (window.location.hostname.endsWith('.app') && !window.location.hostname.includes('run.app') && !window.location.hostname.includes('google'))
 );
 
+const generateProfessionalCardHtml = (name: string, avatarUrl?: string, role?: string) => {
+  const avatarSrc = avatarUrl || "";
+  const displayRole = role || "Member";
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Happy Birthday, ${name}! 🎂</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+      <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 550px; margin: 30px auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #f5f5f4;">
+        <tr>
+          <td style="background: linear-gradient(135deg, #ec4899, #f43f5e, #f59e0b); padding: 50px 30px; text-align: center; color: white;">
+            <div style="font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; background-color: rgba(255, 255, 255, 0.25); padding: 6px 16px; border-radius: 100px; display: inline-block; margin-bottom: 20px;">
+              Happy Birthday! ✨
+            </div>
+            <h1 style="margin: 0; font-size: 34px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.1;">Wishing You A Wonderful Year Ahead!</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 40px 35px; text-align: center;">
+            ${avatarSrc ? `
+              <img src="${avatarSrc}" alt="${name}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #fbcfe8; margin: 0 auto 24px auto;" referrerPolicy="no-referrer" />
+            ` : `
+              <div style="width: 100px; height: 100px; border-radius: 50%; background-color: #fbcfe8; color: #db2777; line-height: 100px; font-size: 40px; font-weight: bold; margin: 0 auto 24px auto; text-align: center;">
+                🎂
+              </div>
+            `}
+            <h2 style="margin: 0 0 4px 0; font-size: 24px; font-weight: 800; color: #1c1917; letter-spacing: -0.025em;">Dear ${name},</h2>
+            <p style="margin: 0 0 20px 0; font-size: 13px; color: #db2777; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em;">${displayRole}</p>
+            <p style="margin: 0 0 30px 0; font-size: 15px; line-height: 1.7; color: #57534e;">
+              On behalf of the entire <strong>Shalom Youth Fellowship</strong>, we want to wish you the happiest of birthdays today! May your day be filled with endless joy, laughter, and precious memories. We are so blessed and grateful to have you as part of our community. Thank you for your warmth, energy, and dedication!
+            </p>
+            
+            <div style="background-color: #fafaf9; border: 1px dashed #e7e5e4; border-radius: 16px; padding: 25px; margin: 30px 0; text-align: center;">
+              <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: 800; color: #db2777; text-transform: uppercase; letter-spacing: 0.1em;">Daily Blessing</p>
+              <p style="margin: 0; font-size: 15px; font-style: italic; color: #44403c; line-height: 1.6;">
+                "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace."
+              </p>
+              <p style="margin: 8px 0 0 0; font-weight: bold; font-size: 12px; color: #78716c;">— Numbers 6:24-26</p>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color: #fafaf9; padding: 30px; text-align: center; border-top: 1px solid #f5f5f4; color: #78716c; font-size: 12px;">
+            <p style="margin: 0 0 4px 0; font-weight: 800; color: #44403c; text-transform: uppercase; letter-spacing: 0.05em;">Shalom Youth Fellowship</p>
+            <p style="margin: 0;">Spreading love, light, and fellowship together.</p>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+};
+
 export default function BirthdayEmailSettingsPage({ currentUser, members = [] }: BirthdayEmailSettingsPageProps) {
   const [statusData, setStatusData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -70,32 +126,8 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
         const localLogsStr = localStorage.getItem('sy_local_birthday_logs');
         const localLogs: BirthdayLog[] = localLogsStr ? JSON.parse(localLogsStr) : [];
         
-        const celebrantHtml = `
-          <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center; font-family: sans-serif;">
-            ${selectedMember.avatar ? `
-              <img src="${selectedMember.avatar}" alt="${selectedMember.name}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 12px; border: 3px solid #a855f7;" />
-            ` : `
-              <div style="width: 80px; height: 80px; border-radius: 50%; background-color: #a855f7; color: white; line-height: 80px; font-size: 32px; font-weight: bold; margin: 0 auto 12px auto; text-align: center;">
-                ${selectedMember.name.charAt(0).toUpperCase()}
-              </div>
-            `}
-            <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px; font-weight: bold;">${selectedMember.name}</h3>
-            <p style="margin: 0; color: #701a75; font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${selectedMember.role || 'Member'}</p>
-          </div>
-        `;
-
         const subject = `🎉 Happy Birthday, ${selectedMember.name}! 🎂 - Shalom Youth Fellowship`;
-        const htmlContent = `
-          <div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
-            <h1 style="color: #8b5cf6; margin-top: 0;">Birthday Celebration! 🎉</h1>
-            <p style="color: #4b5563;">Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member:</p>
-            ${celebrantHtml}
-            <div style="background-color: #f9fafb; border-left: 4px solid #8b5cf6; padding: 16px; margin: 24px 0; font-style: italic; color: #4b5563;">
-              "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace." 
-              <div style="text-align: right; font-weight: bold; font-size: 12px; margin-top: 8px; color: #6b7280; font-style: normal;">— Numbers 6:24-26</div>
-            </div>
-          </div>
-        `;
+        const htmlContent = generateProfessionalCardHtml(selectedMember.name, selectedMember.avatar, selectedMember.role);
 
         const newLog: BirthdayLog = {
           id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -149,10 +181,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
           second: '2-digit'
         });
         const subject = `🎉 Happy Birthday, ${selectedMember.name}! 🎂 - Shalom Youth Fellowship`;
-        const htmlContent = `<div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb;">
-          <h1 style="color: #8b5cf6;">Birthday Celebration! 🎉</h1>
-          <p>Today is a very special day! We celebrate the birthday of: <strong>${selectedMember.name}</strong></p>
-        </div>`;
+        const htmlContent = generateProfessionalCardHtml(selectedMember.name, selectedMember.avatar, selectedMember.role);
         const newLog: BirthdayLog = {
           id: crypto.randomUUID(),
           timestamp: todayTimeStr,
@@ -577,32 +606,8 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       statusText = `🎉 Simulated check completed: Found ${celebrants.length} celebrant(s) and prepared individual beautiful birthday cards!`;
       
       for (const c of celebrants) {
-        const celebrantHtml = `
-          <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center; font-family: sans-serif;">
-            ${c.avatar ? `
-              <img src="${c.avatar}" alt="${c.name}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 12px; border: 3px solid #a855f7;" />
-            ` : `
-              <div style="width: 80px; height: 80px; border-radius: 50%; background-color: #a855f7; color: white; line-height: 80px; font-size: 32px; font-weight: bold; margin: 0 auto 12px auto; text-align: center;">
-                ${c.name.charAt(0).toUpperCase()}
-              </div>
-            `}
-            <h3 style="margin: 0 0 4px 0; color: #581c87; font-size: 20px; font-weight: bold;">${c.name}</h3>
-            <p style="margin: 0; color: #701a75; font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${c.role || 'Member'}</p>
-          </div>
-        `;
-
         const subject = `🎉 Happy Birthday, ${c.name}! 🎂 - Shalom Youth Fellowship`;
-        const htmlContent = `
-          <div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; padding: 30px; font-family: sans-serif; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
-            <h1 style="color: #8b5cf6; margin-top: 0;">Birthday Celebration! 🎉</h1>
-            <p style="color: #4b5563;">Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member:</p>
-            ${celebrantHtml}
-            <div style="background-color: #f9fafb; border-left: 4px solid #8b5cf6; padding: 16px; margin: 24px 0; font-style: italic; color: #4b5563;">
-              "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace." 
-              <div style="text-align: right; font-weight: bold; font-size: 12px; margin-top: 8px; color: #6b7280; font-style: normal;">— Numbers 6:24-26</div>
-            </div>
-          </div>
-        `;
+        const htmlContent = generateProfessionalCardHtml(c.name, c.avatar, c.role);
 
         const newLog: BirthdayLog = {
           id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,

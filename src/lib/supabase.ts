@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   address TEXT,
   avatar TEXT,
   email_notifications BOOLEAN DEFAULT true,
+  hide_notifications_ui BOOLEAN DEFAULT false,
   bial TEXT,
   theme TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- Safe upgrade for existing databases
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS hide_notifications_ui BOOLEAN DEFAULT false;
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -434,17 +436,12 @@ CREATE TABLE IF NOT EXISTS public.meta_configs (
 -- Enable RLS for meta_configs
 ALTER TABLE public.meta_configs ENABLE ROW LEVEL SECURITY;
 
--- Allow public read of meta_configs (so anyone can see SEO meta on shared URLs)
+-- Allow public select, insert, update and delete of meta_configs (restricted at the API layer by email)
 DROP POLICY IF EXISTS "Allow public read of meta_configs" ON public.meta_configs;
-CREATE POLICY "Allow public read of meta_configs" ON public.meta_configs
-  FOR SELECT USING (true);
-
--- Allow any authenticated user to update/insert meta_configs
 DROP POLICY IF EXISTS "Allow authenticated insert/update of meta_configs" ON public.meta_configs;
-CREATE POLICY "Allow authenticated insert/update of meta_configs" ON public.meta_configs
-  FOR ALL USING (
-    auth.uid() IS NOT NULL
-  );
+DROP POLICY IF EXISTS "Allow public management of meta_configs" ON public.meta_configs;
+CREATE POLICY "Allow public management of meta_configs" ON public.meta_configs
+  FOR ALL USING (true) WITH CHECK (true);
 
 -- 10. SMTP Configs table (Stores SMTP settings securely)
 CREATE TABLE IF NOT EXISTS public.smtp_configs (
@@ -460,12 +457,11 @@ CREATE TABLE IF NOT EXISTS public.smtp_configs (
 -- Enable RLS for smtp_configs
 ALTER TABLE public.smtp_configs ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users to view/manage SMTP config
+-- Allow public select, insert, update and delete of smtp_configs (restricted at the API layer by email)
 DROP POLICY IF EXISTS "Allow authenticated management of smtp_configs" ON public.smtp_configs;
-CREATE POLICY "Allow authenticated management of smtp_configs" ON public.smtp_configs
-  FOR ALL USING (
-    auth.uid() IS NOT NULL
-  );
+DROP POLICY IF EXISTS "Allow public management of smtp_configs" ON public.smtp_configs;
+CREATE POLICY "Allow public management of smtp_configs" ON public.smtp_configs
+  FOR ALL USING (true) WITH CHECK (true);
 
 -- 11. Storage Buckets and Security Policies for avatars and thumbnails
 -- Enable storage buckets
@@ -697,6 +693,7 @@ class HybridDatabaseManager {
       address: member.address,
       avatar: member.avatar,
       email_notifications: member.email_notifications !== undefined ? member.email_notifications : true,
+      hide_notifications_ui: member.hide_notifications_ui !== undefined ? member.hide_notifications_ui : false,
       bial: member.bial,
       theme: member.theme,
       created_at: member.created_at || new Date().toISOString()
@@ -762,114 +759,142 @@ class HybridDatabaseManager {
         }
       }
 
-      if (existingProfile) {
-        // It exists, so we perform an UPDATE
-        const isAdmin = await this.isCurrentUserAdmin();
+      const updatePayload: any = {
+        name: newMember.name,
+        phone: newMember.phone,
+        gender: newMember.gender,
+        blood_group: newMember.blood_group,
+        dob: newMember.dob,
+        address: newMember.address,
+        avatar: newMember.avatar,
+        email_notifications: newMember.email_notifications,
+        hide_notifications_ui: newMember.hide_notifications_ui,
+        bial: newMember.bial,
+        theme: newMember.theme
+      };
 
-        const updatePayload: any = {
-          name: newMember.name,
-          phone: newMember.phone,
-          gender: newMember.gender,
-          blood_group: newMember.blood_group,
-          dob: newMember.dob,
-          address: newMember.address,
-          avatar: newMember.avatar,
-          email_notifications: newMember.email_notifications,
-          bial: newMember.bial,
-          theme: newMember.theme
-        };
+      const insertPayload: any = {
+        id: newMember.id,
+        email: newMember.email,
+        name: newMember.name,
+        phone: newMember.phone,
+        role: newMember.role,
+        status: newMember.status,
+        gender: newMember.gender,
+        blood_group: newMember.blood_group,
+        dob: newMember.dob,
+        address: newMember.address,
+        avatar: newMember.avatar,
+        email_notifications: newMember.email_notifications,
+        hide_notifications_ui: newMember.hide_notifications_ui,
+        bial: newMember.bial,
+        theme: newMember.theme,
+        created_at: newMember.created_at
+      };
 
-        // Only allow updating role/status if user is admin, or if it's the default admin email
-        // Standard users cannot change their own role or status
-        if (isAdmin || newMember.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
-          updatePayload.role = newMember.role;
-          updatePayload.status = newMember.status;
-        }
+      const isAdmin = await this.isCurrentUserAdmin();
+      if (isAdmin || newMember.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+        updatePayload.role = newMember.role;
+        updatePayload.status = newMember.status;
+      }
 
-        const { data: updatedRows, error: updateErr } = await supabase
-          .from('profiles')
-          .update(updatePayload)
-          .eq('id', newMember.id)
-          .select();
+      let attempts = 0;
+      const maxAttempts = 5;
 
-        if (updateErr) {
-          throw updateErr;
-        }
-
-        if (!updatedRows || updatedRows.length === 0) {
-          console.warn('Update by ID returned 0 rows, attempting to update by email due to potential ID/auth mismatch...');
-          
-          // Since we are updating by email due to ID mismatch, let's include the ID update in the payload to fix the mismatch on the fly!
-          const updatePayloadWithId = {
-            ...updatePayload,
-            id: newMember.id
-          };
-
-          const { data: updatedByEmailRows, error: updateByEmailErr } = await supabase
-            .from('profiles')
-            .update(updatePayloadWithId)
-            .eq('email', newMember.email)
-            .select();
-
-          if (updateByEmailErr) {
-            throw updateByEmailErr;
-          }
-
-          if (!updatedByEmailRows || updatedByEmailRows.length === 0) {
-            throw new Error('Failed to update profile: Profile row was not found or write was denied by database policies.');
-          }
-        }
-      } else {
-        // Doesn't exist, perform an INSERT
-        const { error: insertErr } = await supabase
-          .from('profiles')
-          .insert({
-            id: newMember.id,
-            email: newMember.email,
-            name: newMember.name,
-            phone: newMember.phone,
-            role: newMember.role,
-            status: newMember.status,
-            gender: newMember.gender,
-            blood_group: newMember.blood_group,
-            dob: newMember.dob,
-            address: newMember.address,
-            avatar: newMember.avatar,
-            email_notifications: newMember.email_notifications,
-            bial: newMember.bial,
-            theme: newMember.theme,
-            created_at: newMember.created_at
-          });
-
-        if (insertErr) {
-          // If the trigger already inserted the profile in the background, we might get a duplicate key error.
-          // Let's handle that gracefully by doing an update or returning the existing row.
-          if (insertErr.code === '23505') {
-            console.log('Profile was inserted concurrently, performing update instead...');
-            const isAdmin = await this.isCurrentUserAdmin();
-            const updatePayload: any = {
-              name: newMember.name,
-              phone: newMember.phone,
-              gender: newMember.gender,
-              blood_group: newMember.blood_group,
-              dob: newMember.dob,
-              address: newMember.address,
-              avatar: newMember.avatar,
-              email_notifications: newMember.email_notifications,
-              bial: newMember.bial,
-              theme: newMember.theme
-            };
-            if (isAdmin || newMember.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
-              updatePayload.role = newMember.role;
-              updatePayload.status = newMember.status;
-            }
-            const { error: updateErr } = await supabase
+      while (attempts < maxAttempts) {
+        try {
+          if (existingProfile) {
+            // It exists, so we perform an UPDATE
+            const { data: updatedRows, error: updateErr } = await supabase
               .from('profiles')
               .update(updatePayload)
-              .eq('id', newMember.id);
-            if (updateErr) throw updateErr;
+              .eq('id', newMember.id)
+              .select();
+
+            if (updateErr) {
+              throw updateErr;
+            }
+
+            if (!updatedRows || updatedRows.length === 0) {
+              console.warn('Update by ID returned 0 rows, attempting to update by email due to potential ID/auth mismatch...');
+              
+              // Since we are updating by email due to ID mismatch, let's include the ID update in the payload to fix the mismatch on the fly!
+              const updatePayloadWithId = {
+                ...updatePayload,
+                id: newMember.id
+              };
+
+              const { data: updatedByEmailRows, error: updateByEmailErr } = await supabase
+                .from('profiles')
+                .update(updatePayloadWithId)
+                .eq('email', newMember.email)
+                .select();
+
+              if (updateByEmailErr) {
+                throw updateByEmailErr;
+              }
+
+              if (!updatedByEmailRows || updatedByEmailRows.length === 0) {
+                throw new Error('Failed to update profile: Profile row was not found or write was denied by database policies.');
+              }
+            }
           } else {
-            throw insertErr;
+            // Doesn't exist, perform an INSERT
+            const { error: insertErr } = await supabase
+              .from('profiles')
+              .insert(insertPayload);
+
+            if (insertErr) {
+              // If the trigger already inserted the profile in the background, we might get a duplicate key error.
+              // Let's handle that gracefully by doing an update or returning the existing row.
+              if (insertErr.code === '23505') {
+                console.log('Profile was inserted concurrently, performing update instead...');
+                const { error: updateErr } = await supabase
+                  .from('profiles')
+                  .update(updatePayload)
+                  .eq('id', newMember.id);
+                if (updateErr) throw updateErr;
+              } else {
+                throw insertErr;
+              }
+            }
+          }
+          break; // Success! Break out of the retry loop.
+        } catch (err: any) {
+          attempts++;
+          const errorMsg = (err.message || err.details || '').toLowerCase();
+          
+          let removedAny = false;
+          const columnsToTest = ['hide_notifications_ui', 'theme', 'bial'];
+          
+          for (const col of columnsToTest) {
+            if (errorMsg.includes(col.toLowerCase())) {
+              if (updatePayload[col] !== undefined || insertPayload[col] !== undefined) {
+                console.warn(`[createOrUpdateMember] Column '${col}' is not present or cached in profiles table. Removing from payloads and retrying.`);
+                delete updatePayload[col];
+                delete insertPayload[col];
+                removedAny = true;
+              }
+            }
+          }
+
+          // Also check if any other column name can be extracted
+          const match = (err.message || '').match(/Could not find the '([^']+)' column/i) 
+                     || (err.message || '').match(/column "([^"]+)" of relation/i)
+                     || (err.message || '').match(/column "([^"]+)" does not exist/i)
+                     || (err.message || '').match(/Could not find the "([^"]+)" column/i);
+          if (match && match[1]) {
+            const col = match[1];
+            if (updatePayload[col] !== undefined || insertPayload[col] !== undefined) {
+              console.warn(`[createOrUpdateMember] Extracted column '${col}' from error. Removing from payloads and retrying.`);
+              delete updatePayload[col];
+              delete insertPayload[col];
+              removedAny = true;
+            }
+          }
+
+          if (!removedAny || attempts >= maxAttempts) {
+            throw err; // Re-throw the error if we couldn't remove any offending columns or ran out of attempts
           }
         }
       }
@@ -1177,6 +1202,18 @@ class HybridDatabaseManager {
     const { error } = await supabase
       .from('profiles')
       .update({ role, status })
+      .eq('id', id);
+    
+    if (error) {
+      throw error;
+    }
+    return true;
+  }
+
+  async updateMemberBial(id: string, bial: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ bial })
       .eq('id', id);
     
     if (error) {

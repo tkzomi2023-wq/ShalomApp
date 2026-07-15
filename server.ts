@@ -4,11 +4,22 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import { supabase } from "./src/lib/supabase";
+import { GoogleGenAI, Type } from "@google/genai";
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+});
+
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const LOGS_FILE_PATH = path.join(process.cwd(), "birthday_logs.json");
 const SMTP_CONFIG_FILE = path.join(process.cwd(), "smtp_config.json");
@@ -398,48 +409,45 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Happy Birthday, ${c.name}!</title>
+        <title>Happy Birthday, ${c.name}! 🎂</title>
       </head>
-      <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
-          <!-- Header Banner -->
+      <body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 550px; margin: 30px auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #f5f5f4;">
           <tr>
-            <td style="background: linear-gradient(135deg, #ec4899, #8b5cf6, #6366f1); padding: 40px 20px; text-align: center; color: white;">
-              <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; background-color: rgba(255, 255, 255, 0.2); padding: 4px 12px; border-radius: 100px;">Shalom Youth Fellowship</span>
-              <h1 style="margin: 15px 0 0 0; font-size: 32px; font-weight: 800; letter-spacing: -0.025em; text-shadow: 0 2px 4px rgba(0,0,0,0.15);">Birthday Celebration! 🎉</h1>
+            <td style="background: linear-gradient(135deg, #ec4899, #f43f5e, #f59e0b); padding: 50px 30px; text-align: center; color: white;">
+              <div style="font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; background-color: rgba(255, 255, 255, 0.25); padding: 6px 16px; border-radius: 100px; display: inline-block; margin-bottom: 20px;">
+                Happy Birthday! ✨
+              </div>
+              <h1 style="margin: 0; font-size: 34px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.1;">Wishing You A Wonderful Year Ahead!</h1>
             </td>
           </tr>
-          
-          <!-- Content Body -->
           <tr>
-            <td style="padding: 40px 30px;">
-              <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.6; color: #374151;">
-                Today is a very special day! We are overjoyed to celebrate the birthday of our beloved Shalom Youth member, <strong>${c.name}</strong>. Let's lift them up in our prayers, send them some love, and celebrate their special day together!
+            <td style="padding: 40px 35px; text-align: center;">
+              ${avatarSrc ? `
+                <img src="${avatarSrc}" alt="${c.name}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #fbcfe8; margin: 0 auto 24px auto;" referrerPolicy="no-referrer" />
+              ` : `
+                <div style="width: 100px; height: 100px; border-radius: 50%; background-color: #fbcfe8; color: #db2777; line-height: 100px; font-size: 40px; font-weight: bold; margin: 0 auto 24px auto; text-align: center;">
+                  🎂
+                </div>
+              `}
+              <h2 style="margin: 0 0 15px 0; font-size: 24px; font-weight: 800; color: #1c1917; letter-spacing: -0.025em;">Dear ${c.name},</h2>
+              <p style="margin: 0 0 30px 0; font-size: 15px; line-height: 1.7; color: #57534e;">
+                On behalf of the entire <strong>Shalom Youth Fellowship</strong>, we want to wish you the happiest of birthdays today! May your day be filled with endless joy, laughter, and precious memories. We are so blessed and grateful to have you as part of our community. Thank you for your warmth, energy, and dedication!
               </p>
               
-              <!-- Celebrants List -->
-              ${celebrantsHtml}
-
-              <!-- Encouraging Word -->
-              <div style="background-color: #f9fafb; border-left: 4px solid #8b5cf6; border-radius: 4px; padding: 16px; margin: 24px 0; font-style: italic; color: #4b5563;">
-                "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace." 
-                <div style="text-align: right; font-weight: bold; font-size: 12px; margin-top: 8px; color: #6b7280; font-style: normal;">— Numbers 6:24-26</div>
-              </div>
-
-              <!-- Action Link -->
-              <div style="text-align: center; margin: 30px 0 10px 0;">
-                <a href="${appUrl}" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; text-decoration: none; padding: 14px 32px; font-weight: bold; font-size: 16px; border-radius: 100px; display: inline-block; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);">
-                  Send a Birthday Wish! 🎁
-                </a>
+              <div style="background-color: #fafaf9; border: 1px dashed #e7e5e4; border-radius: 16px; padding: 25px; margin: 30px 0; text-align: center;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: 800; color: #db2777; text-transform: uppercase; letter-spacing: 0.1em;">Daily Blessing</p>
+                <p style="margin: 0; font-size: 15px; font-style: italic; color: #44403c; line-height: 1.6;">
+                  "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you; the Lord turn his face toward you and give you peace."
+                </p>
+                <p style="margin: 8px 0 0 0; font-weight: bold; font-size: 12px; color: #78716c;">— Numbers 6:24-26</p>
               </div>
             </td>
           </tr>
-          
-          <!-- Footer -->
           <tr>
-            <td style="background-color: #f9fafb; padding: 24px 30px; text-align: center; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px;">
-              <p style="margin: 0 0 6px 0; font-weight: 600; color: #4b5563;">Shalom Youth Fellowship</p>
-              <p style="margin: 0;">You are receiving this email because you are a registered and approved member of Shalom Youth.</p>
+            <td style="background-color: #fafaf9; padding: 30px; text-align: center; border-top: 1px solid #f5f5f4; color: #78716c; font-size: 12px;">
+              <p style="margin: 0 0 4px 0; font-weight: 800; color: #44403c; text-transform: uppercase; letter-spacing: 0.05em;">Shalom Youth Fellowship</p>
+              <p style="margin: 0;">Spreading love, light, and fellowship together.</p>
             </td>
           </tr>
         </table>
@@ -1017,6 +1025,140 @@ app.post("/api/meta-config", async (req, res) => {
   } catch (err: any) {
     console.error("[MetaConfig Sync] Error during meta configuration save:", err);
     res.status(500).json({ error: err.message || "Failed to save meta configurations" });
+  }
+});
+
+
+// Smart Face Detection & Crop Parameter Generator Endpoint using Gemini
+app.post("/api/detect-face", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "No image data provided" });
+    }
+
+    let base64Data = image;
+    let mimeType = "image/jpeg";
+
+    if (image.startsWith("data:")) {
+      const parts = image.split(";base64,");
+      if (parts.length === 2) {
+        mimeType = parts[0].substring(5);
+        base64Data = parts[1];
+      }
+    }
+
+    const imagePart = {
+      inlineData: {
+        mimeType,
+        data: base64Data,
+      },
+    };
+
+    const promptText = `
+Locate the primary person's face/head in this photo. Determine the optimal cropping bounding box to produce a professional passport-style headshot (which includes the entire head, face, neck, and upper chest/shoulders, with balanced space above the head). Ensure the aspect ratio is exactly 1:1 (square).
+
+Return the bounding box coordinates normalized as float values between 0.0 and 1.0 relative to the image boundaries:
+- top: distance from top of image (0.0 to 1.0)
+- left: distance from left of image (0.0 to 1.0)
+- right: distance from left of image to the right edge of crop box (0.0 to 1.0)
+- bottom: distance from top of image to the bottom edge of crop box (0.0 to 1.0)
+`;
+
+    const modelsToTry = [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-flash-latest"
+    ];
+
+    let result = null;
+    let lastError = null;
+
+    for (const modelName of modelsToTry) {
+      let success = false;
+      const maxRetries = 3;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`[FaceDetection] Attempting face detection with model: ${modelName} (Attempt ${attempt}/${maxRetries})`);
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: [imagePart, promptText],
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  top: { type: Type.NUMBER, description: "Top coordinate of the crop box (0.0 to 1.0)" },
+                  left: { type: Type.NUMBER, description: "Left coordinate of the crop box (0.0 to 1.0)" },
+                  right: { type: Type.NUMBER, description: "Right coordinate of the crop box (0.0 to 1.0)" },
+                  bottom: { type: Type.NUMBER, description: "Bottom coordinate of the crop box (0.0 to 1.0)" },
+                },
+                required: ["top", "left", "right", "bottom"],
+              },
+            },
+          });
+
+          const jsonText = response.text || "";
+          const parsed = JSON.parse(jsonText.trim());
+          if (
+            typeof parsed.top === "number" &&
+            typeof parsed.left === "number" &&
+            typeof parsed.right === "number" &&
+            typeof parsed.bottom === "number"
+          ) {
+            result = parsed;
+            console.log(`[FaceDetection] Success with model: ${modelName}. Result:`, result);
+            success = true;
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[FaceDetection] Model ${modelName} attempt ${attempt} failed:`, err.message || err);
+          lastError = err;
+          
+          const isRetriable = 
+            err.message?.includes("503") || 
+            err.message?.includes("UNAVAILABLE") || 
+            err.message?.includes("high demand") || 
+            err.message?.includes("429");
+            
+          if (isRetriable && attempt < maxRetries) {
+            const backoff = 500 * Math.pow(2, attempt - 1);
+            console.log(`[FaceDetection] Temporary error. Retrying ${modelName} in ${backoff}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, backoff));
+          } else {
+            break;
+          }
+        }
+      }
+      if (success) break;
+      
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    if (!result) {
+      console.warn(
+        `[FaceDetection] All Gemini face-detection models failed. Falling back to default centered square bounding box. Last error:`,
+        lastError ? lastError.message || lastError : "unknown"
+      );
+      // Fallback to a default centered square bounding box
+      result = {
+        top: 0.15,
+        left: 0.15,
+        right: 0.85,
+        bottom: 0.85
+      };
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    console.error("[FaceDetection] Fatal error in face-detection endpoint:", err);
+    // If anything fails in the outer try, return the default crop box instead of 500 error to ensure flawless UX
+    res.json({
+      top: 0.15,
+      left: 0.15,
+      right: 0.85,
+      bottom: 0.85
+    });
   }
 });
 
