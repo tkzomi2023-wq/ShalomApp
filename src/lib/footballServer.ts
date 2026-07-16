@@ -42,29 +42,29 @@ const DEFAULT_TEAMS: FootballTeam[] = [
 ];
 
 // Seed initial default matches starting from July 15, 2026 onwards (realistic setup)
-const getDefaultMatches = (): FootballMatch[] => {
+const getDefaultMatches = (tournamentName: string = "FIFA World Cup", seasonName: string = "2026"): FootballMatch[] => {
   const matches: FootballMatch[] = [];
   const now = new Date();
   
-  // Set match dates relative to now to make them interactive
+  // Set match dates relative to now to make them interactive and upcoming
   const d = (daysOffset: number, hoursOffset: number) => {
     const date = new Date(now.getTime() + daysOffset * 24 * 60 * 60 * 1000 + hoursOffset * 60 * 60 * 1000);
     return date.toISOString();
   };
 
-  // 1. Completed Group Stage matches
+  // 1. Group Stage
   matches.push({
     id: 1001,
     tournament: "FIFA World Cup",
     season: "2026",
-    round: "Group Stage - 1",
+    round: "Group Stage",
     home_team_id: 2384, // USA
     away_team_id: 16,   // Mexico
-    kickoff: d(-14, 0),
-    status: "FT",
-    home_score: 2,
-    away_score: 1,
-    winner_team_id: 2384,
+    kickoff: d(0, 1),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "MetLife Stadium",
     stadium: "East Rutherford"
   });
@@ -73,14 +73,14 @@ const getDefaultMatches = (): FootballMatch[] => {
     id: 1002,
     tournament: "FIFA World Cup",
     season: "2026",
-    round: "Group Stage - 1",
+    round: "Group Stage",
     home_team_id: 26,   // Argentina
     away_team_id: 15,   // Canada
-    kickoff: d(-13, 0),
-    status: "FT",
-    home_score: 3,
-    away_score: 0,
-    winner_team_id: 26,
+    kickoff: d(0, 3),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "Mercedes-Benz Stadium",
     stadium: "Atlanta"
   });
@@ -89,14 +89,14 @@ const getDefaultMatches = (): FootballMatch[] => {
     id: 1003,
     tournament: "FIFA World Cup",
     season: "2026",
-    round: "Group Stage - 1",
+    round: "Group Stage",
     home_team_id: 2,    // France
     away_team_id: 9,    // Spain
-    kickoff: d(-12, 0),
-    status: "FT",
-    home_score: 2,
-    away_score: 2,
-    winner_team_id: null, // Draw
+    kickoff: d(0, 5),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "Estadio Azteca",
     stadium: "Mexico City"
   });
@@ -105,51 +105,52 @@ const getDefaultMatches = (): FootballMatch[] => {
     id: 1004,
     tournament: "FIFA World Cup",
     season: "2026",
-    round: "Group Stage - 2",
+    round: "Group Stage",
     home_team_id: 10,   // England
     away_team_id: 6,    // Brazil
-    kickoff: d(-11, 0),
-    status: "FT",
-    home_score: 2,
-    away_score: 1,
-    winner_team_id: 10,
+    kickoff: d(0, 7),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "Hard Rock Stadium",
     stadium: "Miami"
   });
 
+  // 2. Round of 32
   matches.push({
-    id: 1005,
+    id: 2001,
     tournament: "FIFA World Cup",
     season: "2026",
-    round: "Group Stage - 2",
+    round: "Round of 32",
     home_team_id: 25,   // Germany
     away_team_id: 7,    // Italy
-    kickoff: d(-10, 0),
-    status: "FT",
-    home_score: 1,
-    away_score: 0,
-    winner_team_id: 25,
+    kickoff: d(1, 0),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "BC Place",
     stadium: "Vancouver"
   });
 
   matches.push({
-    id: 1006,
+    id: 2002,
     tournament: "FIFA World Cup",
     season: "2026",
-    round: "Group Stage - 2",
+    round: "Round of 32",
     home_team_id: 27,   // Portugal
     away_team_id: 1118, // Netherlands
-    kickoff: d(-9, 0),
-    status: "FT",
-    home_score: 2,
-    away_score: 0,
-    winner_team_id: 27,
+    kickoff: d(1, 4),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "SoFi Stadium",
     stadium: "Los Angeles"
   });
 
-  // 2. Round of 16 (Completed)
+  // 3. Round of 16
   matches.push({
     id: 3001,
     tournament: "FIFA World Cup",
@@ -157,11 +158,11 @@ const getDefaultMatches = (): FootballMatch[] => {
     round: "Round of 16",
     home_team_id: 2384, // USA
     away_team_id: 25,   // Germany
-    kickoff: d(-7, 0),
-    status: "FT",
-    home_score: 1,
-    away_score: 0,
-    winner_team_id: 2384,
+    kickoff: d(2, 0),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "Lumen Field",
     stadium: "Seattle"
   });
@@ -173,16 +174,16 @@ const getDefaultMatches = (): FootballMatch[] => {
     round: "Round of 16",
     home_team_id: 27,   // Portugal
     away_team_id: 3,    // Croatia
-    kickoff: d(-6, 0),
-    status: "FT",
-    home_score: 1,
-    away_score: 2,
-    winner_team_id: 3, // Croatia
+    kickoff: d(2, 4),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "Lincoln Financial Field",
     stadium: "Philadelphia"
   });
 
-  // 3. Quarter Finals (Completed)
+  // 4. Quarter-finals
   matches.push({
     id: 4001,
     tournament: "FIFA World Cup",
@@ -190,11 +191,11 @@ const getDefaultMatches = (): FootballMatch[] => {
     round: "Quarter-finals",
     home_team_id: 28,   // Morocco
     away_team_id: 12,   // Japan
-    kickoff: d(-4, 0),
-    status: "FT",
-    home_score: 0,
-    away_score: 2,
-    winner_team_id: 12, // Japan
+    kickoff: d(3, 0),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "NRG Stadium",
     stadium: "Houston"
   });
@@ -206,17 +207,16 @@ const getDefaultMatches = (): FootballMatch[] => {
     round: "Quarter-finals",
     home_team_id: 13,   // Senegal
     away_team_id: 2,    // France
-    kickoff: d(-3, 0),
-    status: "FT",
-    home_score: 1,
-    away_score: 2,
-    winner_team_id: 2, // France
+    kickoff: d(3, 4),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "Arrowhead Stadium",
     stadium: "Kansas City"
   });
 
-  // 4. Semi Finals
-  // SF 1: Spain vs France (Completed) - "spain won against france and are put through final"
+  // 5. Semi-finals
   matches.push({
     id: 5001,
     tournament: "FIFA World Cup",
@@ -224,16 +224,15 @@ const getDefaultMatches = (): FootballMatch[] => {
     round: "Semi-finals",
     home_team_id: 9,    // Spain
     away_team_id: 2,    // France
-    kickoff: d(-1, 0),  // Played yesterday
-    status: "FT",
-    home_score: 2,
-    away_score: 1,
-    winner_team_id: 9,  // Spain wins and goes to final!
+    kickoff: d(4, 0),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
     venue: "MetLife Stadium",
     stadium: "East Rutherford"
   });
 
-  // SF 2: England vs Argentina (Tonight - Upcoming, NS) - "night will be the last (2nd) Semi-Finals match of England vs Argentina"
   matches.push({
     id: 5002,
     tournament: "FIFA World Cup",
@@ -241,7 +240,7 @@ const getDefaultMatches = (): FootballMatch[] => {
     round: "Semi-finals",
     home_team_id: 10,   // England
     away_team_id: 26,   // Argentina
-    kickoff: d(0, 4),   // Starting tonight in 4 hours
+    kickoff: d(4, 4),
     status: "NS",
     home_score: null,
     away_score: null,
@@ -250,15 +249,32 @@ const getDefaultMatches = (): FootballMatch[] => {
     stadium: "Atlanta"
   });
 
-  // 5. Final (Upcoming, NS)
+  // 6. Third Place Playoff
+  matches.push({
+    id: 6002,
+    tournament: "FIFA World Cup",
+    season: "2026",
+    round: "Third Place Playoff",
+    home_team_id: null,
+    away_team_id: null,
+    kickoff: d(5, 0),
+    status: "NS",
+    home_score: null,
+    away_score: null,
+    winner_team_id: null,
+    venue: "Hard Rock Stadium",
+    stadium: "Miami"
+  });
+
+  // 7. Final
   matches.push({
     id: 6001,
     tournament: "FIFA World Cup",
     season: "2026",
     round: "Final",
-    home_team_id: 9,    // Spain
-    away_team_id: 10,   // England (tentative pending SF2 result)
-    kickoff: d(3, 0),   // Scheduled in 3 days
+    home_team_id: null,
+    away_team_id: null,
+    kickoff: d(6, 0),
     status: "NS",
     home_score: null,
     away_score: null,
@@ -267,7 +283,11 @@ const getDefaultMatches = (): FootballMatch[] => {
     stadium: "Los Angeles"
   });
 
-  return matches;
+  return matches.map(m => ({
+    ...m,
+    tournament: tournamentName,
+    season: seasonName
+  }));
 };
 
 interface FootballSettings {
@@ -298,7 +318,7 @@ const loadLocalDB = (): LocalFootballDB => {
           competitionId: 1,
           competitionName: "FIFA World Cup",
           season: "2026",
-          syncInterval: 12,
+          syncInterval: 10,
           lastSyncTime: new Date(0).toISOString()
         };
         saveLocalDB(db);
@@ -319,7 +339,7 @@ const loadLocalDB = (): LocalFootballDB => {
       competitionId: 1,
       competitionName: "FIFA World Cup",
       season: "2026",
-      syncInterval: 12,
+      syncInterval: 10,
       lastSyncTime: new Date(0).toISOString()
     }
   };
@@ -437,9 +457,16 @@ export const updateResults = async (): Promise<{ updated: number; pointsAwarded:
       const pendingPredictions = predictions.filter(p => p.match_id === match.id && p.points === null);
       
       for (const pred of pendingPredictions) {
-        const correctTeam = match.winner_team_id; // could be null if draw
-        const isCorrect = pred.predicted_team_id === correctTeam;
-        const points = isCorrect ? getPointsForRound(match.round) : 0;
+        const isDraw = match.winner_team_id === null || match.winner_team_id === undefined;
+        const isCorrect = (isDraw && pred.predicted_team_id === -1) || (!isDraw && pred.predicted_team_id === match.winner_team_id);
+        let points = isCorrect ? getPointsForRound(match.round) : 0;
+        
+        // Exact score prediction bonus: +3 extra points if exact score matches!
+        if (isCorrect && pred.predicted_home_score !== null && pred.predicted_away_score !== null &&
+            pred.predicted_home_score === match.home_score && pred.predicted_away_score === match.away_score) {
+          points += 3;
+        }
+        
         const updatedAt = new Date().toISOString();
         
         if (useSupabase) {
@@ -508,6 +535,116 @@ export const updateResults = async (): Promise<{ updated: number; pointsAwarded:
   return { updated: updatedCount, pointsAwarded: pointsAwardedSum };
 };
 
+// Map raw API-Football rounds to standardized display names
+export const cleanRoundName = (round: string): string => {
+  const r = round.toLowerCase();
+  if (r.includes("group")) return "Group Stage";
+  if (r.includes("16") || r.includes("sixteen")) return "Round of 16";
+  if (r.includes("quarter")) return "Quarter-finals";
+  if (r.includes("semi")) return "Semi-finals";
+  if (r.includes("third") || r.includes("3rd")) return "Third Place Playoff";
+  if (r.includes("final") && !r.includes("semi") && !r.includes("quarter")) return "Final";
+  return round;
+};
+
+// Automatically एडवांस knockout tournament slots, create third-place match if missing, and set TBD matches
+export const ensureBracketIntegrity = async (localDb: any): Promise<number> => {
+  const isDbOnline = await checkSupabaseSupport();
+  const settings = localDb.settings || {
+    competitionId: 1,
+    competitionName: "FIFA World Cup",
+    season: "2026"
+  };
+
+  const activeMatches = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season);
+  const sfs = activeMatches.filter((m: any) => m.round.toLowerCase().includes("semi"));
+  const final = activeMatches.find((m: any) => m.round.toLowerCase() === "final" || m.round.toLowerCase().includes("grand final") || m.round.toLowerCase() === "finales");
+  let thirdPlace = activeMatches.find((m: any) => m.round.toLowerCase().includes("third place") || m.round.toLowerCase().includes("3rd place") || m.round.toLowerCase().includes("3 place"));
+
+  let syncCount = 0;
+
+  if (sfs.length === 2 && final) {
+    const sfMatches = [...sfs].sort((a, b) => a.id - b.id);
+    const sf1 = sfMatches[0];
+    const sf2 = sfMatches[1];
+
+    // If Third Place Match is missing, create it dynamically
+    if (!thirdPlace) {
+      console.log(`[Bracket Engine] Third Place Playoff is missing. Creating it dynamically...`);
+      const finalKickoff = new Date(final.kickoff);
+      // Scheduled 24 hours before the Final
+      const thirdPlaceKickoff = new Date(finalKickoff.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      
+      thirdPlace = {
+        id: final.id + 9999,
+        tournament: settings.competitionName,
+        season: settings.season,
+        round: "Third Place Playoff",
+        home_team_id: null,
+        away_team_id: null,
+        kickoff: thirdPlaceKickoff,
+        status: "NS",
+        home_score: null,
+        away_score: null,
+        winner_team_id: null,
+        venue: final.venue || "TBD Stadium",
+        stadium: final.stadium || "TBD City"
+      };
+      localDb.matches.push(thirdPlace);
+      syncCount++;
+    }
+
+    const bothSemisFinished = sf1.status === "FT" && sf2.status === "FT";
+
+    if (bothSemisFinished) {
+      const winner1 = sf1.winner_team_id;
+      const winner2 = sf2.winner_team_id;
+      const loser1 = sf1.winner_team_id === sf1.home_team_id ? sf1.away_team_id : sf1.home_team_id;
+      const loser2 = sf2.winner_team_id === sf2.home_team_id ? sf2.away_team_id : sf2.home_team_id;
+
+      if (winner1 && winner2) {
+        if (final.home_team_id !== winner1 || final.away_team_id !== winner2) {
+          final.home_team_id = winner1;
+          final.away_team_id = winner2;
+          syncCount++;
+        }
+        if (thirdPlace && (thirdPlace.home_team_id !== loser1 || thirdPlace.away_team_id !== loser2)) {
+          thirdPlace.home_team_id = loser1;
+          thirdPlace.away_team_id = loser2;
+          syncCount++;
+        }
+      }
+    } else {
+      // Semis are not finished yet -> Final and Third Place teams MUST be TBD (null)
+      if (final.home_team_id !== null || final.away_team_id !== null) {
+        final.home_team_id = null;
+        final.away_team_id = null;
+        syncCount++;
+      }
+      if (thirdPlace && (thirdPlace.home_team_id !== null || thirdPlace.away_team_id !== null)) {
+        thirdPlace.home_team_id = null;
+        thirdPlace.away_team_id = null;
+        syncCount++;
+      }
+    }
+  }
+
+  // Push updates to Supabase if online and syncCount happened
+  if (syncCount > 0 && isDbOnline) {
+    for (const match of localDb.matches) {
+      if (match.tournament === settings.competitionName && match.season === settings.season) {
+        try {
+          await supabase.from("football_matches").upsert(match);
+        } catch (err) {
+          console.error(`[Bracket Engine] Failed to upsert match ${match.id} to Supabase:`, err);
+        }
+      }
+    }
+  }
+
+  return syncCount;
+};
+
 // Serverside API-Football Sync
 export const syncFixtures = async (): Promise<{ success: boolean; count: number; source: "api" | "seeded" }> => {
   console.log("[Football Engine] Synchronizing football fixtures...");
@@ -520,7 +657,7 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
     competitionId: 1,
     competitionName: "FIFA World Cup",
     season: "2026",
-    syncInterval: 12,
+    syncInterval: 10,
     lastSyncTime: new Date(0).toISOString()
   };
 
@@ -529,39 +666,86 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
   
   if (apiKey) {
     try {
-      // Query selected league and season target
-      let res = await fetch(`${API_URL}/fixtures?league=${compId}&season=${queriedSeasonTarget}`, {
-        headers: {
-          "x-apisports-key": apiKey,
-          "x-rapidapi-key": apiKey,
-          "x-apisports-host": apiHost
-        }
-      });
-      
-      if (!res.ok) {
-        throw new Error(`API Football responded with status ${res.status}`);
-      }
-      
-      let payload = await res.json();
-      let isPlanError = false;
-      let errorMsg = "";
+      let payload;
+      let targetSeason = queriedSeasonTarget;
+      let attempt = 0;
+      const seasonsToTry = [queriedSeasonTarget, "2024", "2023", "2022"];
+      let apiFixtures: any[] = [];
+      let queriedSeason = queriedSeasonTarget;
 
-      if (payload.errors && Object.keys(payload.errors).length > 0) {
-        errorMsg = JSON.stringify(payload.errors);
-        if (errorMsg.includes("Free plans") || errorMsg.includes("plan") || errorMsg.includes("season") || errorMsg.includes("access")) {
-          isPlanError = true;
+      while (attempt < seasonsToTry.length) {
+        targetSeason = seasonsToTry[attempt];
+        console.log(`[Football Engine] Querying API-Football for league ${compId}, season ${targetSeason}...`);
+        
+        const res = await fetch(`${API_URL}/fixtures?league=${compId}&season=${targetSeason}`, {
+          headers: {
+            "x-apisports-key": apiKey,
+            "x-rapidapi-key": apiKey,
+            "x-apisports-host": apiHost
+          }
+        });
+
+        if (!res.ok) {
+          attempt++;
+          continue;
+        }
+
+        payload = await res.json();
+        let isPlanError = false;
+        if (payload.errors && Object.keys(payload.errors).length > 0) {
+          const errorMsg = JSON.stringify(payload.errors);
+          if (errorMsg.includes("Free plans") || errorMsg.includes("plan") || errorMsg.includes("season") || errorMsg.includes("access")) {
+            isPlanError = true;
+          } else {
+            throw new Error(errorMsg);
+          }
+        }
+
+        if (isPlanError || !payload.response || payload.response.length === 0) {
+          console.log(`[Football Engine] Season ${targetSeason} is empty or not in subscription plan. Checking next fallback season...`);
+          attempt++;
         } else {
-          throw new Error(errorMsg);
+          apiFixtures = payload.response;
+          queriedSeason = targetSeason;
+          break;
         }
       }
 
-      if (isPlanError) {
-        throw new Error(`Free plan limits: Season ${queriedSeasonTarget} is restricted. Gracefully triggering simulated high-fidelity tournament mode!`);
+      if (apiFixtures.length === 0) {
+        throw new Error("All queried seasons were restricted by plan limits or returned no fixtures.");
       }
 
-      const apiFixtures = payload.response || [];
-      const queriedSeason = payload.parameters?.season || queriedSeasonTarget;
-      console.log(`[Football Engine] Retrieved ${apiFixtures.length} fixtures from official API-Football for season ${queriedSeason}`);
+      console.log(`[Football Engine] Successfully retrieved ${apiFixtures.length} real fixtures from official API-Football for season ${queriedSeason}`);
+
+      // Delete obsolete matches of this tournament that no longer exist in the API
+      const apiFixtureIds = new Set(apiFixtures.map(item => item.fixture.id));
+      if (apiFixtureIds.size > 0) {
+        if (isDbOnline) {
+          try {
+            await supabase.from("football_matches").delete().eq("tournament", settings.competitionName).not("id", "in", `(${Array.from(apiFixtureIds).join(",")})`);
+          } catch (delErr) {
+            console.error("Failed to delete obsolete matches from Supabase:", delErr);
+          }
+        }
+        localDb.matches = localDb.matches.filter((m: any) => {
+          if (m.tournament === settings.competitionName && m.season === settings.season) {
+            return apiFixtureIds.has(m.id);
+          }
+          return true;
+        });
+      }
+
+      // Check if we need to shift dates to make a portion of matches upcoming and a portion completed
+      let shiftMs = 0;
+      if (apiFixtures.length > 0) {
+        const dates = apiFixtures.map(f => new Date(f.fixture.date).getTime());
+        const earliestDate = Math.min(...dates);
+        
+        // Let's set the tournament start to 1.5 days ago relative to now
+        const now = new Date();
+        const targetStartDate = new Date(now.getTime() - 1.5 * 24 * 60 * 60 * 1000);
+        shiftMs = targetStartDate.getTime() - earliestDate;
+      }
 
       let importedCount = 0;
       let failedRowsCount = 0;
@@ -591,7 +775,11 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
             group: league.round.includes("Group") ? league.round : undefined
           };
 
-          // Upsert teams
+          // Save locally as backup and instant local access
+          if (!localDb.teams.some(t => t.id === homeTeam.id)) localDb.teams.push(homeTeam);
+          if (!localDb.teams.some(t => t.id === awayTeam.id)) localDb.teams.push(awayTeam);
+
+          // Upsert teams in Supabase if online
           if (useSupabase) {
             try {
               const { error: homeError } = await supabase.from("football_teams").upsert(homeTeam);
@@ -607,21 +795,13 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
               } else {
                 console.log(`[Football Engine] Team synchronization skipped for fixture ${fixture.id}`);
               }
-              // Save locally as backup
-              if (!localDb.teams.some(t => t.id === homeTeam.id)) localDb.teams.push(homeTeam);
-              if (!localDb.teams.some(t => t.id === awayTeam.id)) localDb.teams.push(awayTeam);
             }
-          } else {
-            if (!localDb.teams.some(t => t.id === homeTeam.id)) localDb.teams.push(homeTeam);
-            if (!localDb.teams.some(t => t.id === awayTeam.id)) localDb.teams.push(awayTeam);
           }
 
-          // Shift 2022 dates to 2026 so they are interactive
+          // Shift kickoff dates relative to now so a portion are completed and a portion are upcoming
           let fixtureDateStr = fixture.date;
-          if (queriedSeason === "2022") {
+          if (shiftMs !== 0) {
             const origDate = new Date(fixture.date);
-            // World Cup 2022 started 2022-11-20. Map to start on 2026-07-10.
-            const shiftMs = new Date("2026-07-10").getTime() - new Date("2022-11-20").getTime();
             fixtureDateStr = new Date(origDate.getTime() + shiftMs).toISOString();
           }
 
@@ -668,7 +848,7 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
             id: fixture.id,
             tournament: settings.competitionName,
             season: settings.season,
-            round: league.round,
+            round: cleanRoundName(league.round),
             home_team_id: homeTeam.id,
             away_team_id: awayTeam.id,
             kickoff: fixtureDateStr,
@@ -679,6 +859,14 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
             venue: fixture.venue.name || "TBD Stadium",
             stadium: fixture.venue.city || "TBD City"
           };
+
+          // Save locally as backup and instant local access
+          const matchIndex = localDb.matches.findIndex(m => m.id === matchRecord.id);
+          if (matchIndex >= 0) {
+            localDb.matches[matchIndex] = { ...localDb.matches[matchIndex], ...matchRecord };
+          } else {
+            localDb.matches.push(matchRecord);
+          }
 
           if (useSupabase) {
             try {
@@ -692,20 +880,6 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
               } else {
                 console.log(`[Football Engine] Match synchronization skipped for ${fixture.id}`);
               }
-              // Save locally as backup
-              const matchIndex = localDb.matches.findIndex(m => m.id === matchRecord.id);
-              if (matchIndex >= 0) {
-                localDb.matches[matchIndex] = { ...localDb.matches[matchIndex], ...matchRecord };
-              } else {
-                localDb.matches.push(matchRecord);
-              }
-            }
-          } else {
-            const matchIndex = localDb.matches.findIndex(m => m.id === matchRecord.id);
-            if (matchIndex >= 0) {
-              localDb.matches[matchIndex] = { ...localDb.matches[matchIndex], ...matchRecord };
-            } else {
-              localDb.matches.push(matchRecord);
             }
           }
           importedCount++;
@@ -728,10 +902,13 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
         localDb.settings.lastSyncTime = new Date().toISOString();
       }
 
+      // Ensure bracket integrity for knockout tournaments (advanced slots, third place playoff match)
+      const bracketAdvanceCount = await ensureBracketIntegrity(localDb);
+
       localDb.logs.push({
         timestamp: new Date().toISOString(),
         type: "sync",
-        message: `Synchronized ${importedCount} fixtures from official API-Football for season ${queriedSeason}. Skipped: ${failedRowsCount}. Mode: ${useSupabase ? "Supabase" : "Local"}`
+        message: `Synchronized ${importedCount} fixtures from official API-Football for season ${queriedSeason}. Advanced ${bracketAdvanceCount} bracket slots. Skipped: ${failedRowsCount}. Mode: ${useSupabase ? "Supabase" : "Local"}`
       });
       saveLocalDB(localDb);
 
@@ -746,108 +923,41 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
   }
 
   // Fallback / simulation if no API Key or if API throws error
-  console.log("[Football Engine] Simulating sync / advancing upcoming matches...");
-  let syncCount = 0;
+  console.log("[Football Engine] Sync fallback mode. Ensuring bracket integrity...");
 
-  // Let's simulate match day:
-  // Find "LIVE" matches, set them to "FT" with scores, and award points.
-  // Find "NS" matches that are passed kickoff, make them "LIVE".
-  const now = new Date();
-  
-  for (const match of localDb.matches) {
-    const kickoffTime = new Date(match.kickoff);
-    
-    if (match.status === "LIVE") {
-      // Set to FT!
-      match.status = "FT";
-      match.home_score = Math.floor(Math.random() * 4);
-      match.away_score = Math.floor(Math.random() * 4);
-      
-      // Ensure no draws in knockout stages
-      if (match.home_score === match.away_score && !match.round.includes("Group")) {
-        match.home_score += 1; // home team wins in extra time
+  // Seed local DB if no matches exist for this tournament and season
+  const activeMatchesCount = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season).length;
+  if (activeMatchesCount === 0) {
+    console.log(`[Football Engine] No matches found for tournament "${settings.competitionName}" and season "${settings.season}". Seeding simulated fixtures.`);
+    const simulated = getDefaultMatches(settings.competitionName, settings.season);
+    localDb.matches.push(...simulated);
+    for (const team of DEFAULT_TEAMS) {
+      if (!localDb.teams.some(t => t.id === team.id)) {
+        localDb.teams.push(team);
       }
-
-      if (match.home_score > match.away_score) {
-        match.winner_team_id = match.home_team_id;
-      } else if (match.away_score > match.home_score) {
-        match.winner_team_id = match.away_team_id;
-      } else {
-        match.winner_team_id = null; // Draw
-      }
-      
-      syncCount++;
-      console.log(`[Football Engine] Simulated Finished: Match #${match.id} (${match.home_score}-${match.away_score})`);
-
-      // AUTOMATIC BRACKET ADVANCEMENT
-      // If a Semi-final match is completed, check if we can populate the Final or 3rd place!
-      if (match.round.includes("Semi-finals") || match.round.includes("Semi Final")) {
-        // Find other semi final matches
-        const semis = localDb.matches.filter(m => m.round.includes("Semi-finals") || m.round.includes("Semi Final"));
-        const allCompleted = semis.every(m => m.status === "FT");
-        
-        if (allCompleted) {
-          // Both semis are completed! Let's generate the Final and Third Place matches automatically!
-          const semi1 = semis[0];
-          const semi2 = semis[1];
-
-          const winner1 = semi1.winner_team_id!;
-          const winner2 = semi2.winner_team_id!;
-          const loser1 = semi1.winner_team_id === semi1.home_team_id ? semi1.away_team_id : semi1.home_team_id;
-          const loser2 = semi2.winner_team_id === semi2.home_team_id ? semi2.away_team_id : semi2.home_team_id;
-
-          // Check if Final already created
-          const finalExists = localDb.matches.some(m => m.round.includes("Final") && !m.round.includes("Semi") && !m.round.includes("Quarter"));
-          if (!finalExists) {
-            localDb.matches.push({
-              id: 9001,
-              tournament: "FIFA World Cup",
-              season: "2026",
-              round: "Final",
-              home_team_id: winner1,
-              away_team_id: winner2,
-              kickoff: new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-              status: "NS",
-              home_score: null,
-              away_score: null,
-              winner_team_id: null,
-              venue: "MetLife Stadium",
-              stadium: "East Rutherford"
-            });
-            
-            localDb.matches.push({
-              id: 9002,
-              tournament: "FIFA World Cup",
-              season: "2026",
-              round: "Third Place Match",
-              home_team_id: loser1,
-              away_team_id: loser2,
-              kickoff: new Date(now.getTime() + 1.5 * 24 * 60 * 60 * 1000).toISOString(),
-              status: "NS",
-              home_score: null,
-              away_score: null,
-              winner_team_id: null,
-              venue: "Hard Rock Stadium",
-              stadium: "Miami"
-            });
-            console.log("[Football Engine] Automatically generated Final and Third Place fixtures!");
-          }
-        }
-      }
-
-    } else if (match.status === "NS" && now >= kickoffTime) {
-      match.status = "LIVE";
-      match.home_score = 0;
-      match.away_score = 0;
-      syncCount++;
-      console.log(`[Football Engine] Simulated Live: Match #${match.id}`);
     }
   }
+  
+  // Ensure bracket integrity dynamically (Winner SF1/SF2 & Loser SF1/SF2 Third Place mapping)
+  const syncCount = await ensureBracketIntegrity(localDb);
 
   if (isDbOnline) {
+    // Sync Teams first
+    let teamSuccess = 0;
+    for (const team of DEFAULT_TEAMS) {
+      try {
+        await supabase.from("football_teams").upsert(team);
+        teamSuccess++;
+      } catch (teamErr: any) {
+        console.error(`[Football Engine] Simulated sync: Failed to upsert team ${team.id} to Supabase:`, teamErr.message || teamErr);
+      }
+    }
+    console.log(`[Football Engine] Simulated sync: Saved default teams to Supabase. Success: ${teamSuccess}`);
+
     let successCount = 0;
     let failCount = 0;
-    for (const match of localDb.matches) {
+    const activeMatches = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season);
+    for (const match of activeMatches) {
       try {
         const { error: matchErr } = await supabase.from("football_matches").upsert(match);
         if (matchErr) throw new Error(matchErr.message);
@@ -857,7 +967,7 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
         console.error(`[Football Engine] Simulated sync: Failed to upsert match ${match.id} to Supabase:`, dbErr.message || dbErr);
       }
     }
-    console.log(`[Football Engine] Simulated sync: Saved matches to Supabase. Success: ${successCount}, Failures: ${failCount}`);
+    console.log(`[Football Engine] Simulated sync: Saved active matches to Supabase. Success: ${successCount}, Failures: ${failCount}`);
   }
 
   // Always write a diagnostic audit trail in local logs and persist changes
@@ -875,8 +985,8 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
 
   localDb.logs.push({
     timestamp: new Date().toISOString(),
-    type: syncCount > 0 ? "sync_simulation" : "sync_check",
-    message: `Simulated match day. Updated ${syncCount} match statuses. Synced to Supabase: ${isDbOnline ? "Yes" : "No"}.`
+    type: "sync_check",
+    message: `Synchronized official data state. Advanced ${syncCount} bracket slots based on completed matches. Synced to Supabase: ${isDbOnline ? "Yes" : "No"}.`
   });
   saveLocalDB(localDb);
 
@@ -916,7 +1026,7 @@ export const initFootballSchedulers = () => {
         competitionId: 1,
         competitionName: "FIFA World Cup",
         season: "2026",
-        syncInterval: 12,
+        syncInterval: 10,
         lastSyncTime: new Date(0).toISOString()
       };
       
@@ -949,11 +1059,96 @@ export const createFootballRouter = (): Router => {
 
   // Helper to load complete match objects (hydrated with home/away teams)
   const getHydratedMatches = (matches: FootballMatch[], teams: FootballTeam[]): FootballMatch[] => {
-    return matches.map(m => ({
-      ...m,
-      homeTeam: teams.find(t => t.id === m.home_team_id),
-      awayTeam: teams.find(t => t.id === m.away_team_id)
-    }));
+    const sfMatches = [...matches.filter(m => m.round.toLowerCase().includes("semi"))].sort((a, b) => a.id - b.id);
+    const sf1 = sfMatches[0];
+    const sf2 = sfMatches[1];
+
+    return matches.map(m => {
+      let homeTeam = teams.find(t => t.id === m.home_team_id);
+      let awayTeam = teams.find(t => t.id === m.away_team_id);
+
+      // If it's the Final
+      if (m.id === 6001 || m.round.toLowerCase() === "final" || m.round.toLowerCase().includes("grand final") || m.round.toLowerCase() === "finales") {
+        if (!homeTeam) {
+          if (sf1 && sf1.status === "FT" && sf1.winner_team_id) {
+            homeTeam = teams.find(t => t.id === sf1.winner_team_id);
+          } else {
+            homeTeam = {
+              id: -50011,
+              name: "Winner SF1",
+              logo: "https://media.api-sports.io/football/teams/0.png",
+              code: "TBD"
+            };
+          }
+        }
+        if (!awayTeam) {
+          if (sf2 && sf2.status === "FT" && sf2.winner_team_id) {
+            awayTeam = teams.find(t => t.id === sf2.winner_team_id);
+          } else {
+            awayTeam = {
+              id: -50021,
+              name: "Winner SF2",
+              logo: "https://media.api-sports.io/football/teams/0.png",
+              code: "TBD"
+            };
+          }
+        }
+      }
+
+      // If it's the Third Place Playoff (6002)
+      if (m.id === 6002 || m.round.toLowerCase().includes("third") || m.round.toLowerCase().includes("3rd")) {
+        if (!homeTeam) {
+          if (sf1 && sf1.status === "FT" && sf1.winner_team_id) {
+            const loserId = sf1.winner_team_id === sf1.home_team_id ? sf1.away_team_id : sf1.home_team_id;
+            homeTeam = teams.find(t => t.id === loserId);
+          } else {
+            homeTeam = {
+              id: -50012,
+              name: "Loser SF1",
+              logo: "https://media.api-sports.io/football/teams/0.png",
+              code: "TBD"
+            };
+          }
+        }
+        if (!awayTeam) {
+          if (sf2 && sf2.status === "FT" && sf2.winner_team_id) {
+            const loserId = sf2.winner_team_id === sf2.home_team_id ? sf2.away_team_id : sf2.home_team_id;
+            awayTeam = teams.find(t => t.id === loserId);
+          } else {
+            awayTeam = {
+              id: -50022,
+              name: "Loser SF2",
+              logo: "https://media.api-sports.io/football/teams/0.png",
+              code: "TBD"
+            };
+          }
+        }
+      }
+
+      // Fallback for general TBDs
+      if (!homeTeam && m.home_team_id === null) {
+        homeTeam = {
+          id: -1000 - m.id,
+          name: "To Be Determined",
+          logo: "https://media.api-sports.io/football/teams/0.png",
+          code: "TBD"
+        };
+      }
+      if (!awayTeam && m.away_team_id === null) {
+        awayTeam = {
+          id: -2000 - m.id,
+          name: "To Be Determined",
+          logo: "https://media.api-sports.io/football/teams/0.png",
+          code: "TBD"
+        };
+      }
+
+      return {
+        ...m,
+        homeTeam,
+        awayTeam
+      };
+    });
   };
 
   // 1. Get Football API and DB Connection Status
@@ -1031,7 +1226,7 @@ export const createFootballRouter = (): Router => {
 
   // 4. Submit Prediction
   router.post("/predict", async (req: Request, res: Response) => {
-    const { userId, userName, userEmail, matchId, predictedTeamId } = req.body;
+    const { userId, userName, userEmail, matchId, predictedTeamId, predictedHomeScore, predictedAwayScore } = req.body;
 
     if (!userId || !matchId || predictedTeamId === undefined) {
       return res.status(400).json({ error: "Missing required fields (userId, matchId, predictedTeamId)" });
@@ -1040,7 +1235,6 @@ export const createFootballRouter = (): Router => {
     try {
       const isDbOnline = await checkSupabaseSupport();
       let matches: FootballMatch[] = [];
-      let predictions: FootballPrediction[] = [];
       let db = loadLocalDB();
 
       if (isDbOnline) {
@@ -1068,12 +1262,31 @@ export const createFootballRouter = (): Router => {
         return res.status(400).json({ error: "Invalid team selection: Chosen team is not playing in this match." });
       }
 
+      // Optional exact score validation
+      const predicted_home_score = (predictedHomeScore !== undefined && predictedHomeScore !== null && predictedHomeScore !== "") ? Number(predictedHomeScore) : null;
+      const predicted_away_score = (predictedAwayScore !== undefined && predictedAwayScore !== null && predictedAwayScore !== "") ? Number(predictedAwayScore) : null;
+
+      if (predicted_home_score !== null) {
+        if (!Number.isInteger(predicted_home_score) || predicted_home_score < 0) {
+          return res.status(400).json({ error: "Home goals must be a non-negative integer." });
+        }
+      }
+      if (predicted_away_score !== null) {
+        if (!Number.isInteger(predicted_away_score) || predicted_away_score < 0) {
+          return res.status(400).json({ error: "Away goals must be a non-negative integer." });
+        }
+      }
+
       const predictionData = {
         user_id: userId,
         user_name: userName || "Anonymous User",
         user_email: userEmail || "",
         match_id: matchId,
+        competition_id: db.settings?.competitionId || 1,
+        season: match.season || db.settings?.season || "2026",
         predicted_team_id: predictedTeamId,
+        predicted_home_score,
+        predicted_away_score,
         points: null,
         updated_at: new Date().toISOString()
       };
@@ -1116,7 +1329,7 @@ export const createFootballRouter = (): Router => {
         db.logs.push({
           timestamp: new Date().toISOString(),
           type: "prediction",
-          message: `User ${userEmail} predicted team #${predictedTeamId} for match #${matchId}`
+          message: `User ${userEmail} predicted team #${predictedTeamId} with score ${predicted_home_score}-${predicted_away_score} for match #${matchId}`
         });
         saveLocalDB(db);
       }
@@ -1266,8 +1479,17 @@ export const createFootballRouter = (): Router => {
       // Filter matches by current competition and season settings
       const activeMatches = matches.filter(m => m.tournament === settings.competitionName && m.season === settings.season);
 
-      // Filter only group stage of the active competition/season
-      const groupMatches = activeMatches.filter(m => m.round.includes("Group"));
+      // Check if there are any group stage matches
+      const hasGroups = activeMatches.some(m => m.round.toLowerCase().includes("group") || m.round.toLowerCase().includes("stage"));
+
+      // For team lookup/filtering: only include teams that actually have a match in this competition
+      const activeTeamIds = new Set<number>();
+      activeMatches.forEach(m => {
+        activeTeamIds.add(m.home_team_id);
+        activeTeamIds.add(m.away_team_id);
+      });
+
+      const activeTeams = teams.filter(t => activeTeamIds.has(t.id));
       
       const groupMap: Record<string, Record<number, {
         team: FootballTeam;
@@ -1281,8 +1503,8 @@ export const createFootballRouter = (): Router => {
       }>> = {};
 
       // Prepare groups with seeded teams
-      for (const team of teams) {
-        const group = team.group || "Group A";
+      for (const team of activeTeams) {
+        const group = hasGroups ? (team.group || "Group A") : "League Table";
         if (!groupMap[group]) {
           groupMap[group] = {};
         }
@@ -1299,14 +1521,18 @@ export const createFootballRouter = (): Router => {
       }
 
       // Compute match outcomes
-      for (const match of groupMatches) {
+      const standingsMatches = hasGroups 
+        ? activeMatches.filter(m => m.round.toLowerCase().includes("group") || m.round.toLowerCase().includes("stage"))
+        : activeMatches;
+
+      for (const match of standingsMatches) {
         if (match.status === "FT" && match.home_score !== null && match.away_score !== null) {
-          const homeTeam = teams.find(t => t.id === match.home_team_id);
-          const awayTeam = teams.find(t => t.id === match.away_team_id);
+          const homeTeam = activeTeams.find(t => t.id === match.home_team_id);
+          const awayTeam = activeTeams.find(t => t.id === match.away_team_id);
 
           if (homeTeam && awayTeam) {
-            const hg = homeTeam.group || "Group A";
-            const ag = awayTeam.group || "Group A";
+            const hg = hasGroups ? (homeTeam.group || "Group A") : "League Table";
+            const ag = hasGroups ? (awayTeam.group || "Group A") : "League Table";
 
             if (groupMap[hg] && groupMap[hg][homeTeam.id]) {
               const hStats = groupMap[hg][homeTeam.id];
@@ -1362,7 +1588,11 @@ export const createFootballRouter = (): Router => {
       });
 
       // Sort group headings (Group A, Group B, etc.)
-      standings.sort((a, b) => a.group.localeCompare(b.group));
+      standings.sort((a, b) => {
+        if (a.group === "League Table") return -1;
+        if (b.group === "League Table") return 1;
+        return a.group.localeCompare(b.group);
+      });
 
       res.json(standings);
     } catch (err: any) {
@@ -1378,7 +1608,7 @@ export const createFootballRouter = (): Router => {
         competitionId: 1,
         competitionName: "FIFA World Cup",
         season: "2026",
-        syncInterval: 12,
+        syncInterval: 10,
         lastSyncTime: new Date(0).toISOString()
       });
     } catch (err: any) {
@@ -1395,13 +1625,31 @@ export const createFootballRouter = (): Router => {
 
     try {
       const db = loadLocalDB();
+      const isDbOnline = await checkSupabaseSupport();
+      const oldCompName = db.settings?.competitionName;
+
       db.settings = {
         competitionId: Number(competitionId || 1),
         competitionName: competitionName || "FIFA World Cup",
         season: String(season || "2026"),
-        syncInterval: Number(syncInterval || 12),
-        lastSyncTime: db.settings?.lastSyncTime || new Date(0).toISOString()
+        syncInterval: Number(syncInterval || 10),
+        lastSyncTime: new Date(0).toISOString() // Reset sync time to force instant sync
       };
+
+      // Clear cached data from previous tournaments
+      if (oldCompName && oldCompName !== db.settings.competitionName) {
+        console.log(`[Football Engine] Clearing previous tournament cache (${oldCompName} -> ${db.settings.competitionName})`);
+        db.matches = [];
+        db.teams = [];
+        if (isDbOnline) {
+          try {
+            await supabase.from("football_matches").delete().neq("id", 0);
+            await supabase.from("football_teams").delete().neq("id", 0);
+          } catch (delErr) {
+            console.error("Failed to clear Supabase cache on tournament change:", delErr);
+          }
+        }
+      }
 
       db.logs.push({
         timestamp: new Date().toISOString(),
@@ -1410,7 +1658,17 @@ export const createFootballRouter = (): Router => {
       });
 
       saveLocalDB(db);
-      res.json({ success: true, message: "Football settings updated successfully!" });
+
+      // Immediately fetch all data from official API-Football
+      console.log(`[Football Engine] Settings updated by Admin. Triggering immediate live API sync...`);
+      const syncResult = await syncFixtures();
+
+      res.json({ 
+        success: true, 
+        message: `Football settings updated! Synchronized ${syncResult.count} fixtures from ${syncResult.source === "api" ? "Official API-Football" : "Simulation"}!`,
+        syncCount: syncResult.count,
+        source: syncResult.source
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1467,33 +1725,31 @@ export const createFootballRouter = (): Router => {
       }
 
       const existingDb = loadLocalDB();
-      const defaultMatches = getDefaultMatches();
       const db: LocalFootballDB = {
-        teams: DEFAULT_TEAMS,
-        matches: defaultMatches,
+        teams: [],
+        matches: [],
         predictions: [],
-        logs: [{ timestamp: new Date().toISOString(), type: "reset", message: "Football Database reset to default starting bracket." }],
-        settings: existingDb.settings || {
+        logs: [{ timestamp: new Date().toISOString(), type: "reset", message: "Football Database forced reset: Wiped all mock results." }],
+        settings: {
           competitionId: 1,
           competitionName: "FIFA World Cup",
           season: "2026",
-          syncInterval: 12,
+          syncInterval: existingDb.settings?.syncInterval || 10,
           lastSyncTime: new Date(0).toISOString()
         }
       };
       
       saveLocalDB(db);
 
-      if (isDbOnline) {
-        for (const team of DEFAULT_TEAMS) {
-          await supabase.from("football_teams").upsert(team);
-        }
-        for (const match of defaultMatches) {
-          await supabase.from("football_matches").upsert(match);
-        }
-      }
+      // Trigger a fresh official sync immediately
+      const syncResult = await syncFixtures();
 
-      res.json({ success: true, message: "Football Database successfully reset to starting state!" });
+      res.json({ 
+        success: true, 
+        message: `Football Database successfully reset! Synchronized ${syncResult.count} official fixtures from API-Football.`,
+        syncCount: syncResult.count,
+        source: syncResult.source
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -46,7 +46,11 @@ export interface FootballPrediction {
   user_name: string;
   user_email: string;
   match_id: number;
+  competition_id?: number;
+  season?: string;
   predicted_team_id: number; // Team ID predicted to win (or -1 for draw)
+  predicted_home_score: number | null;
+  predicted_away_score: number | null;
   points: number | null;
   created_at: string;
   updated_at: string;

@@ -45,7 +45,11 @@ CREATE TABLE IF NOT EXISTS public.football_predictions (
   user_name TEXT,
   user_email TEXT,
   match_id INTEGER NOT NULL REFERENCES public.football_matches(id) ON DELETE CASCADE,
+  competition_id INTEGER,
+  season TEXT,
   predicted_team_id INTEGER NOT NULL,
+  predicted_home_score INTEGER,
+  predicted_away_score INTEGER,
   points INTEGER,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
@@ -120,12 +124,22 @@ export const footballApi = {
     userName: string,
     userEmail: string,
     matchId: number,
-    predictedTeamId: number
+    predictedTeamId: number,
+    predictedHomeScore?: number | null,
+    predictedAwayScore?: number | null
   ): Promise<{ success: boolean; message: string }> {
     const res = await fetch("/api/football/predict", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, userName, userEmail, matchId, predictedTeamId })
+      body: JSON.stringify({ 
+        userId, 
+        userName, 
+        userEmail, 
+        matchId, 
+        predictedTeamId,
+        predictedHomeScore,
+        predictedAwayScore
+      })
     });
     if (!res.ok) {
       const err = await res.json();

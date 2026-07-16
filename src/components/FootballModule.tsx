@@ -41,7 +41,7 @@ import {
   Cell
 } from "recharts";
 
-import { FootballMatch, FootballPrediction, LeaderboardEntry, StandingsGroup, FootballStats, MatchStatus } from "../types/football";
+import { FootballMatch, FootballPrediction, LeaderboardEntry, StandingsGroup, FootballStats, MatchStatus, FootballTeam } from "../types/football";
 import { footballApi, ApiStatus, FOOTBALL_SETUP_SQL, getPointsForRound } from "../lib/football";
 import { Member } from "../types";
 import { Confetti } from "./Confetti";
@@ -60,13 +60,20 @@ const COMPETITIONS = [
 const SEASONS = ["2026", "2025", "2024", "2023", "2022"];
 
 const INTERVALS = [
-  { label: "12 minutes (Default)", value: 12 },
+  { label: "10 minutes (Default)", value: 10 },
   { label: "30 minutes", value: 30 },
   { label: "1 hour", value: 60 },
   { label: "4 hours", value: 240 },
   { label: "12 hours", value: 720 },
   { label: "24 hours", value: 1440 },
 ];
+
+const getTeamName = (team: FootballTeam | undefined | null): string => {
+  if (!team || !team.name || team.name.trim() === "" || team.name.toUpperCase() === "TBD") {
+    return "To Be Determined";
+  }
+  return team.name;
+};
 
 interface FootballModuleProps {
   currentUser: Member | null;
@@ -86,6 +93,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
   const [loading, setLoading] = useState<boolean>(true);
   const [predictingMatch, setPredictingMatch] = useState<FootballMatch | null>(null);
   const [selectedPrediction, setSelectedPrediction] = useState<number | null>(null);
+  const [predictedHomeScore, setPredictedHomeScore] = useState<number | "">("");
+  const [predictedAwayScore, setPredictedAwayScore] = useState<number | "">("");
   const [submittingPrediction, setSubmittingPrediction] = useState<boolean>(false);
   const [syncing, setSyncing] = useState<boolean>(false);
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
@@ -104,7 +113,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     competitionId: 1,
     competitionName: "FIFA World Cup",
     season: "2026",
-    syncInterval: 12,
+    syncInterval: 10,
   });
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
 
@@ -182,6 +191,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     // Find pre-existing prediction
     const existing = predictions.find(p => p.match_id === match.id);
     setSelectedPrediction(existing ? existing.predicted_team_id : null);
+    setPredictedHomeScore(existing && existing.predicted_home_score !== undefined && existing.predicted_home_score !== null ? existing.predicted_home_score : "");
+    setPredictedAwayScore(existing && existing.predicted_away_score !== undefined && existing.predicted_away_score !== null ? existing.predicted_away_score : "");
   };
 
   const handleSavePrediction = async () => {
@@ -192,15 +203,20 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       setActionError(null);
       setActionSuccess(null);
 
+      const hScore = predictedHomeScore !== "" ? Number(predictedHomeScore) : null;
+      const aScore = predictedAwayScore !== "" ? Number(predictedAwayScore) : null;
+
       await footballApi.submitPrediction(
         currentUser.id,
         currentUser.name,
         currentUser.email,
         predictingMatch.id,
-        selectedPrediction
+        selectedPrediction,
+        hScore,
+        aScore
       );
 
-      setActionSuccess(`Successfully saved your prediction for ${predictingMatch.homeTeam?.name} vs ${predictingMatch.awayTeam?.name}!`);
+      setActionSuccess(`Successfully saved your prediction for ${getTeamName(predictingMatch.homeTeam)} vs ${getTeamName(predictingMatch.awayTeam)}!`);
       
       // Reload matches and predictions
       const [updatedMatches, updatedPreds] = await Promise.all([
@@ -292,6 +308,33 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     setTimeout(() => setCopiedSql(false), 2000);
   };
 
+  // IST Timezone helpers
+  const formatToISTDate = (dateStr: string): string => {
+    try {
+      return new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      }).format(new Date(dateStr));
+    } catch (e) {
+      return new Date(dateStr).toLocaleDateString();
+    }
+  };
+
+  const formatToISTTime = (dateStr: string): string => {
+    try {
+      return new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      }).format(new Date(dateStr)) + " IST";
+    } catch (e) {
+      return new Date(dateStr).toLocaleTimeString() + " IST";
+    }
+  };
+
   // Dynamic Countdown Timer Hook
   const MatchCountdown: React.FC<{ dateStr: string }> = ({ dateStr }) => {
     const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number; seconds: number } | null>(null);
@@ -318,13 +361,25 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     }, [dateStr]);
 
     if (!timeLeft) {
-      return <span className="text-stone-500 font-bold text-xs">Match Started / Closed</span>;
+      return (
+        <div className="flex flex-col items-end">
+          <span className="text-stone-500 font-bold text-xs">Match Started / Closed</span>
+          <span className="text-[10px] text-stone-400 font-bold mt-0.5">
+            ({formatToISTDate(dateStr)} {formatToISTTime(dateStr)})
+          </span>
+        </div>
+      );
     }
 
     return (
-      <div className="flex items-center gap-1.5 font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
-        <Clock className="w-3.5 h-3.5 animate-pulse" />
-        <span>{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s</span>
+      <div className="flex flex-col items-end">
+        <div className="flex items-center gap-1.5 font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
+          <Clock className="w-3.5 h-3.5 animate-pulse" />
+          <span>{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s</span>
+        </div>
+        <span className="text-[10px] text-stone-400 font-semibold mt-0.5">
+          ({formatToISTDate(dateStr)} {formatToISTTime(dateStr)})
+        </span>
       </div>
     );
   };
@@ -334,8 +389,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
   const activeRoundMatches = matches.filter(m => {
     const roundMatch = roundFilter === "All" || m.round === roundFilter;
     const teamMatch = searchQuery === "All Teams" || 
-      m.homeTeam?.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      m.awayTeam?.name.toLowerCase().includes(searchQuery.toLowerCase());
+      getTeamName(m.homeTeam).toLowerCase().includes(searchQuery.toLowerCase()) || 
+      getTeamName(m.awayTeam).toLowerCase().includes(searchQuery.toLowerCase());
     const statusMatch = !upcomingOnly || m.status === "NS" || m.status === "LIVE";
     return roundMatch && teamMatch && statusMatch;
   });
@@ -477,8 +532,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                     <div key={match.id} className="mt-6 flex flex-col md:flex-row items-center justify-between gap-6">
                       <div className="flex items-center justify-center gap-6 w-full md:w-auto">
                         <div className="text-center w-24">
-                          <img src={match.homeTeam?.logo} alt="" className="w-12 h-12 mx-auto object-contain" />
-                          <h3 className="text-sm font-black mt-2 truncate">{match.homeTeam?.name}</h3>
+                          <img src={match.homeTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                          <h3 className="text-sm font-black mt-2 truncate">{getTeamName(match.homeTeam)}</h3>
                         </div>
                         
                         <div className="flex items-center gap-4">
@@ -488,8 +543,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         </div>
 
                         <div className="text-center w-24">
-                          <img src={match.awayTeam?.logo} alt="" className="w-12 h-12 mx-auto object-contain" />
-                          <h3 className="text-sm font-black mt-2 truncate">{match.awayTeam?.name}</h3>
+                          <img src={match.awayTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                          <h3 className="text-sm font-black mt-2 truncate">{getTeamName(match.awayTeam)}</h3>
                         </div>
                       </div>
 
@@ -585,9 +640,9 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         const hasPredicted = predictions.some(p => p.match_id === match.id);
                         const predObj = predictions.find(p => p.match_id === match.id);
                         const teamPredicted = predObj?.predicted_team_id === match.home_team_id 
-                          ? match.homeTeam?.name 
+                          ? getTeamName(match.homeTeam) 
                           : predObj?.predicted_team_id === match.away_team_id 
-                            ? match.awayTeam?.name 
+                            ? getTeamName(match.awayTeam) 
                             : predObj?.predicted_team_id === -1 
                               ? "Draw" 
                               : "None";
@@ -604,13 +659,13 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
 
                               <div className="flex items-center justify-around py-2">
                                 <div className="text-center w-20">
-                                  <img src={match.homeTeam?.logo} alt="" className="w-10 h-10 mx-auto object-contain" />
-                                  <p className="text-xs font-bold mt-1 text-stone-800 dark:text-stone-200 truncate">{match.homeTeam?.name}</p>
+                                  <img src={match.homeTeam?.logo || ""} alt="" className="w-10 h-10 mx-auto object-contain" />
+                                  <p className="text-xs font-bold mt-1 text-stone-800 dark:text-stone-200 truncate">{getTeamName(match.homeTeam)}</p>
                                 </div>
                                 <span className="text-xs font-black text-stone-400">VS</span>
                                 <div className="text-center w-20">
-                                  <img src={match.awayTeam?.logo} alt="" className="w-10 h-10 mx-auto object-contain" />
-                                  <p className="text-xs font-bold mt-1 text-stone-800 dark:text-stone-200 truncate">{match.awayTeam?.name}</p>
+                                  <img src={match.awayTeam?.logo || ""} alt="" className="w-10 h-10 mx-auto object-contain" />
+                                  <p className="text-xs font-bold mt-1 text-stone-800 dark:text-stone-200 truncate">{getTeamName(match.awayTeam)}</p>
                                 </div>
                               </div>
                             </div>
@@ -658,15 +713,15 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                                 <span className="px-1.5 py-0.5 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded text-[9px] font-bold mr-2">
                                   {match.round}
                                 </span>
-                                <span className="text-stone-500">{new Date(match.kickoff).toLocaleDateString()}</span>
+                                <span className="text-stone-500">{formatToISTDate(match.kickoff)} {formatToISTTime(match.kickoff)}</span>
                               </div>
 
                               <div className="flex items-center gap-6 font-bold">
-                                <span className="text-right w-20 truncate">{match.homeTeam?.name}</span>
+                                <span className="text-right w-20 truncate">{getTeamName(match.homeTeam)}</span>
                                 <div className="px-3 py-1 bg-stone-200 dark:bg-stone-800 rounded-lg font-black font-mono">
                                   {match.home_score} - {match.away_score}
                                 </div>
-                                <span className="text-left w-20 truncate">{match.awayTeam?.name}</span>
+                                <span className="text-left w-20 truncate">{getTeamName(match.awayTeam)}</span>
                               </div>
 
                               <div>
@@ -813,9 +868,9 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                     const hasPredicted = predictions.some(p => p.match_id === match.id);
                     const predObj = predictions.find(p => p.match_id === match.id);
                     const teamPredicted = predObj?.predicted_team_id === match.home_team_id 
-                      ? match.homeTeam?.name 
+                      ? getTeamName(match.homeTeam) 
                       : predObj?.predicted_team_id === match.away_team_id 
-                        ? match.awayTeam?.name 
+                        ? getTeamName(match.awayTeam) 
                         : predObj?.predicted_team_id === -1 
                           ? "Draw" 
                           : "None";
@@ -849,8 +904,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
 
                           <div className="flex items-center justify-around py-3">
                             <div className="text-center w-20">
-                              <img src={match.homeTeam?.logo} alt="" className="w-12 h-12 mx-auto object-contain" />
-                              <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{match.homeTeam?.name}</p>
+                              <img src={match.homeTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                              <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{getTeamName(match.homeTeam)}</p>
                             </div>
                             
                             <div className="text-center">
@@ -859,15 +914,20 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                                   {match.home_score} - {match.away_score}
                                 </div>
                               ) : (
-                                <span className="text-xs text-stone-400 font-extrabold font-mono">
-                                  {new Date(match.kickoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
+                                <div className="flex flex-col items-center">
+                                  <span className="text-[10px] text-stone-400 font-bold">
+                                    {formatToISTDate(match.kickoff)}
+                                  </span>
+                                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-black font-mono">
+                                    {formatToISTTime(match.kickoff)}
+                                  </span>
+                                </div>
                               )}
                             </div>
 
                             <div className="text-center w-20">
-                              <img src={match.awayTeam?.logo} alt="" className="w-12 h-12 mx-auto object-contain" />
-                              <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{match.awayTeam?.name}</p>
+                              <img src={match.awayTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                              <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{getTeamName(match.awayTeam)}</p>
                             </div>
                           </div>
 
@@ -1041,8 +1101,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                               <td className="py-2.5 font-bold text-stone-400">{idx + 1}</td>
                               <td className="py-2.5">
                                 <div className="flex items-center gap-2">
-                                  <img src={t.team.logo} alt="" className="w-4 h-4 object-contain" />
-                                  <span className="font-extrabold text-stone-800 dark:text-stone-200">{t.team.name}</span>
+                                  <img src={t.team.logo || ""} alt="" className="w-4 h-4 object-contain" />
+                                  <span className="font-extrabold text-stone-800 dark:text-stone-200">{getTeamName(t.team)}</span>
                                 </div>
                               </td>
                               <td className="py-2.5 text-center font-mono text-stone-600 dark:text-stone-400">{t.played}</td>
@@ -1109,11 +1169,11 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                               {match.round}
                             </span>
                             <div className="flex items-center gap-4 text-xs font-bold">
-                              <span className="truncate max-w-24">{match.homeTeam?.name}</span>
+                              <span className="truncate max-w-24">{getTeamName(match.homeTeam)}</span>
                               <span className="px-1.5 py-0.5 bg-stone-200 dark:bg-stone-800 rounded font-black font-mono">
                                 {match.status === "FT" || match.status === "LIVE" ? `${match.home_score} - ${match.away_score}` : "VS"}
                               </span>
-                              <span className="truncate max-w-24">{match.awayTeam?.name}</span>
+                              <span className="truncate max-w-24">{getTeamName(match.awayTeam)}</span>
                             </div>
                           </div>
 
@@ -1123,11 +1183,25 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 {teamPredicted ? (
                                   <>
-                                    <img src={teamPredicted.logo} alt="" className="w-4 h-4 object-contain" />
-                                    <span className="text-xs font-black text-stone-900 dark:text-white">{teamPredicted.name}</span>
+                                    <img src={teamPredicted.logo || ""} alt="" className="w-4 h-4 object-contain" />
+                                    <span className="text-xs font-black text-stone-900 dark:text-white">
+                                      {getTeamName(teamPredicted)}
+                                      {pred.predicted_home_score !== null && pred.predicted_away_score !== null && (
+                                        <span className="font-mono text-emerald-600 dark:text-emerald-400 ml-1.5 bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded text-[10px]">
+                                          ({pred.predicted_home_score} - {pred.predicted_away_score})
+                                        </span>
+                                      )}
+                                    </span>
                                   </>
                                 ) : (
-                                  <span className="text-xs font-black text-stone-500">Draw</span>
+                                  <span className="text-xs font-black text-stone-500">
+                                    Draw
+                                    {pred.predicted_home_score !== null && pred.predicted_away_score !== null && (
+                                      <span className="font-mono text-emerald-600 dark:text-emerald-400 ml-1.5 bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded text-[10px]">
+                                        ({pred.predicted_home_score} - {pred.predicted_away_score})
+                                      </span>
+                                    )}
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -1152,7 +1226,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                                   )}
                                 </span>
                                 <span className="font-mono font-black text-sm text-stone-900 dark:text-white">
-                                  {isWinnerCorrect ? `+${getPointsForRound(match.round)}` : "+0"} pts
+                                  +{pred.points ?? 0} pts
                                 </span>
                               </div>
                             ) : (
@@ -1230,10 +1304,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                     {stats && stats.mostPredictedTeam ? (
                       <div className="space-y-4 pt-4">
                         <div className="flex items-center gap-4 bg-stone-50 dark:bg-stone-900 p-4 rounded-xl">
-                          <img src={stats.mostPredictedTeam.team.logo} alt="" className="w-12 h-12 object-contain" />
+                          <img src={stats.mostPredictedTeam.team.logo || ""} alt="" className="w-12 h-12 object-contain" />
                           <div>
                             <p className="text-[10px] text-stone-500 font-bold uppercase">Most Predicted Team</p>
-                            <h4 className="text-base font-black text-stone-900 dark:text-white">{stats.mostPredictedTeam.team.name}</h4>
+                            <h4 className="text-base font-black text-stone-900 dark:text-white">{getTeamName(stats.mostPredictedTeam.team)}</h4>
                             <p className="text-xs text-stone-500 mt-0.5">Selected in {stats.mostPredictedTeam.count} predictions</p>
                           </div>
                         </div>
@@ -1246,7 +1320,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                             <div>
                               <p className="text-[10px] text-stone-500 font-bold uppercase">Highest Scoring Match</p>
                               <h4 className="text-xs font-black text-stone-900 dark:text-white">
-                                {stats.highestScoringMatch.match.homeTeam?.name} VS {stats.highestScoringMatch.match.awayTeam?.name}
+                                {getTeamName(stats.highestScoringMatch.match.homeTeam)} VS {getTeamName(stats.highestScoringMatch.match.awayTeam)}
                               </h4>
                               <p className="text-[10px] text-stone-400 mt-1">
                                 Finished {stats.highestScoringMatch.match.home_score} - {stats.highestScoringMatch.match.away_score} ({stats.highestScoringMatch.totalGoals} goals)
@@ -1343,7 +1417,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                       <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-800 flex items-center gap-2 text-[10px] text-stone-500">
                         <Clock className="w-3.5 h-3.5 text-stone-400" />
                         <span>
-                          Last Synced: <strong className="text-stone-700 dark:text-stone-300">{new Date(settings.lastSyncTime).toLocaleString()}</strong>
+                          Last Synced: <strong className="text-stone-700 dark:text-stone-300">{formatToISTDate(settings.lastSyncTime)} {formatToISTTime(settings.lastSyncTime)}</strong>
                         </span>
                       </div>
                     )}
@@ -1442,10 +1516,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
               className="bg-white dark:bg-stone-850 max-w-md w-full rounded-3xl p-6 border border-stone-200 dark:border-stone-800 shadow-2xl relative"
             >
               <h3 className="text-base font-black text-stone-900 dark:text-white mb-2">
-                Predict Match Winner
+                Predict Match Winner & Score
               </h3>
               <p className="text-[11px] text-stone-400 mb-6">
-                Predict the winning team for this knockout/group game. Correct guesses award points toward your rank standings.
+                Predict the winning team and optionally input the exact score to earn massive bonus points on the leaderboard.
               </p>
 
               {/* Contestant Choice cards */}
@@ -1459,13 +1533,13 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <img src={predictingMatch.homeTeam?.logo} alt="" className="w-8 h-8 object-contain" />
-                    <span className="font-extrabold text-sm">{predictingMatch.homeTeam?.name}</span>
+                    <img src={predictingMatch.homeTeam?.logo || ""} alt="" className="w-8 h-8 object-contain" />
+                    <span className="font-extrabold text-sm">{getTeamName(predictingMatch.homeTeam)}</span>
                   </div>
                   {selectedPrediction === predictingMatch.home_team_id && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
                 </button>
 
-                {predictingMatch.round.includes("Group") && (
+                {predictingMatch.round.toLowerCase().includes("group") && (
                   <button
                     onClick={() => setSelectedPrediction(-1)}
                     className={`w-full p-4 rounded-2xl border text-left transition flex items-center justify-between cursor-pointer ${
@@ -1491,11 +1565,55 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <img src={predictingMatch.awayTeam?.logo} alt="" className="w-8 h-8 object-contain" />
-                    <span className="font-extrabold text-sm">{predictingMatch.awayTeam?.name}</span>
+                    <img src={predictingMatch.awayTeam?.logo || ""} alt="" className="w-8 h-8 object-contain" />
+                    <span className="font-extrabold text-sm">{getTeamName(predictingMatch.awayTeam)}</span>
                   </div>
                   {selectedPrediction === predictingMatch.away_team_id && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
                 </button>
+              </div>
+
+              {/* Exact Score inputs */}
+              <div className="mt-6 p-4 bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl">
+                <h4 className="text-xs font-black text-stone-900 dark:text-white flex items-center gap-1.5 mb-1">
+                  🎯 Exact Score Prediction
+                </h4>
+                <p className="text-[10px] text-stone-500 mb-4">
+                  Predict exact full-time scores for an extra <strong className="text-emerald-600">+3 bonus points</strong>! Leave blank to only predict match outcome.
+                </p>
+
+                <div className="flex items-center justify-center gap-4">
+                  <div className="text-center">
+                    <span className="text-[10px] font-bold text-stone-500 block mb-1 truncate max-w-24">
+                      {getTeamName(predictingMatch.homeTeam)}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="20"
+                      value={predictedHomeScore}
+                      onChange={(e) => setPredictedHomeScore(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="0"
+                      className="w-16 h-12 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-750 text-center font-mono font-black text-lg rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <span className="text-stone-400 font-bold mt-4">:</span>
+
+                  <div className="text-center">
+                    <span className="text-[10px] font-bold text-stone-500 block mb-1 truncate max-w-24">
+                      {getTeamName(predictingMatch.awayTeam)}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="20"
+                      value={predictedAwayScore}
+                      onChange={(e) => setPredictedAwayScore(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="0"
+                      className="w-16 h-12 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-750 text-center font-mono font-black text-lg rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Submit Buttons */}
