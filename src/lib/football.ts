@@ -128,7 +128,7 @@ export interface ApiStatus {
 
 // Utility to resolve API URL depending on deployment context (Netlify, Vercel vs Local/Cloud Run)
 const resolveFootballUrl = (path: string): string => {
-  let baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
   
   const isFullStackEnv = typeof window !== 'undefined' && (
     window.location.hostname.includes('run.app') ||
@@ -137,13 +137,8 @@ const resolveFootballUrl = (path: string): string => {
     window.location.hostname.includes('0.0.0.0')
   );
 
-  if (isFullStackEnv) {
+  if (!baseUrl || isFullStackEnv) {
     return path;
-  }
-  
-  // If no VITE_API_BASE_URL is specified, fallback to the official Cloud Run backend of this applet
-  if (!baseUrl) {
-    baseUrl = "https://ais-dev-23ekmc3qdgukfctporfp4h-994951620836.asia-southeast1.run.app";
   }
   
   const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
@@ -191,7 +186,11 @@ async function safeJsonFetch<T>(url: string, options?: RequestInit): Promise<T> 
     
     return await res.json() as T;
   } catch (err: any) {
-    if (err.message && (err.message.includes("Unexpected token <") || err.message.includes("is not valid JSON"))) {
+    if (err.message && (
+      err.message.includes("Unexpected token") || 
+      err.message.includes("not valid JSON") || 
+      err.message.includes("JSON.parse")
+    )) {
       throw new Error("API server is offline, or the route was not found (received HTML instead of JSON).");
     }
     throw err;
