@@ -126,26 +126,92 @@ export interface ApiStatus {
   apiError?: string | null;
 }
 
+// Utility to resolve API URL depending on deployment context (Netlify, Vercel vs Local/Cloud Run)
+const resolveFootballUrl = (path: string): string => {
+  let baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  
+  const isFullStackEnv = typeof window !== 'undefined' && (
+    window.location.hostname.includes('run.app') ||
+    window.location.hostname.includes('localhost') ||
+    window.location.hostname.includes('127.0.0.1') ||
+    window.location.hostname.includes('0.0.0.0')
+  );
+
+  if (isFullStackEnv) {
+    return path;
+  }
+  
+  // If no VITE_API_BASE_URL is specified, fallback to the official Cloud Run backend of this applet
+  if (!baseUrl) {
+    baseUrl = "https://ais-dev-23ekmc3qdgukfctporfp4h-994951620836.asia-southeast1.run.app";
+  }
+  
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+};
+
+// Robust wrapper for API requests that handles HTML responses, offline states, and parsing issues elegantly.
+async function safeJsonFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const resolvedUrl = resolveFootballUrl(url);
+  try {
+    const res = await fetch(resolvedUrl, options);
+    const contentType = res.headers.get("content-type") || "";
+    
+    if (!res.ok) {
+      let errMsg = `HTTP Error ${res.status}: ${res.statusText}`;
+      if (contentType.includes("application/json")) {
+        try {
+          const err = await res.json();
+          errMsg = err.error || err.message || errMsg;
+        } catch (_) {}
+      } else {
+        try {
+          const text = await res.text();
+          if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+            errMsg = `The application server returned an unexpected HTML document. The backend server might be offline, misconfigured, or the API route was not found.`;
+          } else {
+            errMsg = text.slice(0, 150) || errMsg;
+          }
+        } catch (_) {}
+      }
+      throw new Error(errMsg);
+    }
+    
+    if (!contentType.includes("application/json")) {
+      // Handles SPA wildcards returning index.html as a 200 OK
+      try {
+        const text = await res.text();
+        if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+          throw new Error("API server is offline, or the route was not found (received index.html instead of JSON).");
+        }
+      } catch (_) {}
+      throw new Error("Invalid response format received from server (expected JSON).");
+    }
+    
+    return await res.json() as T;
+  } catch (err: any) {
+    if (err.message && (err.message.includes("Unexpected token <") || err.message.includes("is not valid JSON"))) {
+      throw new Error("API server is offline, or the route was not found (received HTML instead of JSON).");
+    }
+    throw err;
+  }
+}
+
 export const footballApi = {
   // 1. Get API & Database status
   async getApiStatus(): Promise<ApiStatus> {
-    const res = await fetch("/api/football/api-status");
-    if (!res.ok) throw new Error("Failed to load football API status");
-    return res.json();
+    return safeJsonFetch<ApiStatus>("/api/football/api-status");
   },
 
   // 2. Get Matches (hydrated with teams)
   async getMatches(): Promise<FootballMatch[]> {
-    const res = await fetch("/api/football/matches");
-    if (!res.ok) throw new Error("Failed to load football matches");
-    return res.json();
+    return safeJsonFetch<FootballMatch[]>("/api/football/matches");
   },
 
   // 3. Get predictions made by user
   async getUserPredictions(userId: string): Promise<FootballPrediction[]> {
-    const res = await fetch(`/api/football/predictions?userId=${encodeURIComponent(userId)}`);
-    if (!res.ok) throw new Error("Failed to load predictions");
-    return res.json();
+    return safeJsonFetch<FootballPrediction[]>(`/api/football/predictions?userId=${encodeURIComponent(userId)}`);
   },
 
   // 4. Submit a prediction
@@ -158,7 +224,7 @@ export const footballApi = {
     predictedHomeScore?: number | null,
     predictedAwayScore?: number | null
   ): Promise<{ success: boolean; message: string }> {
-    const res = await fetch("/api/football/predict", {
+    return safeJsonFetch<{ success: boolean; message: string }>("/api/football/predict", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
@@ -171,25 +237,16 @@ export const footballApi = {
         predictedAwayScore
       })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || "Failed to submit prediction");
-    }
-    return res.json();
   },
 
   // 5. Get dynamic leaderboard
   async getLeaderboard(): Promise<LeaderboardEntry[]> {
-    const res = await fetch("/api/football/leaderboard");
-    if (!res.ok) throw new Error("Failed to load leaderboard");
-    return res.json();
+    return safeJsonFetch<LeaderboardEntry[]>("/api/football/leaderboard");
   },
 
   // 6. Get standing groups
   async getStandings(): Promise<StandingsGroup[]> {
-    const res = await fetch("/api/football/standings");
-    if (!res.ok) throw new Error("Failed to load standings");
-    return res.json();
+    return safeJsonFetch<StandingsGroup[]>("/api/football/standings");
   },
 
   // 7. Get calculated predictions statistics
@@ -256,50 +313,26 @@ export const footballApi = {
 
   // 8. Trigger manual sync or advance round (Admin only)
   async syncFootball(requesterEmail: string): Promise<{ success: boolean; message: string; count: number }> {
-    const res = await fetch("/api/football/sync", {
+    return safeJsonFetch<{ success: boolean; message: string; count: number }>("/api/football/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requesterEmail })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || "Sync failed");
-    }
-    return res.json();
   },
 
   // 9. Reset database to seeded bracket (Admin only)
   async resetFootball(requesterEmail: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch("/api/football/reset", {
+    return safeJsonFetch<{ success: boolean; message: string }>("/api/football/reset", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requesterEmail })
     });
-    if (!res.ok) {
-      let errMsg = "Reset failed";
-      try {
-        const contentType = res.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          const err = await res.json();
-          errMsg = err.error || err.message || errMsg;
-        } else {
-          const text = await res.text();
-          errMsg = text.slice(0, 150) || `HTTP error ${res.status}: ${res.statusText}`;
-        }
-      } catch (e) {
-        errMsg = `HTTP error ${res.status}: ${res.statusText}`;
-      }
-      throw new Error(errMsg);
-    }
-    return res.json();
   },
 
   // 10. Get football configuration settings
   async getSettings(requesterEmail?: string): Promise<{ competitionId: number; competitionName: string; season: string; syncInterval: number; lastSyncTime?: string; apiFootballKey?: string; apiFootballUrl?: string; footballDataKey?: string }> {
     const url = requesterEmail ? `/api/football/settings?requesterEmail=${encodeURIComponent(requesterEmail)}` : "/api/football/settings";
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Failed to load settings");
-    return res.json();
+    return safeJsonFetch<{ competitionId: number; competitionName: string; season: string; syncInterval: number; lastSyncTime?: string; apiFootballKey?: string; apiFootballUrl?: string; footballDataKey?: string }>(url);
   },
 
   // 11. Save football configuration settings (Admin only)
@@ -313,7 +346,7 @@ export const footballApi = {
     apiFootballUrl?: string,
     footballDataKey?: string
   ): Promise<{ success: boolean; message: string }> {
-    const res = await fetch("/api/football/settings", {
+    return safeJsonFetch<{ success: boolean; message: string }>("/api/football/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
@@ -327,36 +360,15 @@ export const footballApi = {
         footballDataKey
       })
     });
-    if (!res.ok) {
-      let errMsg = "Failed to save settings";
-      try {
-        const contentType = res.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          const err = await res.json();
-          errMsg = err.error || err.message || errMsg;
-        } else {
-          const text = await res.text();
-          errMsg = text.slice(0, 150) || `HTTP error ${res.status}: ${res.statusText}`;
-        }
-      } catch (e) {
-        errMsg = `HTTP error ${res.status}: ${res.statusText}`;
-      }
-      throw new Error(errMsg);
-    }
-    return res.json();
   },
 
   // 12. Get system synchronizer logs (Admin only)
   async getLogs(requesterEmail: string): Promise<{ timestamp: string; type: string; message: string }[]> {
-    const res = await fetch(`/api/football/logs?requesterEmail=${encodeURIComponent(requesterEmail)}`);
-    if (!res.ok) throw new Error("Failed to load logs");
-    return res.json();
+    return safeJsonFetch<{ timestamp: string; type: string; message: string }[]>(`/api/football/logs?requesterEmail=${encodeURIComponent(requesterEmail)}`);
   },
 
   // 13. Get detailed provider health status and configs
   async getProviderStatus(): Promise<any> {
-    const res = await fetch("/api/football/provider-status");
-    if (!res.ok) throw new Error("Failed to load provider status");
-    return res.json();
+    return safeJsonFetch<any>("/api/football/provider-status");
   }
 };

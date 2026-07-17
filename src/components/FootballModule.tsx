@@ -1566,7 +1566,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                     <Sliders className="w-4 h-4 text-emerald-600" /> Football Settings
                   </h3>
 
-                  <form onSubmit={handleSaveSettings} className="space-y-4">
+                  <form onSubmit={handleSaveSettings} className="space-y-4" autoComplete="off">
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
                         🌍 Select Competition
@@ -1640,6 +1640,9 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         </label>
                         <input
                           type="text"
+                          name="apiFootballUrl"
+                          id="apiFootballUrl"
+                          autoComplete="off"
                           value={settings.apiFootballUrl || ""}
                           onChange={(e) => setSettings(prev => ({ ...prev, apiFootballUrl: e.target.value }))}
                           placeholder="https://v3.football.api-sports.io"
@@ -1653,6 +1656,9 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         </label>
                         <input
                           type="password"
+                          name="apiFootballKey"
+                          id="apiFootballKey"
+                          autoComplete="new-password"
                           value={settings.apiFootballKey || ""}
                           onChange={(e) => setSettings(prev => ({ ...prev, apiFootballKey: e.target.value }))}
                           placeholder="Enter API-Football Key"
@@ -1666,6 +1672,9 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         </label>
                         <input
                           type="password"
+                          name="footballDataKey"
+                          id="footballDataKey"
+                          autoComplete="new-password"
                           value={settings.footballDataKey || ""}
                           onChange={(e) => setSettings(prev => ({ ...prev, footballDataKey: e.target.value }))}
                           placeholder="Enter Football-Data.org Key"

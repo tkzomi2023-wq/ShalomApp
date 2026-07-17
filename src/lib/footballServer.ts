@@ -14,7 +14,10 @@ const getApiUrl = (): string => {
   try {
     const db = loadLocalDB();
     if (db.settings?.apiFootballUrl) {
-      return db.settings.apiFootballUrl;
+      const url = db.settings.apiFootballUrl.trim();
+      if (url && !url.includes("@") && (url.startsWith("http://") || url.startsWith("https://"))) {
+        return url;
+      }
     }
   } catch (e) {}
   return "https://v3.football.api-sports.io";
@@ -532,6 +535,16 @@ const syncSettingsWithSupabase = async () => {
     const localDb = loadLocalDB();
     if (data) {
       console.log("[Football Config] Found remote configurations in Supabase, syncing with local cache...");
+      let remoteUrl = data.api_football_url;
+      if (remoteUrl) {
+        remoteUrl = remoteUrl.trim();
+        if (remoteUrl.includes("@") || (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://"))) {
+          remoteUrl = "https://v3.football.api-sports.io";
+        }
+      } else {
+        remoteUrl = "https://v3.football.api-sports.io";
+      }
+
       localDb.settings = {
         competitionId: data.competition_id ?? localDb.settings?.competitionId ?? 1,
         competitionName: data.competition_name ?? localDb.settings?.competitionName ?? "FIFA World Cup",
@@ -539,7 +552,7 @@ const syncSettingsWithSupabase = async () => {
         syncInterval: data.sync_interval ?? localDb.settings?.syncInterval ?? 10,
         lastSyncTime: data.last_sync_time ?? localDb.settings?.lastSyncTime,
         apiFootballKey: data.api_football_key !== undefined && data.api_football_key !== null ? data.api_football_key : localDb.settings?.apiFootballKey,
-        apiFootballUrl: data.api_football_url !== undefined && data.api_football_url !== null ? data.api_football_url : localDb.settings?.apiFootballUrl,
+        apiFootballUrl: remoteUrl,
         footballDataKey: data.football_data_key !== undefined && data.football_data_key !== null ? data.football_data_key : localDb.settings?.footballDataKey
       };
       saveLocalDB(localDb);
@@ -2216,6 +2229,16 @@ export const createFootballRouter = (): Router => {
       }
 
       const db = loadLocalDB();
+      if (db.settings) {
+        let currentUrl = db.settings.apiFootballUrl;
+        if (currentUrl) {
+          currentUrl = currentUrl.trim();
+          if (currentUrl.includes("@") || (!currentUrl.startsWith("http://") && !currentUrl.startsWith("https://"))) {
+            db.settings.apiFootballUrl = "https://v3.football.api-sports.io";
+            saveLocalDB(db);
+          }
+        }
+      }
       const settings = db.settings || {
         competitionId: 1,
         competitionName: "FIFA World Cup",
@@ -2257,6 +2280,16 @@ export const createFootballRouter = (): Router => {
       const db = loadLocalDB();
       const isDbOnline = await checkSupabaseSupport();
 
+      let cleanUrl = apiFootballUrl !== undefined ? apiFootballUrl : db.settings?.apiFootballUrl;
+      if (cleanUrl) {
+        cleanUrl = cleanUrl.trim();
+        if (cleanUrl.includes("@") || (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://"))) {
+          cleanUrl = "https://v3.football.api-sports.io";
+        }
+      } else {
+        cleanUrl = "https://v3.football.api-sports.io";
+      }
+
       db.settings = {
         competitionId: Number(competitionId || 1),
         competitionName: competitionName || "FIFA World Cup",
@@ -2264,7 +2297,7 @@ export const createFootballRouter = (): Router => {
         syncInterval: Number(syncInterval || 10),
         lastSyncTime: new Date().toISOString(), // Set current time
         apiFootballKey: apiFootballKey !== undefined ? apiFootballKey : db.settings?.apiFootballKey,
-        apiFootballUrl: apiFootballUrl !== undefined ? apiFootballUrl : db.settings?.apiFootballUrl,
+        apiFootballUrl: cleanUrl,
         footballDataKey: footballDataKey !== undefined ? footballDataKey : db.settings?.footballDataKey
       };
 
