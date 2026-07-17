@@ -13,6 +13,27 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Request logging middleware to diagnose route mismatch or host resolving issues
+app.use((req, res, next) => {
+  const logLine = `${new Date().toISOString()} | ${req.method} | ${req.originalUrl} | Host: ${req.headers.host} | Origin: ${req.headers.origin || "N/A"}\n`;
+  try {
+    fs.appendFileSync(path.join(process.cwd(), "server_request_log.txt"), logLine);
+  } catch (err) {}
+  next();
+});
+
+// Client logging endpoint to capture frontend variables and errors
+app.post("/api/client-log", (req, res) => {
+  try {
+    const { log } = req.body;
+    const logLine = `${new Date().toISOString()} | CLIENT_LOG | ${log}\n`;
+    fs.appendFileSync(path.join(process.cwd(), "server_request_log.txt"), logLine);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Mount Football router
 app.use("/api/football", createFootballRouter());
 

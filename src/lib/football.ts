@@ -158,6 +158,18 @@ const resolveFootballUrl = (path: string): string => {
 // Robust wrapper for API requests that handles HTML responses, offline states, and parsing issues elegantly.
 async function safeJsonFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const resolvedUrl = resolveFootballUrl(url);
+  
+  // Send diagnostics log to backend (non-blocking, skip if logging itself)
+  if (typeof window !== "undefined" && url !== "/api/client-log") {
+    fetch("/api/client-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        log: `START path=${url} | resolvedUrl=${resolvedUrl} | href=${window.location.href} | hostname=${window.location.hostname} | base=${import.meta.env.VITE_API_BASE_URL || "N/A"}`
+      })
+    }).catch(() => {});
+  }
+
   try {
     const res = await fetch(resolvedUrl, options);
     const contentType = res.headers.get("content-type") || "";
@@ -195,6 +207,17 @@ async function safeJsonFetch<T>(url: string, options?: RequestInit): Promise<T> 
     
     return await res.json() as T;
   } catch (err: any) {
+    const errorMsg = err.message || String(err);
+    if (typeof window !== "undefined" && url !== "/api/client-log") {
+      fetch("/api/client-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          log: `ERROR path=${url} | resolvedUrl=${resolvedUrl} | error=${errorMsg}`
+        })
+      }).catch(() => {});
+    }
+
     if (err.message && (
       err.message.includes("Unexpected token") || 
       err.message.includes("not valid JSON") || 

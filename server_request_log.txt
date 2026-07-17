@@ -1,0 +1,1 @@
+2026-07-17T20:16:48.947Z | GET | /api/football/settings | Host: localhost:3000 | Origin: N/A
