@@ -750,13 +750,13 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
               {loading ? (
                 <LiveMatchSkeleton />
               ) : liveMatches.length > 0 ? (
-                <div className="bg-stone-900 dark:bg-black rounded-3xl p-6 text-white border border-rose-600 relative overflow-hidden shadow-2xl">
-                  <div className="absolute top-4 right-4 flex items-center gap-2 bg-rose-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest animate-pulse">
+                <div className="bg-stone-900 dark:bg-black rounded-3xl p-6 text-white border border-rose-600 relative overflow-hidden shadow-2xl animate-live-border-pulse">
+                  <div className="absolute top-4 right-4 flex items-center gap-2 bg-rose-600 px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest animate-pulse-glow">
                     <Tv className="w-3.5 h-3.5" />
                     Live Match
                   </div>
-                  <span className="text-[10px] font-black text-rose-500 uppercase tracking-wider flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping"></span>
+                  <span className="text-[10px] font-black text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-dot-pulse"></span>
                     In Progress
                   </span>
                   
@@ -1118,7 +1118,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         key={match.id}
                         className={`bg-white dark:bg-stone-850 border rounded-2xl p-5 hover:shadow-lg transition flex flex-col justify-between ${
                           match.status === "LIVE" 
-                            ? "border-rose-500 bg-rose-500/5" 
+                            ? "animate-live-border-pulse bg-rose-500/5" 
                             : "border-stone-200 dark:border-stone-800"
                         }`}
                       >
@@ -1128,8 +1128,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                               {match.round}
                             </span>
                             {match.status === "LIVE" ? (
-                              <span className="px-2 py-0.5 bg-rose-600 text-white rounded text-[9px] font-black uppercase tracking-wider animate-pulse flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span> Live
+                              <span className="px-2.5 py-0.5 bg-rose-600 text-white rounded-full text-[9px] font-black uppercase tracking-wider animate-pulse-glow flex items-center gap-1.5 shadow-sm">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-dot-pulse"></span> Live
                               </span>
                             ) : match.status === "FT" ? (
                               <span className="px-2 py-0.5 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded text-[9px] font-bold uppercase">
