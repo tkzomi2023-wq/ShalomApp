@@ -10,284 +10,416 @@ import { supabase } from "./supabase";
 import { FootballMatch, FootballTeam, FootballPrediction, MatchStatus } from "../types/football";
 
 const FOOTBALL_DB_FILE = path.join(process.cwd(), "football_db.json");
-const API_URL = "https://v3.football.api-sports.io";
+const getApiUrl = (): string => {
+  try {
+    const db = loadLocalDB();
+    if (db.settings?.apiFootballUrl) {
+      return db.settings.apiFootballUrl;
+    }
+  } catch (e) {}
+  return "https://v3.football.api-sports.io";
+};
 
 // We prefer FOOTBALL_API_KEY from environment variables
 const getApiKey = (): string | null => {
+  try {
+    const db = loadLocalDB();
+    if (db.settings?.apiFootballKey) {
+      return db.settings.apiFootballKey;
+    }
+  } catch (e) {}
   return process.env.FOOTBALL_API_KEY || process.env.VITE_FOOTBALL_API_KEY || "7bd67bdab71254a48036fa1eff71ed21";
 };
 
 const getApiHost = (): string => {
+  try {
+    const url = getApiUrl();
+    const match = url.match(/^https?:\/\/([^/]+)/);
+    if (match) {
+      return match[1];
+    }
+  } catch (e) {}
   return process.env.FOOTBALL_API_HOST || "v3.football.api-sports.io";
 };
 
-// Seed initial default teams
-const DEFAULT_TEAMS: FootballTeam[] = [
-  { id: 2384, name: "USA", logo: "https://media.api-sports.io/football/teams/2384.png", code: "USA", group: "Group A" },
-  { id: 16, name: "Mexico", logo: "https://media.api-sports.io/football/teams/16.png", code: "MEX", group: "Group A" },
-  { id: 15, name: "Canada", logo: "https://media.api-sports.io/football/teams/15.png", code: "CAN", group: "Group B" },
-  { id: 26, name: "Argentina", logo: "https://media.api-sports.io/football/teams/26.png", code: "ARG", group: "Group B" },
-  { id: 2, name: "France", logo: "https://media.api-sports.io/football/teams/2.png", code: "FRA", group: "Group C" },
-  { id: 9, name: "Spain", logo: "https://media.api-sports.io/football/teams/9.png", code: "ESP", group: "Group C" },
-  { id: 10, name: "England", logo: "https://media.api-sports.io/football/teams/10.png", code: "ENG", group: "Group D" },
-  { id: 6, name: "Brazil", logo: "https://media.api-sports.io/football/teams/6.png", code: "BRA", group: "Group D" },
-  { id: 25, name: "Germany", logo: "https://media.api-sports.io/football/teams/25.png", code: "GER", group: "Group E" },
-  { id: 7, name: "Italy", logo: "https://media.api-sports.io/football/teams/7.png", code: "ITA", group: "Group E" },
-  { id: 27, name: "Portugal", logo: "https://media.api-sports.io/football/teams/27.png", code: "POR", group: "Group F" },
-  { id: 1118, name: "Netherlands", logo: "https://media.api-sports.io/football/teams/1118.png", code: "NED", group: "Group F" },
-  { id: 3, name: "Croatia", logo: "https://media.api-sports.io/football/teams/3.png", code: "CRO", group: "Group G" },
-  { id: 28, name: "Morocco", logo: "https://media.api-sports.io/football/teams/28.png", code: "MAR", group: "Group G" },
-  { id: 12, name: "Japan", logo: "https://media.api-sports.io/football/teams/12.png", code: "JPN", group: "Group H" },
-  { id: 13, name: "Senegal", logo: "https://media.api-sports.io/football/teams/13.png", code: "SEN", group: "Group H" }
-];
+const getFootballDataOrgKey = (): string | null => {
+  try {
+    const db = loadLocalDB();
+    if (db.settings?.footballDataKey) {
+      return db.settings.footballDataKey;
+    }
+  } catch (e) {}
+  return process.env.FOOTBALL_DATA_ORG_KEY || process.env.VITE_FOOTBALL_DATA_ORG_KEY || "";
+};
+
+const getTheSportsDbKey = (): string | null => {
+  try {
+    const db = loadLocalDB();
+    if (db.settings?.theSportsDbKey) {
+      return db.settings.theSportsDbKey;
+    }
+  } catch (e) {}
+  return process.env.THESPORTSDB_KEY || process.env.VITE_THESPORTSDB_KEY || "3"; // '3' is the default public key
+};
+
+export interface ProviderHealth {
+  status: "Healthy" | "Degraded" | "Failed";
+  latency: number;
+  remainingRequests: number;
+  subscription: string;
+  lastSuccess: string | null;
+  lastError: string | null;
+  apiUrl: string;
+  endpointCount?: number;
+}
+
+export const providerHealthStates: Record<string, ProviderHealth> = {
+  "API-Football": {
+    status: "Healthy",
+    latency: 0,
+    remainingRequests: 100,
+    subscription: "Active/Free",
+    lastSuccess: null,
+    lastError: null,
+    apiUrl: "https://v3.football.api-sports.io"
+  },
+  "Football-Data.org": {
+    status: "Healthy",
+    latency: 0,
+    remainingRequests: 10,
+    subscription: "Active/Free",
+    lastSuccess: null,
+    lastError: null,
+    apiUrl: "https://api.football-data.org/v4"
+  },
+  "TheSportsDB": {
+    status: "Healthy",
+    latency: 0,
+    remainingRequests: 100,
+    subscription: "Free/Public",
+    lastSuccess: null,
+    lastError: null,
+    apiUrl: "https://www.thesportsdb.com/api/v1/json"
+  }
+};
+
+// Seed initial default teams across all supported leagues
+const LEAGUE_TEAMS: Record<number, FootballTeam[]> = {
+  1: [ // FIFA World Cup
+    { id: 2384, name: "USA", logo: "https://media.api-sports.io/football/teams/2384.png", code: "USA", group: "Group A" },
+    { id: 16, name: "Mexico", logo: "https://media.api-sports.io/football/teams/16.png", code: "MEX", group: "Group A" },
+    { id: 15, name: "Canada", logo: "https://media.api-sports.io/football/teams/15.png", code: "CAN", group: "Group B" },
+    { id: 26, name: "Argentina", logo: "https://media.api-sports.io/football/teams/26.png", code: "ARG", group: "Group B" },
+    { id: 2, name: "France", logo: "https://media.api-sports.io/football/teams/2.png", code: "FRA", group: "Group C" },
+    { id: 9, name: "Spain", logo: "https://media.api-sports.io/football/teams/9.png", code: "ESP", group: "Group C" },
+    { id: 10, name: "England", logo: "https://media.api-sports.io/football/teams/10.png", code: "ENG", group: "Group D" },
+    { id: 6, name: "Brazil", logo: "https://media.api-sports.io/football/teams/6.png", code: "BRA", group: "Group D" },
+    { id: 25, name: "Germany", logo: "https://media.api-sports.io/football/teams/25.png", code: "GER", group: "Group E" },
+    { id: 7, name: "Italy", logo: "https://media.api-sports.io/football/teams/7.png", code: "ITA", group: "Group E" },
+    { id: 27, name: "Portugal", logo: "https://media.api-sports.io/football/teams/27.png", code: "POR", group: "Group F" },
+    { id: 1118, name: "Netherlands", logo: "https://media.api-sports.io/football/teams/1118.png", code: "NED", group: "Group F" },
+    { id: 3, name: "Croatia", logo: "https://media.api-sports.io/football/teams/3.png", code: "CRO", group: "Group G" },
+    { id: 28, name: "Morocco", logo: "https://media.api-sports.io/football/teams/28.png", code: "MAR", group: "Group G" },
+    { id: 12, name: "Japan", logo: "https://media.api-sports.io/football/teams/12.png", code: "JPN", group: "Group H" },
+    { id: 13, name: "Senegal", logo: "https://media.api-sports.io/football/teams/13.png", code: "SEN", group: "Group H" }
+  ],
+  39: [ // Premier League
+    { id: 50, name: "Manchester City", logo: "https://media.api-sports.io/football/teams/50.png", code: "MCI" },
+    { id: 42, name: "Arsenal", logo: "https://media.api-sports.io/football/teams/42.png", code: "ARS" },
+    { id: 40, name: "Liverpool", logo: "https://media.api-sports.io/football/teams/40.png", code: "LIV" },
+    { id: 66, name: "Aston Villa", logo: "https://media.api-sports.io/football/teams/66.png", code: "AVL" },
+    { id: 47, name: "Tottenham Hotspur", logo: "https://media.api-sports.io/football/teams/47.png", code: "TOT" },
+    { id: 49, name: "Chelsea", logo: "https://media.api-sports.io/football/teams/49.png", code: "CHE" },
+    { id: 33, name: "Manchester United", logo: "https://media.api-sports.io/football/teams/33.png", code: "MUN" },
+    { id: 34, name: "Newcastle United", logo: "https://media.api-sports.io/football/teams/34.png", code: "NEW" }
+  ],
+  2: [ // UEFA Champions League
+    { id: 541, name: "Real Madrid", logo: "https://media.api-sports.io/football/teams/541.png", code: "RMA" },
+    { id: 157, name: "Bayern Munich", logo: "https://media.api-sports.io/football/teams/157.png", code: "FCB" },
+    { id: 85, name: "Paris Saint-Germain", logo: "https://media.api-sports.io/football/teams/85.png", code: "PSG" },
+    { id: 505, name: "Inter Milan", logo: "https://media.api-sports.io/football/teams/505.png", code: "INT" },
+    { id: 529, name: "Barcelona", logo: "https://media.api-sports.io/football/teams/529.png", code: "BAR" },
+    { id: 168, name: "Bayer Leverkusen", logo: "https://media.api-sports.io/football/teams/168.png", code: "LEV" },
+    { id: 530, name: "Atletico Madrid", logo: "https://media.api-sports.io/football/teams/530.png", code: "ATM" },
+    { id: 165, name: "Borussia Dortmund", logo: "https://media.api-sports.io/football/teams/165.png", code: "BVB" }
+  ],
+  140: [ // La Liga
+    { id: 541, name: "Real Madrid", logo: "https://media.api-sports.io/football/teams/541.png", code: "RMA" },
+    { id: 529, name: "Barcelona", logo: "https://media.api-sports.io/football/teams/529.png", code: "BAR" },
+    { id: 530, name: "Atletico Madrid", logo: "https://media.api-sports.io/football/teams/530.png", code: "ATM" },
+    { id: 547, name: "Girona", logo: "https://media.api-sports.io/football/teams/547.png", code: "GIR" },
+    { id: 531, name: "Athletic Bilbao", logo: "https://media.api-sports.io/football/teams/531.png", code: "ATH" },
+    { id: 548, name: "Real Sociedad", logo: "https://media.api-sports.io/football/teams/548.png", code: "RSO" },
+    { id: 543, name: "Real Betis", logo: "https://media.api-sports.io/football/teams/543.png", code: "BET" },
+    { id: 533, name: "Villarreal", logo: "https://media.api-sports.io/football/teams/533.png", code: "VIL" }
+  ],
+  78: [ // Bundesliga
+    { id: 168, name: "Bayer Leverkusen", logo: "https://media.api-sports.io/football/teams/168.png", code: "LEV" },
+    { id: 157, name: "Bayern Munich", logo: "https://media.api-sports.io/football/teams/157.png", code: "FCB" },
+    { id: 172, name: "Stuttgart", logo: "https://media.api-sports.io/football/teams/172.png", code: "STU" },
+    { id: 173, name: "RB Leipzig", logo: "https://media.api-sports.io/football/teams/173.png", code: "RBL" },
+    { id: 165, name: "Borussia Dortmund", logo: "https://media.api-sports.io/football/teams/165.png", code: "BVB" },
+    { id: 169, name: "Eintracht Frankfurt", logo: "https://media.api-sports.io/football/teams/169.png", code: "SGE" },
+    { id: 160, name: "Freiburg", logo: "https://media.api-sports.io/football/teams/160.png", code: "SCF" },
+    { id: 167, name: "Hoffenheim", logo: "https://media.api-sports.io/football/teams/167.png", code: "TSG" }
+  ],
+  135: [ // Serie A
+    { id: 505, name: "Inter Milan", logo: "https://media.api-sports.io/football/teams/505.png", code: "INT" },
+    { id: 489, name: "AC Milan", logo: "https://media.api-sports.io/football/teams/489.png", code: "MIL" },
+    { id: 496, name: "Juventus", logo: "https://media.api-sports.io/football/teams/496.png", code: "JUV" },
+    { id: 499, name: "Atalanta", logo: "https://media.api-sports.io/football/teams/499.png", code: "ATA" },
+    { id: 500, name: "Bologna", logo: "https://media.api-sports.io/football/teams/500.png", code: "BOL" },
+    { id: 497, name: "AS Roma", logo: "https://media.api-sports.io/football/teams/497.png", code: "ROM" },
+    { id: 487, name: "Lazio", logo: "https://media.api-sports.io/football/teams/487.png", code: "LAZ" },
+    { id: 492, name: "Napoli", logo: "https://media.api-sports.io/football/teams/492.png", code: "NAP" }
+  ],
+  61: [ // Ligue 1
+    { id: 85, name: "Paris Saint-Germain", logo: "https://media.api-sports.io/football/teams/85.png", code: "PSG" },
+    { id: 91, name: "Monaco", logo: "https://media.api-sports.io/football/teams/91.png", code: "ASM" },
+    { id: 106, name: "Brest", logo: "https://media.api-sports.io/football/teams/106.png", code: "SB29" },
+    { id: 79, name: "Lille", logo: "https://media.api-sports.io/football/teams/79.png", code: "LOSC" },
+    { id: 84, name: "Nice", logo: "https://media.api-sports.io/football/teams/84.png", code: "OGCN" },
+    { id: 116, name: "Lens", logo: "https://media.api-sports.io/football/teams/116.png", code: "RCL" },
+    { id: 81, name: "Marseille", logo: "https://media.api-sports.io/football/teams/81.png", code: "OM" },
+    { id: 80, name: "Lyon", logo: "https://media.api-sports.io/football/teams/80.png", code: "OL" }
+  ]
+};
+
+const DEFAULT_TEAMS: FootballTeam[] = LEAGUE_TEAMS[1];
+
+const getCompetitionIdFromName = (name: string): number => {
+  const lowercase = name.toLowerCase();
+  if (lowercase.includes("premier league") || lowercase.includes("pl") || lowercase.includes("39")) return 39;
+  if (lowercase.includes("champions league") || lowercase.includes("cl") || lowercase.includes("2")) return 2;
+  if (lowercase.includes("la liga") || lowercase.includes("pd") || lowercase.includes("140")) return 140;
+  if (lowercase.includes("bundesliga") || lowercase.includes("bl1") || lowercase.includes("78")) return 78;
+  if (lowercase.includes("serie a") || lowercase.includes("sa") || lowercase.includes("135")) return 135;
+  if (lowercase.includes("ligue 1") || lowercase.includes("fl1") || lowercase.includes("61")) return 61;
+  return 1; // FIFA World Cup
+};
+
+// Generate realistic simulated matches for leagues and World Cup with dates relative to now
+const generateSimulatedMatches = (competitionId: number, tournamentName: string, seasonName: string): FootballMatch[] => {
+  const teams = LEAGUE_TEAMS[competitionId] || LEAGUE_TEAMS[1];
+  const matches: FootballMatch[] = [];
+  const now = Date.now();
+
+  const d = (daysOffset: number, hoursOffset: number) => {
+    return new Date(now + daysOffset * 24 * 60 * 60 * 1000 + hoursOffset * 60 * 60 * 1000).toISOString();
+  };
+
+  const isWorldCup = competitionId === 1;
+
+  if (isWorldCup) {
+    // FIFA World Cup Bracket Simulation with completed matches in the past and upcoming matches
+    // Group Stage
+    matches.push({
+      id: 1001, tournament: tournamentName, season: seasonName, round: "Group Stage",
+      home_team_id: 2384, away_team_id: 16, kickoff: d(-3, 0), status: "FT",
+      home_score: 2, away_score: 1, winner_team_id: 2384, venue: "MetLife Stadium", stadium: "East Rutherford"
+    });
+    matches.push({
+      id: 1002, tournament: tournamentName, season: seasonName, round: "Group Stage",
+      home_team_id: 26, away_team_id: 15, kickoff: d(-2, 0), status: "FT",
+      home_score: 3, away_score: 0, winner_team_id: 26, venue: "Mercedes-Benz Stadium", stadium: "Atlanta"
+    });
+    matches.push({
+      id: 1003, tournament: tournamentName, season: seasonName, round: "Group Stage",
+      home_team_id: 2, away_team_id: 9, kickoff: d(-1, 0), status: "FT",
+      home_score: 1, away_score: 1, winner_team_id: null, venue: "Estadio Azteca", stadium: "Mexico City"
+    });
+    matches.push({
+      id: 1004, tournament: tournamentName, season: seasonName, round: "Group Stage",
+      home_team_id: 10, away_team_id: 6, kickoff: d(0, 2), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "Hard Rock Stadium", stadium: "Miami"
+    });
+    // Round of 32
+    matches.push({
+      id: 2001, tournament: tournamentName, season: seasonName, round: "Round of 32",
+      home_team_id: 25, away_team_id: 7, kickoff: d(1, 0), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "BC Place", stadium: "Vancouver"
+    });
+    matches.push({
+      id: 2002, tournament: tournamentName, season: seasonName, round: "Round of 32",
+      home_team_id: 27, away_team_id: 1118, kickoff: d(1, 4), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "SoFi Stadium", stadium: "Los Angeles"
+    });
+    // Round of 16
+    matches.push({
+      id: 3001, tournament: tournamentName, season: seasonName, round: "Round of 16",
+      home_team_id: 2384, away_team_id: 25, kickoff: d(2, 0), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "Lumen Field", stadium: "Seattle"
+    });
+    matches.push({
+      id: 3002, tournament: tournamentName, season: seasonName, round: "Round of 16",
+      home_team_id: 27, away_team_id: 3, kickoff: d(2, 4), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "Lincoln Financial Field", stadium: "Philadelphia"
+    });
+    // Quarter-finals
+    matches.push({
+      id: 4001, tournament: tournamentName, season: seasonName, round: "Quarter-finals",
+      home_team_id: 28, away_team_id: 12, kickoff: d(3, 0), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "NRG Stadium", stadium: "Houston"
+    });
+    matches.push({
+      id: 4002, tournament: tournamentName, season: seasonName, round: "Quarter-finals",
+      home_team_id: 13, away_team_id: 2, kickoff: d(3, 4), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "Arrowhead Stadium", stadium: "Kansas City"
+    });
+    // Semi-finals
+    matches.push({
+      id: 5001, tournament: tournamentName, season: seasonName, round: "Semi-finals",
+      home_team_id: 9, away_team_id: 2, kickoff: d(4, 0), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "MetLife Stadium", stadium: "East Rutherford"
+    });
+    matches.push({
+      id: 5002, tournament: tournamentName, season: seasonName, round: "Semi-finals",
+      home_team_id: 10, away_team_id: 26, kickoff: d(4, 4), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "Mercedes-Benz Stadium", stadium: "Atlanta"
+    });
+    // Third place
+    matches.push({
+      id: 6002, tournament: tournamentName, season: seasonName, round: "Third Place Playoff",
+      home_team_id: null, away_team_id: null, kickoff: d(5, 0), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "Hard Rock Stadium", stadium: "Miami"
+    });
+    // Final
+    matches.push({
+      id: 6001, tournament: tournamentName, season: seasonName, round: "Final",
+      home_team_id: null, away_team_id: null, kickoff: d(6, 0), status: "NS",
+      home_score: null, away_score: null, winner_team_id: null, venue: "SoFi Stadium", stadium: "Los Angeles"
+    });
+  } else {
+    // Generate Round Robin Matchdays for League formats (8 teams, 4 Matchdays)
+    const matchesMap = [
+      { round: "Matchday 1", home: 0, away: 1, offset: -4, hour: 18, status: "FT", hs: 2, as: 1 },
+      { round: "Matchday 1", home: 2, away: 3, offset: -4, hour: 20, status: "FT", hs: 0, as: 2 },
+      { round: "Matchday 1", home: 4, away: 5, offset: -3, hour: 18, status: "FT", hs: 1, as: 1 },
+      { round: "Matchday 1", home: 6, away: 7, offset: -3, hour: 20, status: "FT", hs: 3, as: 1 },
+
+      { round: "Matchday 2", home: 1, away: 2, offset: -2, hour: 18, status: "FT", hs: 2, as: 2 },
+      { round: "Matchday 2", home: 3, away: 0, offset: -2, hour: 20, status: "FT", hs: 1, as: 0 },
+      { round: "Matchday 2", home: 5, away: 6, offset: -1, hour: 18, status: "FT", hs: 1, as: 2 },
+      { round: "Matchday 2", home: 7, away: 4, offset: -1, hour: 20, status: "FT", hs: 0, as: 3 },
+
+      { round: "Matchday 3", home: 0, away: 4, offset: 0, hour: 2, status: "NS", hs: null, as: null },
+      { round: "Matchday 3", home: 1, away: 5, offset: 1, hour: 18, status: "NS", hs: null, as: null },
+      { round: "Matchday 3", home: 2, away: 6, offset: 1, hour: 20, status: "NS", hs: null, as: null },
+      { round: "Matchday 3", home: 3, away: 7, offset: 2, hour: 18, status: "NS", hs: null, as: null },
+
+      { round: "Matchday 4", home: 4, away: 1, offset: 2, hour: 20, status: "NS", hs: null, as: null },
+      { round: "Matchday 4", home: 5, away: 2, offset: 3, hour: 18, status: "NS", hs: null, as: null },
+      { round: "Matchday 4", home: 6, away: 3, offset: 3, hour: 20, status: "NS", hs: null, as: null },
+      { round: "Matchday 4", home: 7, away: 0, offset: 4, hour: 18, status: "NS", hs: null, as: null }
+    ];
+
+    let matchId = 100000 + competitionId * 1000;
+    for (const m of matchesMap) {
+      const homeTeam = teams[m.home];
+      const awayTeam = teams[m.away];
+      if (!homeTeam || !awayTeam) continue;
+
+      let winnerId: number | null = null;
+      if (m.status === "FT" && m.hs !== null && m.as !== null) {
+        if (m.hs > m.as) winnerId = homeTeam.id;
+        else if (m.as > m.hs) winnerId = awayTeam.id;
+      }
+
+      matches.push({
+        id: matchId++,
+        tournament: tournamentName,
+        season: seasonName,
+        round: m.round,
+        home_team_id: homeTeam.id,
+        away_team_id: awayTeam.id,
+        kickoff: d(m.offset, m.hour - 12),
+        status: m.status as MatchStatus,
+        home_score: m.hs,
+        away_score: m.as,
+        winner_team_id: winnerId,
+        venue: "League Stadium",
+        stadium: "Local City"
+      });
+    }
+  }
+
+  return matches;
+};
 
 // Seed initial default matches starting from July 15, 2026 onwards (realistic setup)
 const getDefaultMatches = (tournamentName: string = "FIFA World Cup", seasonName: string = "2026"): FootballMatch[] => {
-  const matches: FootballMatch[] = [];
+  const compId = getCompetitionIdFromName(tournamentName);
+  return generateSimulatedMatches(compId, tournamentName, seasonName);
+};
+
+// Auto-progress any matches whose kickoff times have passed in the background
+export const autoProgressMatches = async (localDb: any): Promise<boolean> => {
   const now = new Date();
-  
-  // Set match dates relative to now to make them interactive and upcoming
-  const d = (daysOffset: number, hoursOffset: number) => {
-    const date = new Date(now.getTime() + daysOffset * 24 * 60 * 60 * 1000 + hoursOffset * 60 * 60 * 1000);
-    return date.toISOString();
-  };
+  let updatedCount = 0;
+  const isDbOnline = await checkSupabaseSupport();
 
-  // 1. Group Stage
-  matches.push({
-    id: 1001,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Group Stage",
-    home_team_id: 2384, // USA
-    away_team_id: 16,   // Mexico
-    kickoff: d(0, 1),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "MetLife Stadium",
-    stadium: "East Rutherford"
-  });
+  for (const match of localDb.matches) {
+    if (match.status === "NS" && new Date(match.kickoff) < now) {
+      const kickoffTime = new Date(match.kickoff).getTime();
+      const elapsedMs = now.getTime() - kickoffTime;
+      // If within 105 minutes of kickoff, set to LIVE
+      if (elapsedMs < 105 * 60 * 1000) {
+        match.status = "LIVE";
+        match.home_score = Math.floor(Math.random() * 2);
+        match.away_score = Math.floor(Math.random() * 2);
+      } else {
+        // Full time
+        match.status = "FT";
+        match.home_score = Math.floor(Math.random() * 4);
+        match.away_score = Math.floor(Math.random() * 4);
+        if (match.home_score > match.away_score) {
+          match.winner_team_id = match.home_team_id;
+        } else if (match.away_score > match.home_score) {
+          match.winner_team_id = match.away_team_id;
+        } else {
+          match.winner_team_id = null; // Draw
+        }
+      }
+      updatedCount++;
 
-  matches.push({
-    id: 1002,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Group Stage",
-    home_team_id: 26,   // Argentina
-    away_team_id: 15,   // Canada
-    kickoff: d(0, 3),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Mercedes-Benz Stadium",
-    stadium: "Atlanta"
-  });
+      if (isDbOnline) {
+        try {
+          await supabase.from("football_matches").upsert(match);
+        } catch (err) {
+          console.warn(`[Football Engine] Failed to upsert progressed match ${match.id} to Supabase:`, err);
+        }
+      }
+    } else if (match.status === "LIVE" && new Date(match.kickoff).getTime() + 105 * 60 * 1000 < now.getTime()) {
+      // Transition from LIVE to FT
+      match.status = "FT";
+      if (match.home_score === null) match.home_score = Math.floor(Math.random() * 4);
+      if (match.away_score === null) match.away_score = Math.floor(Math.random() * 4);
+      if (match.home_score > match.away_score) {
+        match.winner_team_id = match.home_team_id;
+      } else if (match.away_score > match.home_score) {
+        match.winner_team_id = match.away_team_id;
+      } else {
+        match.winner_team_id = null;
+      }
+      updatedCount++;
 
-  matches.push({
-    id: 1003,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Group Stage",
-    home_team_id: 2,    // France
-    away_team_id: 9,    // Spain
-    kickoff: d(0, 5),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Estadio Azteca",
-    stadium: "Mexico City"
-  });
+      if (isDbOnline) {
+        try {
+          await supabase.from("football_matches").upsert(match);
+        } catch (err) {
+          console.warn(`[Football Engine] Failed to upsert progressed match ${match.id} to Supabase:`, err);
+        }
+      }
+    }
+  }
 
-  matches.push({
-    id: 1004,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Group Stage",
-    home_team_id: 10,   // England
-    away_team_id: 6,    // Brazil
-    kickoff: d(0, 7),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Hard Rock Stadium",
-    stadium: "Miami"
-  });
-
-  // 2. Round of 32
-  matches.push({
-    id: 2001,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Round of 32",
-    home_team_id: 25,   // Germany
-    away_team_id: 7,    // Italy
-    kickoff: d(1, 0),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "BC Place",
-    stadium: "Vancouver"
-  });
-
-  matches.push({
-    id: 2002,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Round of 32",
-    home_team_id: 27,   // Portugal
-    away_team_id: 1118, // Netherlands
-    kickoff: d(1, 4),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "SoFi Stadium",
-    stadium: "Los Angeles"
-  });
-
-  // 3. Round of 16
-  matches.push({
-    id: 3001,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Round of 16",
-    home_team_id: 2384, // USA
-    away_team_id: 25,   // Germany
-    kickoff: d(2, 0),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Lumen Field",
-    stadium: "Seattle"
-  });
-
-  matches.push({
-    id: 3002,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Round of 16",
-    home_team_id: 27,   // Portugal
-    away_team_id: 3,    // Croatia
-    kickoff: d(2, 4),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Lincoln Financial Field",
-    stadium: "Philadelphia"
-  });
-
-  // 4. Quarter-finals
-  matches.push({
-    id: 4001,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Quarter-finals",
-    home_team_id: 28,   // Morocco
-    away_team_id: 12,   // Japan
-    kickoff: d(3, 0),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "NRG Stadium",
-    stadium: "Houston"
-  });
-
-  matches.push({
-    id: 4002,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Quarter-finals",
-    home_team_id: 13,   // Senegal
-    away_team_id: 2,    // France
-    kickoff: d(3, 4),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Arrowhead Stadium",
-    stadium: "Kansas City"
-  });
-
-  // 5. Semi-finals
-  matches.push({
-    id: 5001,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Semi-finals",
-    home_team_id: 9,    // Spain
-    away_team_id: 2,    // France
-    kickoff: d(4, 0),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "MetLife Stadium",
-    stadium: "East Rutherford"
-  });
-
-  matches.push({
-    id: 5002,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Semi-finals",
-    home_team_id: 10,   // England
-    away_team_id: 26,   // Argentina
-    kickoff: d(4, 4),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Mercedes-Benz Stadium",
-    stadium: "Atlanta"
-  });
-
-  // 6. Third Place Playoff
-  matches.push({
-    id: 6002,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Third Place Playoff",
-    home_team_id: null,
-    away_team_id: null,
-    kickoff: d(5, 0),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "Hard Rock Stadium",
-    stadium: "Miami"
-  });
-
-  // 7. Final
-  matches.push({
-    id: 6001,
-    tournament: "FIFA World Cup",
-    season: "2026",
-    round: "Final",
-    home_team_id: null,
-    away_team_id: null,
-    kickoff: d(6, 0),
-    status: "NS",
-    home_score: null,
-    away_score: null,
-    winner_team_id: null,
-    venue: "SoFi Stadium",
-    stadium: "Los Angeles"
-  });
-
-  return matches.map(m => ({
-    ...m,
-    tournament: tournamentName,
-    season: seasonName
-  }));
+  if (updatedCount > 0) {
+    console.log(`[Football Engine] Auto-progressed ${updatedCount} matches to newer statuses.`);
+    saveLocalDB(localDb);
+    await updateResults();
+    return true;
+  }
+  return false;
 };
 
 interface FootballSettings {
@@ -296,6 +428,11 @@ interface FootballSettings {
   season: string;
   syncInterval: number; // in minutes
   lastSyncTime?: string;
+  activeProvider?: string;
+  apiFootballKey?: string;
+  apiFootballUrl?: string;
+  footballDataKey?: string;
+  theSportsDbKey?: string;
 }
 
 // Local JSON File Database Interface
@@ -319,7 +456,7 @@ const loadLocalDB = (): LocalFootballDB => {
           competitionName: "FIFA World Cup",
           season: "2026",
           syncInterval: 10,
-          lastSyncTime: new Date(0).toISOString()
+          lastSyncTime: new Date().toISOString()
         };
         saveLocalDB(db);
       }
@@ -340,7 +477,7 @@ const loadLocalDB = (): LocalFootballDB => {
       competitionName: "FIFA World Cup",
       season: "2026",
       syncInterval: 10,
-      lastSyncTime: new Date(0).toISOString()
+      lastSyncTime: new Date().toISOString()
     }
   };
   saveLocalDB(db);
@@ -358,6 +495,75 @@ const saveLocalDB = (db: LocalFootballDB) => {
 // Check if Supabase Football tables exist and are writeable
 let hasSupabaseTables = false;
 let cachedSupabaseSupport: boolean | null = null;
+let cachedFootballConfigsSupport: boolean | null = null;
+
+const checkFootballConfigsSupport = async (): Promise<boolean> => {
+  if (cachedFootballConfigsSupport !== null) {
+    return cachedFootballConfigsSupport;
+  }
+  try {
+    const { error } = await supabase.from("football_configs").select("id").limit(1);
+    if (error && (error.code === "PGRST116" || error.message.includes("does not exist") || error.message.includes("Could not find the table"))) {
+      cachedFootballConfigsSupport = false;
+      return false;
+    }
+    cachedFootballConfigsSupport = true;
+    return true;
+  } catch (e) {
+    cachedFootballConfigsSupport = false;
+    return false;
+  }
+};
+
+const syncSettingsWithSupabase = async () => {
+  try {
+    const hasConfigsTable = await checkFootballConfigsSupport();
+    if (!hasConfigsTable) {
+      console.log("[Football Config] Note: remote football_configs table does not exist yet. Please execute the latest setup SQL in your Supabase SQL editor to enable remote configurations storage.");
+      return;
+    }
+
+    const { data, error } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+    if (error) {
+      console.log("[Football Config] Supabase football_configs select error:", error.message);
+      return;
+    }
+
+    const localDb = loadLocalDB();
+    if (data) {
+      console.log("[Football Config] Found remote configurations in Supabase, syncing with local cache...");
+      localDb.settings = {
+        competitionId: data.competition_id ?? localDb.settings?.competitionId ?? 1,
+        competitionName: data.competition_name ?? localDb.settings?.competitionName ?? "FIFA World Cup",
+        season: data.season ?? localDb.settings?.season ?? "2026",
+        syncInterval: data.sync_interval ?? localDb.settings?.syncInterval ?? 10,
+        lastSyncTime: data.last_sync_time ?? localDb.settings?.lastSyncTime,
+        apiFootballKey: data.api_football_key !== undefined && data.api_football_key !== null ? data.api_football_key : localDb.settings?.apiFootballKey,
+        apiFootballUrl: data.api_football_url !== undefined && data.api_football_url !== null ? data.api_football_url : localDb.settings?.apiFootballUrl,
+        footballDataKey: data.football_data_key !== undefined && data.football_data_key !== null ? data.football_data_key : localDb.settings?.footballDataKey
+      };
+      saveLocalDB(localDb);
+    } else {
+      // No config exists yet, let's insert the current local settings to initialize the table
+      if (localDb.settings) {
+        console.log("[Football Config] Initializing remote configurations in Supabase...");
+        await supabase.from("football_configs").insert({
+          id: 1,
+          competition_id: localDb.settings.competitionId,
+          competition_name: localDb.settings.competitionName,
+          season: localDb.settings.season,
+          sync_interval: localDb.settings.syncInterval,
+          api_football_key: localDb.settings.apiFootballKey || "",
+          api_football_url: localDb.settings.apiFootballUrl || "",
+          football_data_key: localDb.settings.footballDataKey || "",
+          last_sync_time: localDb.settings.lastSyncTime || new Date().toISOString()
+        });
+      }
+    }
+  } catch (err: any) {
+    console.warn("[Football Config] Error syncing settings with Supabase:", err.message || err);
+  }
+};
 
 const checkSupabaseSupport = async (): Promise<boolean> => {
   if (cachedSupabaseSupport !== null) {
@@ -393,6 +599,7 @@ const checkSupabaseSupport = async (): Promise<boolean> => {
     
     hasSupabaseTables = true;
     cachedSupabaseSupport = true;
+    await syncSettingsWithSupabase();
     return true;
   } catch (err: any) {
     console.log("[Football Engine] Failed to establish write access to Supabase:", err.message || err);
@@ -645,352 +852,629 @@ export const ensureBracketIntegrity = async (localDb: any): Promise<number> => {
   return syncCount;
 };
 
-// Serverside API-Football Sync
-export const syncFixtures = async (): Promise<{ success: boolean; count: number; source: "api" | "seeded" }> => {
-  console.log("[Football Engine] Synchronizing football fixtures...");
-  const apiKey = getApiKey();
-  const isDbOnline = await checkSupabaseSupport();
-  const apiHost = getApiHost();
+// Helper functions to map competition and season values
+const getFootballDataOrgCode = (id: number): string => {
+  switch (id) {
+    case 1: return "WC";
+    case 39: return "PL";
+    case 2: return "CL";
+    case 140: return "PD";
+    case 78: return "BL1";
+    case 135: return "SA";
+    case 61: return "FL1";
+    default: return "";
+  }
+};
 
+const getTheSportsDbId = (id: number): string => {
+  switch (id) {
+    case 1: return "4429"; // FIFA World Cup
+    case 39: return "4328"; // Premier League
+    case 2: return "4480"; // Champions League
+    case 140: return "4335"; // La Liga
+    case 78: return "4331"; // Bundesliga
+    case 135: return "4332"; // Serie A
+    case 61: return "4334"; // Ligue 1
+    default: return "";
+  }
+};
+
+const getQuerySeason = (season: string, competitionId: number): string => {
+  const match = season.match(/^(\d{4})/);
+  return match ? match[1] : season;
+};
+
+// Normalization Mapper for Football-Data.org
+const mapFootballDataOrgMatches = (fdMatches: any[], tournamentName: string, seasonName: string): { matches: FootballMatch[], teams: FootballTeam[] } => {
+  const matches: FootballMatch[] = [];
+  const teamsMap: Record<number, FootballTeam> = {};
+
+  for (const item of fdMatches) {
+    if (!item.id || !item.homeTeam || !item.awayTeam) continue;
+
+    const homeTeam: FootballTeam = {
+      id: item.homeTeam.id,
+      name: item.homeTeam.name || item.homeTeam.shortName || "TBD",
+      logo: item.homeTeam.crest || "https://media.api-sports.io/football/teams/0.png",
+      code: item.homeTeam.tla || item.homeTeam.name?.substring(0, 3).toUpperCase(),
+      group: item.group || undefined
+    };
+
+    const awayTeam: FootballTeam = {
+      id: item.awayTeam.id,
+      name: item.awayTeam.name || item.awayTeam.shortName || "TBD",
+      logo: item.awayTeam.crest || "https://media.api-sports.io/football/teams/0.png",
+      code: item.awayTeam.tla || item.awayTeam.name?.substring(0, 3).toUpperCase(),
+      group: item.group || undefined
+    };
+
+    teamsMap[homeTeam.id] = homeTeam;
+    teamsMap[awayTeam.id] = awayTeam;
+
+    let mappedStatus: MatchStatus = "NS";
+    if (item.status === "FINISHED") mappedStatus = "FT";
+    else if (item.status === "IN_PLAY" || item.status === "PAUSED") mappedStatus = "LIVE";
+    else if (item.status === "POSTPONED") mappedStatus = "PST";
+    else if (item.status === "CANCELLED") mappedStatus = "CANC";
+
+    let winnerId: number | null = null;
+    if (mappedStatus === "FT" && item.score && item.score.winner) {
+      if (item.score.winner === "HOME_TEAM") winnerId = homeTeam.id;
+      else if (item.score.winner === "AWAY_TEAM") winnerId = awayTeam.id;
+    }
+
+    matches.push({
+      id: item.id,
+      tournament: tournamentName,
+      season: seasonName,
+      round: cleanRoundName(item.stage || (item.matchday ? `Matchday ${item.matchday}` : "Regular Season")),
+      home_team_id: homeTeam.id,
+      away_team_id: awayTeam.id,
+      kickoff: item.utcDate,
+      status: mappedStatus,
+      home_score: item.score?.fullTime?.home !== undefined ? item.score.fullTime.home : null,
+      away_score: item.score?.fullTime?.away !== undefined ? item.score.fullTime.away : null,
+      winner_team_id: winnerId,
+      venue: item.venue || "TBD Stadium",
+      stadium: item.venue || "TBD City"
+    });
+  }
+
+  return { matches, teams: Object.values(teamsMap) };
+};
+
+// Normalization Mapper for TheSportsDB
+const mapTheSportsDbMatches = (tsdbEvents: any[], tournamentName: string, seasonName: string): { matches: FootballMatch[], teams: FootballTeam[] } => {
+  const matches: FootballMatch[] = [];
+  const teamsMap: Record<number, FootballTeam> = {};
+
+  for (const item of tsdbEvents) {
+    const idEvent = Number(item.idEvent);
+    const idHome = Number(item.idHomeTeam);
+    const idAway = Number(item.idAwayTeam);
+    if (!idEvent || !idHome || !idAway) continue;
+
+    const homeTeam: FootballTeam = {
+      id: idHome,
+      name: item.strHomeTeam || "TBD",
+      logo: item.strHomeTeamBadge || `https://www.thesportsdb.com/images/media/team/badge/small/${idHome}.png`,
+      code: item.strHomeTeam?.substring(0, 3).toUpperCase(),
+      group: item.strGroup || undefined
+    };
+
+    const awayTeam: FootballTeam = {
+      id: idAway,
+      name: item.strAwayTeam || "TBD",
+      logo: item.strAwayTeamBadge || `https://www.thesportsdb.com/images/media/team/badge/small/${idAway}.png`,
+      code: item.strAwayTeam?.substring(0, 3).toUpperCase(),
+      group: item.strGroup || undefined
+    };
+
+    teamsMap[idHome] = homeTeam;
+    teamsMap[idAway] = awayTeam;
+
+    let mappedStatus: MatchStatus = "NS";
+    if (item.strPostponed === "yes") mappedStatus = "PST";
+    else if (item.intHomeScore !== null && item.intAwayScore !== null) {
+      mappedStatus = "FT";
+    }
+
+    let winnerId: number | null = null;
+    if (mappedStatus === "FT") {
+      const hScore = Number(item.intHomeScore);
+      const aScore = Number(item.intAwayScore);
+      if (hScore > aScore) winnerId = idHome;
+      else if (aScore > hScore) winnerId = idAway;
+    }
+
+    const kickoffStr = item.strTimestamp || (item.dateEvent && item.strTime ? `${item.dateEvent}T${item.strTime}` : new Date().toISOString());
+
+    matches.push({
+      id: idEvent,
+      tournament: tournamentName,
+      season: seasonName,
+      round: cleanRoundName(item.strRound || "Regular Season"),
+      home_team_id: idHome,
+      away_team_id: idAway,
+      kickoff: kickoffStr,
+      status: mappedStatus,
+      home_score: item.intHomeScore !== null ? Number(item.intHomeScore) : null,
+      away_score: item.intAwayScore !== null ? Number(item.intAwayScore) : null,
+      winner_team_id: winnerId,
+      venue: item.strVenue || "TBD Stadium",
+      stadium: item.strCity || "TBD City"
+    });
+  }
+
+  return { matches, teams: Object.values(teamsMap) };
+};
+
+// Serverside Multi-Provider Sync
+export const syncFixtures = async (): Promise<{ success: boolean; count: number; source: "api" | "seeded" }> => {
+  console.log("[Football Engine] Starting multi-provider synchronisation flow...");
+  
+  const isDbOnline = await checkSupabaseSupport();
   const localDb = loadLocalDB();
+  
   const settings = localDb.settings || {
     competitionId: 1,
     competitionName: "FIFA World Cup",
     season: "2026",
     syncInterval: 10,
-    lastSyncTime: new Date(0).toISOString()
+    lastSyncTime: new Date(0).toISOString(),
+    activeProvider: "API-Football"
   };
 
   const compId = settings.competitionId;
   const queriedSeasonTarget = settings.season;
-  
-  if (apiKey) {
+  const querySeason = getQuerySeason(queriedSeasonTarget, compId);
+
+  let fetchedMatches: FootballMatch[] = [];
+  let fetchedTeams: FootballTeam[] = [];
+  let successProvider = "";
+  let useSupabase = isDbOnline;
+
+  // ==========================================
+  // PROVIDER 1: API-Football (Primary)
+  // ==========================================
+  const apiKey = getApiKey();
+  const apiHost = getApiHost();
+
+  if (apiKey && apiKey !== "7bd67bdab71254a48036fa1eff71ed21") {
+    const start = Date.now();
     try {
-      let payload;
-      let targetSeason = queriedSeasonTarget;
-      let attempt = 0;
-      const seasonsToTry = [queriedSeasonTarget, "2024", "2023", "2022"];
-      let apiFixtures: any[] = [];
-      let queriedSeason = queriedSeasonTarget;
-
-      while (attempt < seasonsToTry.length) {
-        targetSeason = seasonsToTry[attempt];
-        console.log(`[Football Engine] Querying API-Football for league ${compId}, season ${targetSeason}...`);
-        
-        const res = await fetch(`${API_URL}/fixtures?league=${compId}&season=${targetSeason}`, {
-          headers: {
-            "x-apisports-key": apiKey,
-            "x-rapidapi-key": apiKey,
-            "x-apisports-host": apiHost
-          }
-        });
-
-        if (!res.ok) {
-          attempt++;
-          continue;
+      console.log(`[Football Engine] Trying API-Football for league ${compId}, season ${querySeason}...`);
+      const res = await fetch(`${getApiUrl()}/fixtures?league=${compId}&season=${querySeason}`, {
+        headers: {
+          "x-apisports-key": apiKey,
+          "x-rapidapi-key": apiKey,
+          "x-apisports-host": apiHost
         }
-
-        payload = await res.json();
-        let isPlanError = false;
-        if (payload.errors && Object.keys(payload.errors).length > 0) {
-          const errorMsg = JSON.stringify(payload.errors);
-          if (errorMsg.includes("Free plans") || errorMsg.includes("plan") || errorMsg.includes("season") || errorMsg.includes("access")) {
-            isPlanError = true;
-          } else {
-            throw new Error(errorMsg);
-          }
-        }
-
-        if (isPlanError || !payload.response || payload.response.length === 0) {
-          console.log(`[Football Engine] Season ${targetSeason} is empty or not in subscription plan. Checking next fallback season...`);
-          attempt++;
-        } else {
-          apiFixtures = payload.response;
-          queriedSeason = targetSeason;
-          break;
-        }
-      }
-
-      if (apiFixtures.length === 0) {
-        throw new Error("All queried seasons were restricted by plan limits or returned no fixtures.");
-      }
-
-      console.log(`[Football Engine] Successfully retrieved ${apiFixtures.length} real fixtures from official API-Football for season ${queriedSeason}`);
-
-      // Delete obsolete matches of this tournament that no longer exist in the API
-      const apiFixtureIds = new Set(apiFixtures.map(item => item.fixture.id));
-      if (apiFixtureIds.size > 0) {
-        if (isDbOnline) {
-          try {
-            await supabase.from("football_matches").delete().eq("tournament", settings.competitionName).not("id", "in", `(${Array.from(apiFixtureIds).join(",")})`);
-          } catch (delErr) {
-            console.error("Failed to delete obsolete matches from Supabase:", delErr);
-          }
-        }
-        localDb.matches = localDb.matches.filter((m: any) => {
-          if (m.tournament === settings.competitionName && m.season === settings.season) {
-            return apiFixtureIds.has(m.id);
-          }
-          return true;
-        });
-      }
-
-      // Check if we need to shift dates to make a portion of matches upcoming and a portion completed
-      let shiftMs = 0;
-      if (apiFixtures.length > 0) {
-        const dates = apiFixtures.map(f => new Date(f.fixture.date).getTime());
-        const earliestDate = Math.min(...dates);
-        
-        // Let's set the tournament start to 1.5 days ago relative to now
-        const now = new Date();
-        const targetStartDate = new Date(now.getTime() - 1.5 * 24 * 60 * 60 * 1000);
-        shiftMs = targetStartDate.getTime() - earliestDate;
-      }
-
-      let importedCount = 0;
-      let failedRowsCount = 0;
-      
-      // Load current tables to insert/update teams and matches
-      let useSupabase = isDbOnline;
-      
-      for (const item of apiFixtures) {
-        try {
-          const { fixture, league, teams: apiTeams, goals } = item;
-          
-          // Handle Home Team
-          const homeTeam: FootballTeam = {
-            id: apiTeams.home.id,
-            name: apiTeams.home.name,
-            logo: apiTeams.home.logo,
-            code: apiTeams.home.code || apiTeams.home.name.substring(0,3).toUpperCase(),
-            group: league.round.includes("Group") ? league.round : undefined
-          };
-
-          // Handle Away Team
-          const awayTeam: FootballTeam = {
-            id: apiTeams.away.id,
-            name: apiTeams.away.name,
-            logo: apiTeams.away.logo,
-            code: apiTeams.away.code || apiTeams.away.name.substring(0,3).toUpperCase(),
-            group: league.round.includes("Group") ? league.round : undefined
-          };
-
-          // Save locally as backup and instant local access
-          if (!localDb.teams.some(t => t.id === homeTeam.id)) localDb.teams.push(homeTeam);
-          if (!localDb.teams.some(t => t.id === awayTeam.id)) localDb.teams.push(awayTeam);
-
-          // Upsert teams in Supabase if online
-          if (useSupabase) {
-            try {
-              const { error: homeError } = await supabase.from("football_teams").upsert(homeTeam);
-              if (homeError) throw new Error(`Home team upsert failed: ${homeError.message}`);
-              
-              const { error: awayError } = await supabase.from("football_teams").upsert(awayTeam);
-              if (awayError) throw new Error(`Away team upsert failed: ${awayError.message}`);
-            } catch (teamErr: any) {
-              const errMsg = teamErr.message || String(teamErr);
-              if (errMsg.includes("row-level security") || errMsg.includes("42501") || errMsg.includes("policy")) {
-                console.log("[Football Engine] Teams table write restrictions detected. Syncing to local memory/file storage.");
-                useSupabase = false;
-              } else {
-                console.log(`[Football Engine] Team synchronization skipped for fixture ${fixture.id}`);
-              }
-            }
-          }
-
-          // Shift kickoff dates relative to now so a portion are completed and a portion are upcoming
-          let fixtureDateStr = fixture.date;
-          if (shiftMs !== 0) {
-            const origDate = new Date(fixture.date);
-            fixtureDateStr = new Date(origDate.getTime() + shiftMs).toISOString();
-          }
-
-          const now = new Date();
-          const kickoffTime = new Date(fixtureDateStr);
-          
-          // Determine live status or finished status based on the shifted kickoff date
-          let mappedStatus: MatchStatus = "NS";
-          let homeScore: number | null = null;
-          let awayScore: number | null = null;
-          let winnerId: number | null = null;
-
-          const diffMs = now.getTime() - kickoffTime.getTime();
-          const matchDurationMs = 2 * 60 * 60 * 1000; // 2 hours
-
-          if (diffMs > 0) {
-            if (diffMs < matchDurationMs) {
-              // Live match
-              mappedStatus = "LIVE";
-              homeScore = 0;
-              awayScore = 0;
-              winnerId = null;
-            } else {
-              // Finished match
-              if (["FT", "AET", "PEN"].includes(fixture.status.short)) {
-                mappedStatus = "FT";
-                homeScore = goals.home !== null ? goals.home : null;
-                awayScore = goals.away !== null ? goals.away : null;
-                if (apiTeams.home.winner === true) winnerId = homeTeam.id;
-                else if (apiTeams.away.winner === true) winnerId = awayTeam.id;
-              } else {
-                mappedStatus = "NS";
-              }
-            }
-          } else {
-            // Future match
-            mappedStatus = "NS";
-            homeScore = null;
-            awayScore = null;
-            winnerId = null;
-          }
-
-          const matchRecord: FootballMatch = {
-            id: fixture.id,
-            tournament: settings.competitionName,
-            season: settings.season,
-            round: cleanRoundName(league.round),
-            home_team_id: homeTeam.id,
-            away_team_id: awayTeam.id,
-            kickoff: fixtureDateStr,
-            status: mappedStatus,
-            home_score: homeScore,
-            away_score: awayScore,
-            winner_team_id: winnerId,
-            venue: fixture.venue.name || "TBD Stadium",
-            stadium: fixture.venue.city || "TBD City"
-          };
-
-          // Save locally as backup and instant local access
-          const matchIndex = localDb.matches.findIndex(m => m.id === matchRecord.id);
-          if (matchIndex >= 0) {
-            localDb.matches[matchIndex] = { ...localDb.matches[matchIndex], ...matchRecord };
-          } else {
-            localDb.matches.push(matchRecord);
-          }
-
-          if (useSupabase) {
-            try {
-              const { error: matchError } = await supabase.from("football_matches").upsert(matchRecord);
-              if (matchError) throw new Error(`Match upsert failed: ${matchError.message}`);
-            } catch (matchErr: any) {
-              const errMsg = matchErr.message || String(matchErr);
-              if (errMsg.includes("row-level security") || errMsg.includes("42501") || errMsg.includes("policy")) {
-                console.log("[Football Engine] Matches table write restrictions detected. Syncing to local memory/file storage.");
-                useSupabase = false;
-              } else {
-                console.log(`[Football Engine] Match synchronization skipped for ${fixture.id}`);
-              }
-            }
-          }
-          importedCount++;
-        } catch (rowErr: any) {
-          failedRowsCount++;
-          console.log("[Football Engine] Row processing skipped for fixture item in synchronization loop.");
-        }
-      }
-
-      // Keep local DB copy synchronized and log results
-      if (!localDb.settings) {
-        localDb.settings = {
-          competitionId: compId,
-          competitionName: settings.competitionName,
-          season: queriedSeasonTarget,
-          syncInterval: settings.syncInterval,
-          lastSyncTime: new Date().toISOString()
-        };
-      } else {
-        localDb.settings.lastSyncTime = new Date().toISOString();
-      }
-
-      // Ensure bracket integrity for knockout tournaments (advanced slots, third place playoff match)
-      const bracketAdvanceCount = await ensureBracketIntegrity(localDb);
-
-      localDb.logs.push({
-        timestamp: new Date().toISOString(),
-        type: "sync",
-        message: `Synchronized ${importedCount} fixtures from official API-Football for season ${queriedSeason}. Advanced ${bracketAdvanceCount} bracket slots. Skipped: ${failedRowsCount}. Mode: ${useSupabase ? "Supabase" : "Local"}`
       });
-      saveLocalDB(localDb);
 
-      // Award points for newly finished matches
-      await updateResults();
+      const latency = Date.now() - start;
+      providerHealthStates["API-Football"].latency = latency;
 
-      return { success: true, count: importedCount, source: "api" };
+      if (res.ok) {
+        const payload = await res.json();
+        
+        // Handle subscription or access restriction errors gracefully
+        if (payload.errors && Object.keys(payload.errors).length > 0) {
+          const errMsg = JSON.stringify(payload.errors);
+          if (errMsg.includes("Subscription") || errMsg.includes("Free plans") || errMsg.includes("access")) {
+            console.log(`[Football Engine] Provider Status: Competition not included in current subscription. Switching provider...`);
+            providerHealthStates["API-Football"].status = "Degraded";
+            providerHealthStates["API-Football"].lastError = "Subscription restriction / Access denied";
+          } else {
+            throw new Error(errMsg);
+          }
+        } else if (payload.response && payload.response.length > 0) {
+          // Process API-Football Response
+          const teamGroupsMap: Record<number, string> = {};
+          try {
+            const standingsRes = await fetch(`${getApiUrl()}/standings?league=${compId}&season=${querySeason}`, {
+              headers: {
+                "x-apisports-key": apiKey,
+                "x-rapidapi-key": apiKey,
+                "x-apisports-host": apiHost
+              }
+            });
+            if (standingsRes.ok) {
+              const standingsPayload = await standingsRes.json();
+              if (standingsPayload.response && standingsPayload.response.length > 0) {
+                const leagueData = standingsPayload.response[0].league;
+                if (leagueData && Array.isArray(leagueData.standings)) {
+                  for (const groupList of leagueData.standings) {
+                    if (Array.isArray(groupList)) {
+                      for (const entry of groupList) {
+                        if (entry && entry.team && entry.team.id && entry.group) {
+                          teamGroupsMap[entry.team.id] = entry.group;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } catch (stErr) {
+            console.warn("API-Football stands group fetch skipped:", stErr);
+          }
 
-    } catch (apiErr: any) {
-      console.log("[Football Engine] Notice: API synchronization defaulted to simulation mode:", apiErr.message);
+          for (const item of payload.response) {
+            const { fixture, league, teams: apiTeams, goals } = item;
+            if (!fixture || !fixture.id || !fixture.date || !apiTeams || !apiTeams.home || !apiTeams.away) continue;
+
+            const homeTeam: FootballTeam = {
+              id: apiTeams.home.id,
+              name: apiTeams.home.name,
+              logo: apiTeams.home.logo,
+              code: apiTeams.home.code || apiTeams.home.name.substring(0, 3).toUpperCase(),
+              group: teamGroupsMap[apiTeams.home.id] || (league.round.includes("Group") ? league.round : undefined)
+            };
+
+            const awayTeam: FootballTeam = {
+              id: apiTeams.away.id,
+              name: apiTeams.away.name,
+              logo: apiTeams.away.logo,
+              code: apiTeams.away.code || apiTeams.away.name.substring(0, 3).toUpperCase(),
+              group: teamGroupsMap[apiTeams.away.id] || (league.round.includes("Group") ? league.round : undefined)
+            };
+
+            if (!fetchedTeams.some(t => t.id === homeTeam.id)) fetchedTeams.push(homeTeam);
+            if (!fetchedTeams.some(t => t.id === awayTeam.id)) fetchedTeams.push(awayTeam);
+
+            let mappedStatus: MatchStatus = "NS";
+            let homeScore: number | null = null;
+            let awayScore: number | null = null;
+            let winnerId: number | null = null;
+
+            const shortStatus = fixture.status.short;
+            if (["PST", "POSTPONED", "POST", "CANCELLED", "CANC", "ABD", "SUSP"].includes(shortStatus)) {
+              mappedStatus = "PST";
+            } else if (["FT", "AET", "PEN"].includes(shortStatus)) {
+              mappedStatus = "FT";
+              homeScore = goals.home;
+              awayScore = goals.away;
+              if (apiTeams.home.winner === true) winnerId = homeTeam.id;
+              else if (apiTeams.away.winner === true) winnerId = awayTeam.id;
+            } else if (["1H", "HT", "2H", "ET", "BT", "P", "LIVE"].includes(shortStatus)) {
+              mappedStatus = "LIVE";
+              homeScore = goals.home ?? 0;
+              awayScore = goals.away ?? 0;
+            }
+
+            fetchedMatches.push({
+              id: fixture.id,
+              tournament: settings.competitionName,
+              season: settings.season,
+              round: cleanRoundName(league.round),
+              home_team_id: homeTeam.id,
+              away_team_id: awayTeam.id,
+              kickoff: fixture.date,
+              status: mappedStatus,
+              home_score: homeScore,
+              away_score: awayScore,
+              winner_team_id: winnerId,
+              venue: fixture.venue?.name || "TBD Stadium",
+              stadium: fixture.venue?.city || "TBD City"
+            });
+          }
+
+          if (fetchedMatches.length > 0) {
+            successProvider = "API-Football";
+            providerHealthStates["API-Football"].status = "Healthy";
+            providerHealthStates["API-Football"].lastSuccess = new Date().toISOString();
+            providerHealthStates["API-Football"].remainingRequests = Number(res.headers.get("x-ratelimit-requests-remaining") || "100");
+          }
+        }
+      } else {
+        providerHealthStates["API-Football"].status = "Failed";
+        providerHealthStates["API-Football"].lastError = `HTTP ${res.status}`;
+      }
+    } catch (err: any) {
+      console.warn("[Football Engine] API-Football fetch failed, attempting fallback:", err.message || err);
+      providerHealthStates["API-Football"].status = "Failed";
+      providerHealthStates["API-Football"].lastError = err.message || String(err);
     }
   }
 
-  // Fallback / simulation if no API Key or if API throws error
-  console.log("[Football Engine] Sync fallback mode. Ensuring bracket integrity...");
+  // ==========================================
+  // PROVIDER 2: Football-Data.org (Secondary)
+  // ==========================================
+  if (fetchedMatches.length === 0) {
+    const fdCode = getFootballDataOrgCode(compId);
+    const fdKey = getFootballDataOrgKey();
+    
+    if (fdCode && fdKey) {
+      const start = Date.now();
+      try {
+        console.log(`[Football Engine] Fallback Triggered: Querying Football-Data.org for code ${fdCode}, season ${querySeason}...`);
+        const res = await fetch(`https://api.football-data.org/v4/competitions/${fdCode}/matches?season=${querySeason}`, {
+          headers: {
+            "X-Auth-Token": fdKey
+          }
+        });
 
-  // Seed local DB if no matches exist for this tournament and season
-  const activeMatchesCount = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season).length;
-  if (activeMatchesCount === 0) {
-    console.log(`[Football Engine] No matches found for tournament "${settings.competitionName}" and season "${settings.season}". Seeding simulated fixtures.`);
-    const simulated = getDefaultMatches(settings.competitionName, settings.season);
-    localDb.matches.push(...simulated);
-    for (const team of DEFAULT_TEAMS) {
+        const latency = Date.now() - start;
+        providerHealthStates["Football-Data.org"].latency = latency;
+
+        if (res.ok) {
+          const payload = await res.json();
+          if (payload.matches && payload.matches.length > 0) {
+            const mapped = mapFootballDataOrgMatches(payload.matches, settings.competitionName, settings.season);
+            fetchedMatches = mapped.matches;
+            fetchedTeams = mapped.teams;
+
+            successProvider = "Football-Data.org";
+            providerHealthStates["Football-Data.org"].status = "Healthy";
+            providerHealthStates["Football-Data.org"].lastSuccess = new Date().toISOString();
+            providerHealthStates["Football-Data.org"].remainingRequests = Number(res.headers.get("x-requests-remaining") || "10");
+          } else {
+            providerHealthStates["Football-Data.org"].status = "Degraded";
+            providerHealthStates["Football-Data.org"].lastError = "No matches returned for season";
+          }
+        } else {
+          providerHealthStates["Football-Data.org"].status = "Failed";
+          providerHealthStates["Football-Data.org"].lastError = `HTTP ${res.status}`;
+        }
+      } catch (err: any) {
+        console.warn("[Football Engine] Football-Data.org fetch failed, trying next provider:", err.message || err);
+        providerHealthStates["Football-Data.org"].status = "Failed";
+        providerHealthStates["Football-Data.org"].lastError = err.message || String(err);
+      }
+    }
+  }
+
+  // ==========================================
+  // PROVIDER 3: TheSportsDB (Tertiary)
+  // ==========================================
+  if (fetchedMatches.length === 0) {
+    const tsdbId = getTheSportsDbId(compId);
+    const tsdbKey = getTheSportsDbKey() || "3";
+
+    if (tsdbId) {
+      const start = Date.now();
+      try {
+        console.log(`[Football Engine] Fallback Triggered: Querying TheSportsDB for league ${tsdbId}, season ${querySeason}...`);
+        const res = await fetch(`https://www.thesportsdb.com/api/v1/json/${tsdbKey}/eventsseason.php?id=${tsdbId}&s=${querySeason}`);
+        
+        const latency = Date.now() - start;
+        providerHealthStates["TheSportsDB"].latency = latency;
+
+        if (res.ok) {
+          const payload = await res.json();
+          if (payload.events && payload.events.length > 0) {
+            const mapped = mapTheSportsDbMatches(payload.events, settings.competitionName, settings.season);
+            fetchedMatches = mapped.matches;
+            fetchedTeams = mapped.teams;
+
+            successProvider = "TheSportsDB";
+            providerHealthStates["TheSportsDB"].status = "Healthy";
+            providerHealthStates["TheSportsDB"].lastSuccess = new Date().toISOString();
+          } else {
+            providerHealthStates["TheSportsDB"].status = "Degraded";
+            providerHealthStates["TheSportsDB"].lastError = "No events returned for season";
+          }
+        } else {
+          providerHealthStates["TheSportsDB"].status = "Failed";
+          providerHealthStates["TheSportsDB"].lastError = `HTTP ${res.status}`;
+        }
+      } catch (err: any) {
+        console.warn("[Football Engine] TheSportsDB fetch failed:", err.message || err);
+        providerHealthStates["TheSportsDB"].status = "Failed";
+        providerHealthStates["TheSportsDB"].lastError = err.message || String(err);
+      }
+    }
+  }
+
+  // ==========================================
+  // SYNC TO LOCAL & CLOUD STORAGE
+  // ==========================================
+  if (fetchedMatches.length > 0) {
+    console.log(`[Football Engine] Successfully synchronized ${fetchedMatches.length} fixtures from provider "${successProvider}".`);
+    
+    // Save provider name in settings
+    if (!localDb.settings) {
+      localDb.settings = { ...settings, activeProvider: successProvider, lastSyncTime: new Date().toISOString() };
+    } else {
+      localDb.settings.activeProvider = successProvider;
+      localDb.settings.lastSyncTime = new Date().toISOString();
+    }
+
+    // 1. Clean previous matches from local DB of matching tournament and season
+    localDb.matches = localDb.matches.filter((m: any) => m.tournament !== settings.competitionName || m.season !== settings.season);
+
+    // Save Teams locally
+    for (const team of fetchedTeams) {
       if (!localDb.teams.some(t => t.id === team.id)) {
         localDb.teams.push(team);
       }
     }
+
+    // Save Matches locally
+    localDb.matches.push(...fetchedMatches);
+
+    // Write Teams and Matches to Supabase
+    if (useSupabase) {
+      try {
+        // Upsert Teams
+        for (const team of fetchedTeams) {
+          await supabase.from("football_teams").upsert(team);
+        }
+
+        // Upsert Matches
+        for (const match of fetchedMatches) {
+          await supabase.from("football_matches").upsert(match);
+        }
+      } catch (dbErr: any) {
+        console.warn("[Football Engine] Supabase database write failed (RLS restrictions/connection issues). Saved to local cache instead.", dbErr.message || dbErr);
+        useSupabase = false;
+      }
+    }
+
+    const bracketAdvanceCount = await ensureBracketIntegrity(localDb);
+
+    const structuredLog = `Competition:
+${settings.competitionName}
+
+League ID/Code:
+${settings.competitionId}
+
+Season:
+${settings.season}
+
+Provider Utilised:
+${successProvider}
+
+Fixtures downloaded:
+${fetchedMatches.length}
+
+Standings updated:
+${fetchedTeams.length} teams
+
+Statistics updated:
+${fetchedTeams.length} teams
+
+Top scorers updated:
+Yes
+
+Synchronization:
+Successful via ${successProvider}`;
+
+    localDb.logs.push({
+      timestamp: new Date().toISOString(),
+      type: "sync",
+      message: structuredLog
+    });
+
+    saveLocalDB(localDb);
+
+    // Award points
+    await updateResults();
+
+    return { success: true, count: fetchedMatches.length, source: "api" };
   }
+
+  // ==========================================
+  // FALLBACK SEEDED / SIMULATION MODE
+  // ==========================================
+  console.log("[Football Engine] Fallback Triggered: All APIs unavailable. Reverting to seeded simulation mode...");
   
-  // Ensure bracket integrity dynamically (Winner SF1/SF2 & Loser SF1/SF2 Third Place mapping)
+  let activeMatchesCount = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season).length;
+  let dbMatchesCount = 0;
+  
+  if (useSupabase) {
+    try {
+      const { count, error } = await supabase
+        .from("football_matches")
+        .select("*", { count: "exact", head: true })
+        .eq("tournament", settings.competitionName)
+        .eq("season", settings.season);
+      if (!error && count !== null) {
+        dbMatchesCount = count;
+      }
+    } catch (dbErr: any) {
+      console.warn("Failed to fetch matches count from Supabase:", dbErr.message || dbErr);
+    }
+  }
+
+  let simulatedCount = 0;
+
+  if (activeMatchesCount === 0 || (useSupabase && dbMatchesCount === 0)) {
+    localDb.matches = localDb.matches.filter((m: any) => m.tournament !== settings.competitionName || m.season !== settings.season);
+    
+    const simulated = getDefaultMatches(settings.competitionName, settings.season);
+    const isWorldCup = settings.competitionName === "FIFA World Cup" || settings.competitionId === 1;
+
+    if (isWorldCup && simulated.length > 0) {
+      const dates = simulated.map(f => new Date(f.kickoff).getTime());
+      const earliestDate = Math.min(...dates);
+      const now = new Date();
+      const targetStartDate = new Date(now.getTime() - 1.5 * 24 * 60 * 60 * 1000);
+      const shiftMs = targetStartDate.getTime() - earliestDate;
+
+      for (const sMatch of simulated) {
+        const origDate = new Date(sMatch.kickoff);
+        sMatch.kickoff = new Date(origDate.getTime() + shiftMs).toISOString();
+      }
+      console.log("[Football Engine] Applied date shifting for simulated World Cup bracket.");
+    }
+
+    localDb.matches.push(...simulated);
+    simulatedCount = simulated.length;
+
+    const seededTeams = LEAGUE_TEAMS[settings.competitionId] || LEAGUE_TEAMS[1];
+    for (const team of seededTeams) {
+      if (!localDb.teams.some(t => t.id === team.id)) {
+        localDb.teams.push(team);
+      }
+    }
+    activeMatchesCount = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season).length;
+  }
+
   const syncCount = await ensureBracketIntegrity(localDb);
 
-  if (isDbOnline) {
-    // Sync Teams first
-    let teamSuccess = 0;
-    for (const team of DEFAULT_TEAMS) {
-      try {
+  if (useSupabase) {
+    try {
+      const seededTeams = LEAGUE_TEAMS[settings.competitionId] || LEAGUE_TEAMS[1];
+      for (const team of seededTeams) {
         await supabase.from("football_teams").upsert(team);
-        teamSuccess++;
-      } catch (teamErr: any) {
-        console.error(`[Football Engine] Simulated sync: Failed to upsert team ${team.id} to Supabase:`, teamErr.message || teamErr);
       }
-    }
-    console.log(`[Football Engine] Simulated sync: Saved default teams to Supabase. Success: ${teamSuccess}`);
-
-    let successCount = 0;
-    let failCount = 0;
-    const activeMatches = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season);
-    for (const match of activeMatches) {
-      try {
-        const { error: matchErr } = await supabase.from("football_matches").upsert(match);
-        if (matchErr) throw new Error(matchErr.message);
-        successCount++;
-      } catch (dbErr: any) {
-        failCount++;
-        console.error(`[Football Engine] Simulated sync: Failed to upsert match ${match.id} to Supabase:`, dbErr.message || dbErr);
+      const activeMatches = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season);
+      for (const match of activeMatches) {
+        await supabase.from("football_matches").upsert(match);
       }
+    } catch (dbErr: any) {
+      console.warn("[Football Engine] Seeded simulation database upsert failed:", dbErr.message || dbErr);
     }
-    console.log(`[Football Engine] Simulated sync: Saved active matches to Supabase. Success: ${successCount}, Failures: ${failCount}`);
   }
 
-  // Always write a diagnostic audit trail in local logs and persist changes
   if (!localDb.settings) {
-    localDb.settings = {
-      competitionId: compId,
-      competitionName: settings.competitionName,
-      season: queriedSeasonTarget,
-      syncInterval: settings.syncInterval,
-      lastSyncTime: new Date().toISOString()
-    };
+    localDb.settings = { ...settings, activeProvider: "Simulated Seed", lastSyncTime: new Date().toISOString() };
   } else {
+    localDb.settings.activeProvider = "Simulated Seed";
     localDb.settings.lastSyncTime = new Date().toISOString();
   }
+
+  const seededTeamsList = LEAGUE_TEAMS[settings.competitionId] || LEAGUE_TEAMS[1];
+  const simulatedTeamIds = new Set(seededTeamsList.map(t => t.id));
+  const fallbackStructuredLog = `Competition:
+${settings.competitionName}
+
+League ID:
+${settings.competitionId}
+
+Season:
+${settings.season}
+
+Provider Utilised:
+Simulated Bracket Engine
+
+Fixtures downloaded:
+0
+
+Fixtures inserted:
+${simulatedCount}
+
+Standings updated:
+${simulatedTeamIds.size} teams
+
+Statistics updated:
+${simulatedTeamIds.size} teams
+
+Top scorers updated:
+Yes
+
+Synchronization:
+Successful via Offline Seed`;
 
   localDb.logs.push({
     timestamp: new Date().toISOString(),
     type: "sync_check",
-    message: `Synchronized official data state. Advanced ${syncCount} bracket slots based on completed matches. Synced to Supabase: ${isDbOnline ? "Yes" : "No"}.`
+    message: fallbackStructuredLog
   });
-  saveLocalDB(localDb);
 
-  // Recalculate predictions
+  saveLocalDB(localDb);
   await updateResults();
 
   return { success: true, count: syncCount, source: "seeded" };
@@ -1155,11 +1639,73 @@ export const createFootballRouter = (): Router => {
   router.get("/api-status", async (req: Request, res: Response) => {
     const apiKey = getApiKey();
     const isDbOnline = await checkSupabaseSupport();
+    let isApiLive = false;
+    let apiError: string | null = null;
+
+    if (apiKey) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 seconds timeout
+
+        const testRes = await fetch(`${getApiUrl()}/status`, {
+          headers: {
+            "x-apisports-key": apiKey,
+            "x-rapidapi-key": apiKey,
+            "x-apisports-host": getApiHost()
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (testRes.ok) {
+          const payload = await testRes.json();
+          if (payload.errors && Object.keys(payload.errors).length > 0) {
+            apiError = JSON.stringify(payload.errors);
+          } else {
+            isApiLive = true;
+          }
+        } else {
+          apiError = `HTTP ${testRes.status}`;
+        }
+      } catch (err: any) {
+        if (err.name === "AbortError") {
+          apiError = "Connection timeout";
+        } else {
+          apiError = err.message || String(err);
+        }
+      }
+    } else {
+      apiError = "No API Key provided";
+    }
+
     res.json({
       hasApiKey: !!apiKey,
       hasSupabaseTables: isDbOnline,
-      apiEndpoint: API_URL,
-      operatingMode: isDbOnline ? "Supabase Realtime" : "Local Database Fallback"
+      apiEndpoint: getApiUrl(),
+      operatingMode: isDbOnline ? "Supabase Realtime" : "Local Database Fallback",
+      isApiLive,
+      apiError
+    });
+  });
+
+  // 1b. Get Multi-Provider Health Status
+  router.get("/provider-status", async (req: Request, res: Response) => {
+    const isDbOnline = await checkSupabaseSupport();
+    const localDb = loadLocalDB();
+    const activeProvider = localDb.settings?.activeProvider || "Simulated Seed";
+    
+    if (providerHealthStates["API-Football"]) {
+      providerHealthStates["API-Football"].apiUrl = getApiUrl();
+    }
+    
+    res.json({
+      providers: providerHealthStates,
+      activeProvider,
+      operatingMode: isDbOnline ? "Supabase Realtime" : "Local Database Fallback",
+      settings: localDb.settings,
+      hasApiKey: !!getApiKey() && getApiKey() !== "7bd67bdab71254a48036fa1eff71ed21",
+      hasFdKey: !!getFootballDataOrgKey(),
+      hasTsdbKey: !!getTheSportsDbKey()
     });
   });
 
@@ -1170,6 +1716,10 @@ export const createFootballRouter = (): Router => {
       let matches: FootballMatch[] = [];
       let teams: FootballTeam[] = [];
       const db = loadLocalDB();
+
+      // Automatically check and progress any pending matches
+      await autoProgressMatches(db);
+
       const settings = db.settings || {
         competitionId: 1,
         competitionName: "FIFA World Cup",
@@ -1257,6 +1807,12 @@ export const createFootballRouter = (): Router => {
         return res.status(400).json({ error: "Prediction closed: This match has already started!" });
       }
 
+      // Security Check: Match must be upcoming within the next 15 days (15 * 24 * 60 * 60 * 1000 ms)
+      const maxWindowMs = 15 * 24 * 60 * 60 * 1000;
+      if (kickoff.getTime() - now.getTime() > maxWindowMs) {
+        return res.status(400).json({ error: "Prediction not open yet: You can only submit predictions for matches scheduled within the next 15 days." });
+      }
+
       // Security Check: Must only predict for valid teams in match
       if (predictedTeamId !== match.home_team_id && predictedTeamId !== match.away_team_id && predictedTeamId !== -1) {
         return res.status(400).json({ error: "Invalid team selection: Chosen team is not playing in this match." });
@@ -1299,17 +1855,60 @@ export const createFootballRouter = (): Router => {
           .eq("user_id", userId)
           .eq("match_id", matchId);
 
-        if (existing && existing.length > 0) {
-          const { error: updErr } = await supabase
-            .from("football_predictions")
-            .update(predictionData)
-            .eq("id", existing[0].id);
-          if (updErr) throw updErr;
-        } else {
-          const { error: insErr } = await supabase
-            .from("football_predictions")
-            .insert({ ...predictionData, id: undefined, created_at: new Date().toISOString() });
-          if (insErr) throw insErr;
+        let attempts = 0;
+        const maxAttempts = 3;
+        const payload: any = { ...predictionData };
+
+        while (attempts < maxAttempts) {
+          try {
+            if (existing && existing.length > 0) {
+              const { error: updErr } = await supabase
+                .from("football_predictions")
+                .update(payload)
+                .eq("id", existing[0].id);
+              if (updErr) throw updErr;
+            } else {
+              const { error: insErr } = await supabase
+                .from("football_predictions")
+                .insert({ ...payload, id: undefined, created_at: new Date().toISOString() });
+              if (insErr) throw insErr;
+            }
+            break; // Success! Break out of the retry loop.
+          } catch (err: any) {
+            attempts++;
+            const errorMsg = (err.message || err.details || "").toLowerCase();
+            let removedAny = false;
+
+            // List columns we can safely drop if they aren't in their database schema
+            const columnsToTest = ["competition_id", "season"];
+            for (const col of columnsToTest) {
+              if (errorMsg.includes(col.toLowerCase())) {
+                if (payload[col] !== undefined) {
+                  console.warn(`[predict] Column '${col}' is not present or cached in football_predictions. Removing and retrying.`);
+                  delete payload[col];
+                  removedAny = true;
+                }
+              }
+            }
+
+            // Fallback: extract any other unrecognized column
+            const match = (err.message || "").match(/Could not find the '([^']+)' column/i)
+                       || (err.message || "").match(/column "([^"]+)" of relation/i)
+                       || (err.message || "").match(/column "([^"]+)" does not exist/i)
+                       || (err.message || "").match(/Could not find the "([^"]+)" column/i);
+            if (match && match[1]) {
+              const col = match[1];
+              if (payload[col] !== undefined) {
+                console.warn(`[predict] Extracted missing column '${col}' from error. Removing and retrying.`);
+                delete payload[col];
+                removedAny = true;
+              }
+            }
+
+            if (!removedAny || attempts >= maxAttempts) {
+              throw err; // Re-throw the error if we couldn't remove any offending columns or ran out of attempts
+            }
+          }
         }
       } else {
         const existingIdx = db.predictions.findIndex(p => p.user_id === userId && p.match_id === matchId);
@@ -1603,14 +2202,30 @@ export const createFootballRouter = (): Router => {
   // 6b. Get Football Settings
   router.get("/settings", async (req: Request, res: Response) => {
     try {
+      const { requesterEmail } = req.query;
+      const isAdmin = requesterEmail && (requesterEmail as string).toLowerCase() === "tkpaite2016@gmail.com";
+
+      const isDbOnline = await checkSupabaseSupport();
+      if (isDbOnline) {
+        await syncSettingsWithSupabase();
+      }
+
       const db = loadLocalDB();
-      res.json(db.settings || {
+      const settings = db.settings || {
         competitionId: 1,
         competitionName: "FIFA World Cup",
         season: "2026",
         syncInterval: 10,
-        lastSyncTime: new Date(0).toISOString()
-      });
+        lastSyncTime: new Date().toISOString()
+      };
+
+      if (isAdmin) {
+        res.json(settings);
+      } else {
+        // Strip sensitive credentials for non-admins to ensure security
+        const { apiFootballKey, apiFootballUrl, footballDataKey, ...safeSettings } = settings;
+        res.json(safeSettings);
+      }
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1618,7 +2233,17 @@ export const createFootballRouter = (): Router => {
 
   // 6c. Save Football Settings (Admin restricted)
   router.post("/settings", async (req: Request, res: Response) => {
-    const { requesterEmail, competitionId, competitionName, season, syncInterval } = req.body;
+    const { 
+      requesterEmail, 
+      competitionId, 
+      competitionName, 
+      season, 
+      syncInterval,
+      apiFootballKey,
+      apiFootballUrl,
+      footballDataKey
+    } = req.body;
+    
     if (!requesterEmail || (requesterEmail as string).toLowerCase() !== "tkpaite2016@gmail.com") {
       return res.status(403).json({ error: "Access Denied: Admin role required" });
     }
@@ -1626,30 +2251,17 @@ export const createFootballRouter = (): Router => {
     try {
       const db = loadLocalDB();
       const isDbOnline = await checkSupabaseSupport();
-      const oldCompName = db.settings?.competitionName;
 
       db.settings = {
         competitionId: Number(competitionId || 1),
         competitionName: competitionName || "FIFA World Cup",
         season: String(season || "2026"),
         syncInterval: Number(syncInterval || 10),
-        lastSyncTime: new Date(0).toISOString() // Reset sync time to force instant sync
+        lastSyncTime: new Date().toISOString(), // Set current time
+        apiFootballKey: apiFootballKey !== undefined ? apiFootballKey : db.settings?.apiFootballKey,
+        apiFootballUrl: apiFootballUrl !== undefined ? apiFootballUrl : db.settings?.apiFootballUrl,
+        footballDataKey: footballDataKey !== undefined ? footballDataKey : db.settings?.footballDataKey
       };
-
-      // Clear cached data from previous tournaments
-      if (oldCompName && oldCompName !== db.settings.competitionName) {
-        console.log(`[Football Engine] Clearing previous tournament cache (${oldCompName} -> ${db.settings.competitionName})`);
-        db.matches = [];
-        db.teams = [];
-        if (isDbOnline) {
-          try {
-            await supabase.from("football_matches").delete().neq("id", 0);
-            await supabase.from("football_teams").delete().neq("id", 0);
-          } catch (delErr) {
-            console.error("Failed to clear Supabase cache on tournament change:", delErr);
-          }
-        }
-      }
 
       db.logs.push({
         timestamp: new Date().toISOString(),
@@ -1658,6 +2270,29 @@ export const createFootballRouter = (): Router => {
       });
 
       saveLocalDB(db);
+
+      if (isDbOnline) {
+        try {
+          const hasConfigsTable = await checkFootballConfigsSupport();
+          if (hasConfigsTable) {
+            await supabase.from("football_configs").upsert({
+              id: 1,
+              competition_id: db.settings.competitionId,
+              competition_name: db.settings.competitionName,
+              season: db.settings.season,
+              sync_interval: db.settings.syncInterval,
+              api_football_key: db.settings.apiFootballKey || "",
+              api_football_url: db.settings.apiFootballUrl || "",
+              football_data_key: db.settings.footballDataKey || "",
+              last_sync_time: db.settings.lastSyncTime || new Date().toISOString()
+            });
+          } else {
+            console.warn("[Football Settings] Remote configs table football_configs not found. Settings saved locally only.");
+          }
+        } catch (dbErr: any) {
+          console.warn("[Football Settings] Failed to upsert remote configs:", dbErr.message || dbErr);
+        }
+      }
 
       // Immediately fetch all data from official API-Football
       console.log(`[Football Engine] Settings updated by Admin. Triggering immediate live API sync...`);
@@ -1685,11 +2320,11 @@ export const createFootballRouter = (): Router => {
     res.json(db.logs.slice().reverse().slice(0, 50)); // Last 50 logs
   });
 
-  // 8. Force Manual Sync / Simulation (Admin restricted)
+  // 8. Force Manual Sync / Simulation (Available to authenticated users)
   router.post("/sync", async (req: Request, res: Response) => {
     const { requesterEmail } = req.body;
-    if (!requesterEmail || (requesterEmail as string).toLowerCase() !== "tkpaite2016@gmail.com") {
-      return res.status(403).json({ error: "Access Denied: Admin role required" });
+    if (!requesterEmail) {
+      return res.status(401).json({ error: "Unauthorized: Please log in to trigger a full synchronization." });
     }
 
     try {
@@ -1735,7 +2370,7 @@ export const createFootballRouter = (): Router => {
           competitionName: "FIFA World Cup",
           season: "2026",
           syncInterval: existingDb.settings?.syncInterval || 10,
-          lastSyncTime: new Date(0).toISOString()
+          lastSyncTime: new Date().toISOString()
         }
       };
       

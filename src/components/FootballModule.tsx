@@ -27,7 +27,8 @@ import {
   Flame,
   ShieldCheck,
   Zap,
-  Info
+  Info,
+  Radio
 } from "lucide-react";
 import {
   BarChart,
@@ -44,6 +45,7 @@ import {
 import { FootballMatch, FootballPrediction, LeaderboardEntry, StandingsGroup, FootballStats, MatchStatus, FootballTeam } from "../types/football";
 import { footballApi, ApiStatus, FOOTBALL_SETUP_SQL, getPointsForRound } from "../lib/football";
 import { Member } from "../types";
+import { checkIsAdmin } from "../lib/auth";
 import { Confetti } from "./Confetti";
 import { BentoStatsSkeleton, UpcomingMatchSkeleton, FixtureCardSkeleton, LiveMatchSkeleton } from "./FootballSkeletons";
 
@@ -83,12 +85,55 @@ type SubPage = "index" | "fixtures" | "predictions" | "leaderboard" | "standings
 
 export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<SubPage>("index");
-  const [matches, setMatches] = useState<FootballMatch[]>([]);
-  const [predictions, setPredictions] = useState<FootballPrediction[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [standings, setStandings] = useState<StandingsGroup[]>([]);
-  const [stats, setStats] = useState<FootballStats | null>(null);
+  
+  const [matches, setMatches] = useState<FootballMatch[]>(() => {
+    try {
+      const saved = localStorage.getItem("sy_football_matches");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [predictions, setPredictions] = useState<FootballPrediction[]>(() => {
+    try {
+      const saved = currentUser ? localStorage.getItem(`sy_football_predictions_${currentUser.id}`) : null;
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem("sy_football_leaderboard");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [standings, setStandings] = useState<StandingsGroup[]>(() => {
+    try {
+      const saved = localStorage.getItem("sy_football_standings");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [stats, setStats] = useState<FootballStats | null>(() => {
+    try {
+      const saved = currentUser ? localStorage.getItem(`sy_football_stats_${currentUser.id}`) : null;
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
+  const [systemLogs, setSystemLogs] = useState<{ timestamp: string; type: string; message: string }[]>([]);
+  const [providerStatus, setProviderStatus] = useState<any>(null);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [predictingMatch, setPredictingMatch] = useState<FootballMatch | null>(null);
@@ -109,20 +154,27 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     season: string;
     syncInterval: number;
     lastSyncTime?: string;
+    apiFootballKey?: string;
+    apiFootballUrl?: string;
+    footballDataKey?: string;
   }>({
     competitionId: 1,
     competitionName: "FIFA World Cup",
     season: "2026",
     syncInterval: 10,
+    apiFootballKey: "",
+    apiFootballUrl: "",
+    footballDataKey: ""
   });
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
+  const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
 
   // Filter states for fixtures page
   const [roundFilter, setRoundFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("All Teams");
   const [upcomingOnly, setUpcomingOnly] = useState<boolean>(true);
 
-  const isAdmin = currentUser?.email.toLowerCase() === "tkpaite2016@gmail.com";
+  const isAdmin = checkIsAdmin(currentUser?.email);
 
   // Load all initial football modules data
   const loadData = async () => {
@@ -136,7 +188,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
         footballApi.getMatches().catch(() => []),
         footballApi.getLeaderboard().catch(() => []),
         footballApi.getStandings().catch(() => []),
-        footballApi.getSettings().catch(() => null)
+        footballApi.getSettings(currentUser?.email).catch(() => null)
       ]);
 
       setApiStatus(statusRes);
@@ -147,6 +199,15 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
         setSettings(settingsRes);
       }
 
+      try {
+        localStorage.setItem("sy_football_matches", JSON.stringify(matchesRes));
+        localStorage.setItem("sy_football_leaderboard", JSON.stringify(leaderboardRes));
+        localStorage.setItem("sy_football_standings", JSON.stringify(standingsRes));
+        if (settingsRes) {
+          localStorage.setItem("sy_football_settings", JSON.stringify(settingsRes));
+        }
+      } catch (e) {}
+
       // If user is authenticated, fetch their predictions
       if (currentUser) {
         const userPreds = await footballApi.getUserPredictions(currentUser.id).catch(() => []);
@@ -155,6 +216,18 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
         // Compute statistics dynamically
         const calculatedStats = await footballApi.getStats(matchesRes, userPreds);
         setStats(calculatedStats);
+
+        try {
+          localStorage.setItem(`sy_football_predictions_${currentUser.id}`, JSON.stringify(userPreds));
+          localStorage.setItem(`sy_football_stats_${currentUser.id}`, JSON.stringify(calculatedStats));
+        } catch (e) {}
+      }
+
+      if (isAdmin && currentUser) {
+        const logsRes = await footballApi.getLogs(currentUser.email).catch(() => []);
+        setSystemLogs(logsRes);
+        const provRes = await footballApi.getProviderStatus().catch(() => null);
+        setProviderStatus(provRes);
       }
     } catch (err: any) {
       setActionError("Failed to synchronize module data: " + err.message);
@@ -164,6 +237,25 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
   };
 
   useEffect(() => {
+    if (currentUser) {
+      try {
+        const cachedPreds = localStorage.getItem(`sy_football_predictions_${currentUser.id}`);
+        if (cachedPreds) {
+          setPredictions(JSON.parse(cachedPreds));
+        } else {
+          setPredictions([]);
+        }
+        const cachedStats = localStorage.getItem(`sy_football_stats_${currentUser.id}`);
+        if (cachedStats) {
+          setStats(JSON.parse(cachedStats));
+        } else {
+          setStats(null);
+        }
+      } catch (e) {}
+    } else {
+      setPredictions([]);
+      setStats(null);
+    }
     loadData();
   }, [currentUser]);
 
@@ -184,6 +276,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
 
   // Handle predicting a match
   const handleOpenPredictModal = (match: FootballMatch) => {
+    if (!canPredictMatch(match)) {
+      setActionError("Prediction is disabled: This match is either already started, finished, or is not scheduled within the 10-15 days window.");
+      return;
+    }
     setActionError(null);
     setActionSuccess(null);
     setPredictingMatch(match);
@@ -197,6 +293,11 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
 
   const handleSavePrediction = async () => {
     if (!currentUser || !predictingMatch || selectedPrediction === null) return;
+    
+    if (!canPredictMatch(predictingMatch)) {
+      setActionError("This match has already started or predictions are closed.");
+      return;
+    }
     
     try {
       setSubmittingPrediction(true);
@@ -227,8 +328,17 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       setMatches(updatedMatches);
       setPredictions(updatedPreds);
       
+      try {
+        localStorage.setItem("sy_football_matches", JSON.stringify(updatedMatches));
+        localStorage.setItem(`sy_football_predictions_${currentUser.id}`, JSON.stringify(updatedPreds));
+      } catch (e) {}
+
       const updatedStats = await footballApi.getStats(updatedMatches, updatedPreds);
       setStats(updatedStats);
+
+      try {
+        localStorage.setItem(`sy_football_stats_${currentUser.id}`, JSON.stringify(updatedStats));
+      } catch (e) {}
 
       setPredictingMatch(null);
     } catch (err: any) {
@@ -256,11 +366,35 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     }
   };
 
+  // Manual sync for all logged-in users to trigger full synchronization of the selected competition/season
+  const handleManualSync = async () => {
+    if (!currentUser) {
+      setActionError("Please log in to synchronize data.");
+      return;
+    }
+    try {
+      setSyncing(true);
+      setActionError(null);
+      setActionSuccess(null);
+      
+      const res = await footballApi.syncFootball(currentUser.email);
+      setActionSuccess(res.message);
+      await loadData();
+    } catch (err: any) {
+      setActionError(err.message || "Synchronization failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Reset Data (Admin action)
   const handleResetData = async () => {
     if (!currentUser || !isAdmin) return;
-    if (!window.confirm("Are you absolutely sure you want to delete all predictions and reset match fixtures to initial states? This cannot be undone.")) return;
-    
+    setShowResetConfirm(true);
+  };
+
+  const confirmResetData = async () => {
+    setShowResetConfirm(false);
     try {
       setSyncing(true);
       setActionError(null);
@@ -290,7 +424,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
         settings.competitionId,
         settings.competitionName,
         settings.season,
-        settings.syncInterval
+        settings.syncInterval,
+        settings.apiFootballKey,
+        settings.apiFootballUrl,
+        settings.footballDataKey
       );
       
       setActionSuccess(res.message || "Configurations saved successfully!");
@@ -333,6 +470,14 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     } catch (e) {
       return new Date(dateStr).toLocaleTimeString() + " IST";
     }
+  };
+
+  const canPredictMatch = (match: FootballMatch): boolean => {
+    if (match.status !== "NS") return false;
+    const kickoff = new Date(match.kickoff).getTime();
+    const now = Date.now();
+    const fifteenDaysInMs = 15 * 24 * 60 * 60 * 1000;
+    return kickoff > now && (kickoff - now) <= fifteenDaysInMs;
   };
 
   // Dynamic Countdown Timer Hook
@@ -397,7 +542,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
 
   // Derived dashboard details
   const liveMatches = matches.filter(m => m.status === "LIVE");
-  const upcomingMatches = matches.filter(m => m.status === "NS").slice(0, 3);
+  const upcomingMatches = matches.filter(m => m.status === "NS" && canPredictMatch(m)).slice(0, 3);
   const finishedMatches = matches.filter(m => m.status === "FT").reverse().slice(0, 3);
 
   // Navigation Items
@@ -450,6 +595,53 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh Stats
         </button>
+      </div>
+
+      {/* API Connection & Data Sync Health Monitor Banner */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800 p-5 rounded-3xl animate-fadeIn" id="api-status-monitor-banner">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-white dark:bg-stone-800 rounded-2xl border border-stone-150 dark:border-stone-750 flex-shrink-0 shadow-sm">
+            <Radio className={`w-5 h-5 ${apiStatus?.isApiLive ? "text-emerald-500 animate-pulse" : "text-rose-500"}`} />
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-black tracking-wider text-stone-400 block leading-none">API-Football Link</span>
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span className={`w-2 h-2 rounded-full ${apiStatus?.isApiLive ? "bg-emerald-500 shadow-sm shadow-emerald-500/50 animate-pulse" : "bg-rose-500"}`} />
+              <span className="text-xs font-black text-stone-850 dark:text-stone-100">
+                {apiStatus?.isApiLive ? "Live & Verified" : "Offline / Unreachable"}
+              </span>
+            </div>
+            {apiStatus?.apiError && (
+              <p className="text-[10px] text-rose-500 dark:text-rose-400 mt-0.5 truncate max-w-[200px]" title={apiStatus.apiError}>
+                Error: {apiStatus.apiError}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col justify-center">
+          <span className="text-[10px] uppercase font-black tracking-wider text-stone-400 block leading-none">Active Tournament & Season</span>
+          <span className="text-xs font-black text-stone-800 dark:text-stone-200 mt-1.5">
+            {settings.competitionName} ({settings.season})
+          </span>
+          {apiStatus?.operatingMode && (
+            <span className="text-[10px] text-stone-500 dark:text-stone-400 mt-0.5">
+              Mode: {apiStatus.operatingMode}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center md:justify-end gap-3">
+          <button
+            onClick={handleManualSync}
+            disabled={syncing || !currentUser}
+            className="w-full md:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-600 disabled:opacity-50 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-md shadow-emerald-500/10 cursor-pointer disabled:cursor-not-allowed"
+            id="manual-refresh-data-btn"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing Matches..." : "Refresh Data"}
+          </button>
+        </div>
       </div>
 
       {/* Success/Error Alerts */}
@@ -682,12 +874,18 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                                 <span className="text-[10px] text-amber-600 font-bold">No Prediction Submitted</span>
                               )}
 
-                              <button
-                                onClick={() => handleOpenPredictModal(match)}
-                                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition"
-                              >
-                                {hasPredicted ? "Edit Predict" : "Predict"}
-                              </button>
+                              {canPredictMatch(match) ? (
+                                <button
+                                  onClick={() => handleOpenPredictModal(match)}
+                                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition cursor-pointer"
+                                >
+                                  {hasPredicted ? "Edit Predict" : "Predict"}
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-stone-400 dark:text-stone-500 font-bold bg-stone-100 dark:bg-stone-800/50 px-2.5 py-1.5 rounded-xl border border-stone-200/50 dark:border-stone-800/50">
+                                  Closed
+                                </span>
+                              )}
                             </div>
                           </div>
                         );
@@ -949,12 +1147,18 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                           )}
 
                           {match.status === "NS" ? (
-                            <button
-                              onClick={() => handleOpenPredictModal(match)}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition cursor-pointer"
-                            >
-                              {hasPredicted ? "Edit" : "Predict"}
-                            </button>
+                            canPredictMatch(match) ? (
+                              <button
+                                onClick={() => handleOpenPredictModal(match)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition cursor-pointer"
+                              >
+                                {hasPredicted ? "Edit" : "Predict"}
+                              </button>
+                            ) : (
+                              <span className="text-[9px] text-amber-600 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
+                                Predictions Closed (Too Early)
+                              </span>
+                            )
                           ) : (
                             <span className="text-[9px] text-stone-400 font-bold bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">
                               Predictions Closed
@@ -1255,13 +1459,13 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                     Correct Predictions Ratio
                   </h3>
                   <div className="h-64 flex items-center justify-center">
-                    {stats && stats.totalPredictions > 0 ? (
+                    {stats && stats.scoredPredictionsCount > 0 ? (
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
                             data={[
                               { name: "Correct", value: stats.correctPredictions },
-                              { name: "Incorrect", value: stats.totalPredictions - stats.correctPredictions }
+                              { name: "Incorrect", value: stats.scoredPredictionsCount - stats.correctPredictions }
                             ]}
                             cx="50%"
                             cy="50%"
@@ -1277,10 +1481,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         </PieChart>
                       </ResponsiveContainer>
                     ) : (
-                      <p className="text-stone-500 text-xs">No completed predictions to chart accuracy.</p>
+                      <p className="text-stone-550 text-xs dark:text-stone-450 text-center px-4 leading-relaxed font-semibold">No completed or scored match predictions available yet to chart accuracy ratio.</p>
                     )}
                   </div>
-                  {stats && stats.totalPredictions > 0 && (
+                  {stats && stats.scoredPredictionsCount > 0 && (
                     <div className="flex justify-center gap-6 mt-4 text-xs font-bold">
                       <div className="flex items-center gap-1.5">
                         <span className="w-3 h-3 rounded-full bg-emerald-600"></span>
@@ -1288,7 +1492,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="w-3 h-3 rounded-full bg-rose-500"></span>
-                        <span>Incorrect ({stats.totalPredictions - stats.correctPredictions})</span>
+                        <span>Incorrect ({stats.scoredPredictionsCount - stats.correctPredictions})</span>
                       </div>
                     </div>
                   )}
@@ -1413,6 +1617,54 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                       </select>
                     </div>
 
+                    <div className="border-t border-stone-200 dark:border-stone-800 pt-4 mt-4 space-y-4">
+                      <h4 className="text-xs font-black text-stone-900 dark:text-white uppercase tracking-wider">
+                        🔑 API KEYS & MULTI-PROVIDER CONFIGURATION
+                      </h4>
+                      <p className="text-[10px] text-stone-500">
+                        Customize provider credentials and fallback endpoints. These values override standard environment variables.
+                      </p>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                          ⚽ API-Football URL
+                        </label>
+                        <input
+                          type="text"
+                          value={settings.apiFootballUrl || ""}
+                          onChange={(e) => setSettings(prev => ({ ...prev, apiFootballUrl: e.target.value }))}
+                          placeholder="https://v3.football.api-sports.io"
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-mono text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                          ⚽ API-Football Key
+                        </label>
+                        <input
+                          type="password"
+                          value={settings.apiFootballKey || ""}
+                          onChange={(e) => setSettings(prev => ({ ...prev, apiFootballKey: e.target.value }))}
+                          placeholder="Enter API-Football Key"
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-mono text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                          📊 Football-Data.org Key
+                        </label>
+                        <input
+                          type="password"
+                          value={settings.footballDataKey || ""}
+                          onChange={(e) => setSettings(prev => ({ ...prev, footballDataKey: e.target.value }))}
+                          placeholder="Enter Football-Data.org Key"
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-mono text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
                     {settings.lastSyncTime && (
                       <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-800 flex items-center gap-2 text-[10px] text-stone-500">
                         <Clock className="w-3.5 h-3.5 text-stone-400" />
@@ -1499,6 +1751,142 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                     </button>
                   </div>
                 </div>
+              </div>
+
+              {/* Football API Multi-Provider Debug Panel */}
+              <div className="bg-white dark:bg-stone-850 p-6 rounded-3xl border border-stone-200 dark:border-stone-800 space-y-4 mt-8">
+                <h3 className="text-sm font-black text-stone-900 dark:text-white border-b border-stone-100 dark:border-stone-800 pb-3 flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-emerald-600 animate-pulse" /> Football API Debug & Multi-Provider Health
+                  </span>
+                  {providerStatus && (
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 font-bold uppercase text-[9px]">
+                      Active Provider: {providerStatus.activeProvider}
+                    </span>
+                  )}
+                </h3>
+
+                <p className="text-xs text-stone-500">
+                  The Football Prediction Engine utilizes an intelligent Service Layer that automatically cycles through multiple global APIs when rate limits are exceeded, subscription errors occur, or requests fail.
+                </p>
+
+                {providerStatus ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                    {Object.entries(providerStatus.providers || {})
+                      .filter(([pName]) => pName !== "TheSportsDB")
+                      .map(([pName, pInfo]: [string, any]) => {
+                        const isCurrentlyActive = providerStatus.activeProvider === pName;
+                        const hasKey = pName === "API-Football" ? providerStatus.hasApiKey : pName === "Football-Data.org" ? providerStatus.hasFdKey : providerStatus.hasTsdbKey;
+                      
+                      return (
+                        <div key={pName} className={`p-5 rounded-2xl border transition flex flex-col justify-between ${
+                          isCurrentlyActive 
+                            ? "bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-500/30" 
+                            : "bg-stone-50/50 dark:bg-stone-900/30 border-stone-150 dark:border-stone-800"
+                        }`}>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-black text-stone-900 dark:text-white flex items-center gap-1.5">
+                                {pName}
+                                {isCurrentlyActive && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                                )}
+                              </h4>
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                                pInfo.status === "Healthy"
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400"
+                                  : pInfo.status === "Degraded"
+                                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400"
+                                  : "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-400"
+                              }`}>
+                                {pInfo.status}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1.5 text-[10px]">
+                              <div className="flex justify-between">
+                                <span className="text-stone-400">API URL:</span>
+                                <span className="font-mono text-stone-600 dark:text-stone-300 truncate max-w-[120px]">{pInfo.apiUrl}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-stone-400">API Key:</span>
+                                <span className={hasKey ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-stone-400 font-medium"}>
+                                  {hasKey ? "✓ Configured" : "✗ Not Set"}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-stone-400">Latency:</span>
+                                <span className="font-mono text-stone-700 dark:text-stone-200">{pInfo.latency}ms</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-stone-400">Requests Remaining:</span>
+                                <span className="font-mono font-bold text-stone-800 dark:text-stone-100">{pInfo.remainingRequests}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-stone-400">Tier:</span>
+                                <span className="text-stone-600 dark:text-stone-300">{pInfo.subscription}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {pInfo.lastError && (
+                            <div className="mt-3 p-2 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-mono leading-tight border border-rose-100 dark:border-rose-900/30">
+                              Error: {pInfo.lastError}
+                            </div>
+                          )}
+
+                          {isCurrentlyActive && (
+                            <div className="mt-3 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-100/40 dark:bg-emerald-950/30 px-2 py-1 rounded-lg">
+                              <ShieldCheck className="w-3.5 h-3.5" /> Core provider delivering live matches
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-stone-500 py-4 text-center">Loading provider statuses...</p>
+                )}
+              </div>
+
+              {/* System Audit Logs Panel */}
+              <div className="bg-white dark:bg-stone-850 p-6 rounded-3xl border border-stone-200 dark:border-stone-800 space-y-4 mt-8">
+                <h3 className="text-sm font-black text-stone-900 dark:text-white border-b border-stone-100 dark:border-stone-800 pb-3 flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <List className="w-4 h-4 text-emerald-600" /> System Audit Logs
+                  </span>
+                  <span className="text-[10px] text-stone-500 font-bold uppercase">
+                    Latest {systemLogs.length} Events
+                  </span>
+                </h3>
+                
+                {systemLogs.length === 0 ? (
+                  <p className="text-xs text-stone-500 py-10 text-center">No synchronization or operation logs accumulated yet.</p>
+                ) : (
+                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin">
+                    {systemLogs.map((log, idx) => (
+                      <div key={idx} className="p-4 bg-stone-50 dark:bg-stone-900/40 rounded-2xl border border-stone-150 dark:border-stone-800 flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-stone-400 font-bold">
+                            {formatToISTDate(log.timestamp)} {formatToISTTime(log.timestamp)}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded font-black uppercase text-[8px] ${
+                            log.type === "sync" || log.type === "sync_check"
+                              ? "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-400"
+                              : log.type === "settings_update"
+                              ? "bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400"
+                              : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400"
+                          }`}>
+                            {log.type}
+                          </span>
+                        </div>
+                        <pre className="font-mono text-xs text-stone-700 dark:text-stone-300 whitespace-pre-wrap leading-relaxed">
+                          {log.message}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -1633,6 +2021,43 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                 </button>
               </div>
             </motion.div>
+          </div>
+        )}
+
+        {/* Custom Reset Database Confirmation Modal */}
+        {showResetConfirm && (
+          <div className="fixed inset-0 bg-stone-900/60 dark:bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in">
+            <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-scale-up space-y-4 text-center">
+              <div className="w-14 h-14 bg-rose-50 dark:bg-rose-950/30 text-rose-500 dark:text-rose-400 rounded-2xl flex items-center justify-center mx-auto border border-rose-100/30 dark:border-rose-900/30">
+                <AlertCircle className="w-7 h-7 animate-pulse" />
+              </div>
+              
+              <div className="space-y-1.5">
+                <h3 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100 leading-tight">
+                  Reset Football Database?
+                </h3>
+                <p className="text-xs sm:text-sm text-stone-550 dark:text-stone-400 leading-relaxed font-medium">
+                  Are you absolutely sure you want to delete all predictions and reset match fixtures to initial states? This action cannot be undone.
+                </p>
+              </div>
+              
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 py-2.5 px-4 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-extrabold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmResetData}
+                  className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl shadow-md transition-all cursor-pointer"
+                >
+                  Yes, Reset
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </AnimatePresence>

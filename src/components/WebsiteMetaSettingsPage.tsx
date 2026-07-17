@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Globe, Save, RefreshCw, Eye, Sparkles, Check, AlertCircle, Link as LinkIcon, Image as ImageIcon } from 'lucide-react';
+import { Globe, Save, RefreshCw, Eye, Sparkles, Check, AlertCircle, Link as LinkIcon, Image as ImageIcon, Upload } from 'lucide-react';
+import { db } from '../lib/supabase';
 
 interface MetaConfig {
   title: string;
@@ -36,6 +37,87 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
   const [saving, setSaving] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isFallbackMode, setIsFallbackMode] = useState<boolean>(false);
+
+  // Upload States
+  const [isOgUploading, setIsOgUploading] = useState<boolean>(false);
+  const [ogUploadProgress, setOgUploadProgress] = useState<number>(0);
+  const [ogUploadError, setOgUploadError] = useState<string | null>(null);
+
+  const [isFaviconUploading, setIsFaviconUploading] = useState<boolean>(false);
+  const [faviconUploadProgress, setFaviconUploadProgress] = useState<number>(0);
+  const [faviconUploadError, setFaviconUploadError] = useState<string | null>(null);
+
+  const handleOgImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsOgUploading(true);
+    setOgUploadError(null);
+    setOgUploadProgress(10);
+
+    const progressInterval = setInterval(() => {
+      setOgUploadProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return prev;
+        }
+        return prev + 15;
+      });
+    }, 120);
+
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const filePath = `meta/og_image_${Date.now()}.${ext}`;
+      const imageUrl = await db.uploadToStorage('thumbnails', filePath, file);
+      
+      clearInterval(progressInterval);
+      setOgUploadProgress(100);
+      setConfig(prev => ({ ...prev, ogImage: imageUrl }));
+    } catch (err: any) {
+      clearInterval(progressInterval);
+      console.error('Error uploading custom OG image:', err);
+      setOgUploadError(`Upload Failed: ${err.message || 'Check connection.'}`);
+    } finally {
+      setIsOgUploading(false);
+      setTimeout(() => setOgUploadProgress(0), 800);
+    }
+  };
+
+  const handleFaviconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsFaviconUploading(true);
+    setFaviconUploadError(null);
+    setFaviconUploadProgress(10);
+
+    const progressInterval = setInterval(() => {
+      setFaviconUploadProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return prev;
+        }
+        return prev + 15;
+      });
+    }, 120);
+
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const filePath = `meta/favicon_${Date.now()}.${ext}`;
+      const imageUrl = await db.uploadToStorage('thumbnails', filePath, file);
+      
+      clearInterval(progressInterval);
+      setFaviconUploadProgress(100);
+      setConfig(prev => ({ ...prev, favicon: imageUrl }));
+    } catch (err: any) {
+      clearInterval(progressInterval);
+      console.error('Error uploading custom favicon:', err);
+      setFaviconUploadError(`Upload Failed: ${err.message || 'Check connection.'}`);
+    } finally {
+      setIsFaviconUploading(false);
+      setTimeout(() => setFaviconUploadProgress(0), 800);
+    }
+  };
 
   const fetchConfig = async () => {
     setLoading(true);
@@ -279,6 +361,30 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                     <ImageIcon className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
                   </div>
                 </div>
+                
+                {/* File Upload zone for OG Image */}
+                <div className="mt-2 py-1 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <label className="relative flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl border border-purple-200 cursor-pointer transition-all self-start">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isOgUploading ? `Uploading (${ogUploadProgress}%)` : 'Upload Custom OG Image'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={isOgUploading}
+                      onChange={handleOgImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {isOgUploading && (
+                    <div className="w-24 bg-stone-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="bg-purple-600 h-full transition-all" style={{ width: `${ogUploadProgress}%` }}></div>
+                    </div>
+                  )}
+                  {ogUploadError && (
+                    <p className="text-[10px] text-red-650 font-bold">{ogUploadError}</p>
+                  )}
+                </div>
+                
                 <p className="text-[10px] text-stone-400">Direct URL to an image shown when the website is shared on social networks (WhatsApp, Facebook, Discord). Optimal size: 1200 x 630 pixels.</p>
               </div>
 
@@ -297,6 +403,30 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                     <Sparkles className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
                   </div>
                 </div>
+
+                {/* File Upload zone for Favicon */}
+                <div className="mt-2 py-1 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <label className="relative flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl border border-purple-200 cursor-pointer transition-all self-start">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isFaviconUploading ? `Uploading (${faviconUploadProgress}%)` : 'Upload Custom Favicon'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={isFaviconUploading}
+                      onChange={handleFaviconUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {isFaviconUploading && (
+                    <div className="w-24 bg-stone-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="bg-purple-600 h-full transition-all" style={{ width: `${faviconUploadProgress}%` }}></div>
+                    </div>
+                  )}
+                  {faviconUploadError && (
+                    <p className="text-[10px] text-red-650 font-bold">{faviconUploadError}</p>
+                  )}
+                </div>
+
                 <p className="text-[10px] text-stone-400">The shortcut icon displayed in browser tabs. You can use standard local path `/favicon.ico` or any external image URL.</p>
               </div>
 

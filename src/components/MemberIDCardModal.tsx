@@ -222,7 +222,7 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 bg-stone-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="fixed inset-0 bg-stone-950/80 backdrop-blur-xs flex items-start sm:items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
         
         {/* Scoped printing stylesheet injected dynamically */}
         <style dangerouslySetInnerHTML={{ __html: `
@@ -258,7 +258,7 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ type: "spring", duration: 0.4 }}
-          className="bg-stone-50 dark:bg-stone-900 rounded-2xl max-w-4xl w-full flex flex-col shadow-2xl border border-stone-200 dark:border-stone-800 my-8"
+          className="bg-stone-50 dark:bg-stone-900 rounded-2xl max-w-4xl w-full flex flex-col shadow-2xl border border-stone-200 dark:border-stone-800 my-2 sm:my-8"
         >
           {/* Header Controls */}
           <div className="p-5 border-b border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

@@ -130,6 +130,8 @@ export function OnboardingTour({ user, onComplete }: OnboardingTourProps) {
         left: '50%',
         transform: 'translate(-50%, -50%)',
         position: 'fixed' as const,
+        maxWidth: 'calc(100vw - 32px)',
+        maxHeight: 'calc(100vh - 40px)',
       };
     }
 
@@ -225,7 +227,7 @@ export function OnboardingTour({ user, onComplete }: OnboardingTourProps) {
           exit={{ opacity: 0, scale: 0.95, y: -10 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
           style={tooltipStyle}
-          className="w-[90vw] sm:w-[340px] bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden pointer-events-auto flex flex-col z-50"
+          className="w-[90vw] sm:w-[340px] max-h-[85vh] overflow-y-auto bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 pointer-events-auto flex flex-col z-50"
           id="tour-card-dialog"
         >
           {/* Accent Header Ribbon */}

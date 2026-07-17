@@ -72,6 +72,7 @@ export interface LeaderboardEntry {
 export interface FootballStats {
   totalPredictions: number;
   correctPredictions: number;
+  scoredPredictionsCount: number;
   averageAccuracy: number;
   mostPredictedTeam: {
     team: FootballTeam;

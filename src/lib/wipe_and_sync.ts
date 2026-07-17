@@ -91,7 +91,7 @@ async function runMigration() {
       competitionName: "FIFA World Cup",
       season: "2026",
       syncInterval: 10,
-      lastSyncTime: new Date(0).toISOString()
+      lastSyncTime: new Date().toISOString()
     };
 
     currentDb.logs.push({

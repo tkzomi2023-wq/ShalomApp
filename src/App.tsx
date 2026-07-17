@@ -1439,19 +1439,29 @@ function AppContent() {
     }
   };
 
+  const triggerCustomAlert = (title: string, message: string) => {
+    setCustomDialog({
+      isOpen: true,
+      title,
+      message,
+      type: 'alert',
+      onConfirm: () => setCustomDialog(null)
+    });
+  };
+
   const handleSendWish = async (receiverId: string, receiverName: string) => {
     if (!user) {
-      alert("Please log in to send a wish!");
+      triggerCustomAlert("Fellowship Login Required", "Please log in to your account first before sending birthday wishes!");
       return;
     }
     setIsWishingMap(prev => ({ ...prev, [receiverId]: true }));
     try {
       await db.sendBirthdayWish(receiverId, user.id, user.name);
       setWishedIds(prev => [...prev, receiverId]);
-      alert(`🎉 Your birthday wish is inside ${receiverName}'s animated gift box! It will be visible to them for 24 hours. 🎁✨`);
+      triggerCustomAlert("Birthday Wish Placed! 🎉", `Your birthday wish is successfully inside ${receiverName}'s animated gift box! It will be visible to them for the next 24 hours. 🎁✨`);
     } catch (err: any) {
       console.error("Error sending birthday wish:", err);
-      alert("Failed to send birthday wish. Please try again.");
+      triggerCustomAlert("Sending Failed", "Failed to send birthday wish. Please verify your internet connection and try again.");
     } finally {
       setIsWishingMap(prev => ({ ...prev, [receiverId]: false }));
     }

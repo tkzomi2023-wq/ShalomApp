@@ -582,3 +582,8 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export const checkIsAdmin = (email?: string): boolean => {
+  if (!email) return false;
+  return email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+};
