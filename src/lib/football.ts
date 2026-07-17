@@ -130,8 +130,17 @@ export interface ApiStatus {
 const resolveFootballUrl = (path: string): string => {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
   
+  // If the base URL is specifically a Supabase Edge Function (contains supabase.co),
+  // it is only used for the birthday email function. It does not support football routes.
+  // In this case, we must route directly to our local Express server using the relative path.
+  if (baseUrl.includes('supabase.co')) {
+    return path;
+  }
+
   const isFullStackEnv = typeof window !== 'undefined' && (
     window.location.hostname.includes('run.app') ||
+    window.location.hostname.includes('googleusercontent.com') ||
+    window.location.hostname.includes('aistudio') ||
     window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1') ||
     window.location.hostname.includes('0.0.0.0')

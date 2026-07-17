@@ -1567,6 +1567,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                   </h3>
 
                   <form onSubmit={handleSaveSettings} className="space-y-4" autoComplete="off">
+                    {/* Dummy inputs to capture browser autocomplete and prevent autofilling API credentials with admin email/password */}
+                    <input type="text" name="dummy-username-autofill" style={{ display: 'none' }} autoComplete="new-username" />
+                    <input type="password" name="dummy-password-autofill" style={{ display: 'none' }} autoComplete="new-password" />
+
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
                         🌍 Select Competition
