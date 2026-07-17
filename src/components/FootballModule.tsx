@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  ExternalLink,
   Sliders,
   Database,
   Copy,
@@ -660,10 +661,40 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="mb-6 p-4 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 rounded-2xl text-xs font-bold flex items-center gap-2.5 border border-rose-200 dark:border-rose-900"
+            className="mb-6 p-4 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 rounded-2xl text-xs font-bold flex flex-col gap-3 border border-rose-200 dark:border-rose-900 shadow-sm"
           >
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{actionError}</span>
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <span className="block font-black text-rose-800 dark:text-rose-200">Operation Error</span>
+                <span className="font-semibold text-rose-700 dark:text-rose-300">{actionError}</span>
+              </div>
+            </div>
+            {(actionError.includes("HTML document") || actionError.includes("unexpected HTML") || actionError.includes("offline") || actionError.includes("route was not found") || actionError.includes("404") || actionError.includes("500")) && (
+              <div className="mt-1 pl-6 text-[11px] font-normal text-stone-600 dark:text-stone-300 border-t border-rose-200/50 dark:border-rose-900/40 pt-2.5 space-y-2">
+                <p className="leading-relaxed">
+                  <strong>💡 Root Cause:</strong> This application is hosted inside an AI Studio preview iframe. Many browsers (including Chrome Incognito, Safari, and Firefox) block 3rd-party cookies inside iframes by default. This causes the proxy server to intercept and redirect the application's API requests to cookie checking pages, returning an HTML document instead of JSON.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <a
+                    href={window.location.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] uppercase tracking-wider rounded-lg transition shadow-sm"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Open App in New Tab (Bypasses Iframe)
+                  </a>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-200 hover:bg-stone-300 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-black text-[10px] uppercase tracking-wider rounded-lg transition"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Reload Page
+                  </button>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
         {actionSuccess && (
