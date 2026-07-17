@@ -28,7 +28,8 @@ import {
   ShieldCheck,
   Zap,
   Info,
-  Radio
+  Radio,
+  Save
 } from "lucide-react";
 import {
   BarChart,
@@ -167,6 +168,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     footballDataKey: ""
   });
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
 
   // Filter states for fixtures page
@@ -416,6 +419,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     
     try {
       setSavingSettings(true);
+      setSettingsError(null);
+      setSettingsSuccess(null);
       setActionError(null);
       setActionSuccess(null);
       
@@ -430,10 +435,14 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
         settings.footballDataKey
       );
       
-      setActionSuccess(res.message || "Configurations saved successfully!");
+      const successMessage = res.message || "Configurations saved successfully!";
+      setSettingsSuccess(successMessage);
+      setActionSuccess(successMessage);
       await loadData();
     } catch (err: any) {
-      setActionError(err.message || "Failed to save settings");
+      const errorMessage = err.message || "Failed to save settings";
+      setSettingsError(errorMessage);
+      setActionError(errorMessage);
     } finally {
       setSavingSettings(false);
     }
@@ -1674,17 +1683,47 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                       </div>
                     )}
 
+                    {/* Inline Settings Error and Success Indicators */}
+                    {settingsError && (
+                      <div className="p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 rounded-xl text-[11px] font-bold flex items-center gap-2 border border-rose-200 dark:border-rose-900">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600 dark:text-rose-400" />
+                        <span className="break-all">{settingsError}</span>
+                      </div>
+                    )}
+
+                    {settingsSuccess && (
+                      <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 rounded-xl text-[11px] font-bold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900">
+                        <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+                        <span>{settingsSuccess}</span>
+                      </div>
+                    )}
+
                     <button
                       type="submit"
                       disabled={savingSettings}
-                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                      className={`w-full py-2.5 font-black text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+                        savingSettings 
+                          ? "bg-emerald-700/50 text-stone-300 cursor-not-allowed animate-pulse" 
+                          : settingsError 
+                            ? "bg-rose-600 hover:bg-rose-700 text-white ring-2 ring-rose-500 ring-offset-2" 
+                            : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      }`}
                     >
                       {savingSettings ? (
                         <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving...
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Updating Supabase...</span>
+                        </>
+                      ) : settingsError ? (
+                        <>
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span>Retry Saving Config</span>
                         </>
                       ) : (
-                        "Save Configurations"
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Save Configurations</span>
+                        </>
                       )}
                     </button>
                   </form>

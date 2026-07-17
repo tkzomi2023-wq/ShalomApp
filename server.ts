@@ -1168,6 +1168,16 @@ Return the bounding box coordinates normalized as float values between 0.0 and 1
   }
 });
 
+// Explicit API Route Handlers for 404 and 500 Errors (ensures strict JSON responses)
+app.use("/api/*", (req: express.Request, res: express.Response) => {
+  res.status(404).json({ error: `API route ${req.method} ${req.baseUrl || req.originalUrl} not found` });
+});
+
+app.use("/api/*", (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("[API Middleware Error Handler]:", err);
+  res.status(500).json({ error: err.message || "An unexpected API error occurred" });
+});
+
 
 // Vite integration middleware & static hosting
 async function startServer() {

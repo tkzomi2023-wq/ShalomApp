@@ -357,8 +357,10 @@ export const autoProgressMatches = async (localDb: any): Promise<boolean> => {
   const now = new Date();
   let updatedCount = 0;
   const isDbOnline = await checkSupabaseSupport();
+  const progressedMatches: any[] = [];
 
   for (const match of localDb.matches) {
+    let wasUpdated = false;
     if (match.status === "NS" && new Date(match.kickoff) < now) {
       const kickoffTime = new Date(match.kickoff).getTime();
       const elapsedMs = now.getTime() - kickoffTime;
@@ -381,14 +383,7 @@ export const autoProgressMatches = async (localDb: any): Promise<boolean> => {
         }
       }
       updatedCount++;
-
-      if (isDbOnline) {
-        try {
-          await supabase.from("football_matches").upsert(match);
-        } catch (err) {
-          console.warn(`[Football Engine] Failed to upsert progressed match ${match.id} to Supabase:`, err);
-        }
-      }
+      wasUpdated = true;
     } else if (match.status === "LIVE" && new Date(match.kickoff).getTime() + 105 * 60 * 1000 < now.getTime()) {
       // Transition from LIVE to FT
       match.status = "FT";
@@ -402,14 +397,19 @@ export const autoProgressMatches = async (localDb: any): Promise<boolean> => {
         match.winner_team_id = null;
       }
       updatedCount++;
+      wasUpdated = true;
+    }
 
-      if (isDbOnline) {
-        try {
-          await supabase.from("football_matches").upsert(match);
-        } catch (err) {
-          console.warn(`[Football Engine] Failed to upsert progressed match ${match.id} to Supabase:`, err);
-        }
-      }
+    if (wasUpdated) {
+      progressedMatches.push(match);
+    }
+  }
+
+  if (progressedMatches.length > 0 && isDbOnline) {
+    try {
+      await supabase.from("football_matches").upsert(progressedMatches);
+    } catch (err) {
+      console.warn(`[Football Engine] Failed to bulk upsert progressed matches to Supabase:`, err);
     }
   }
 
@@ -838,13 +838,12 @@ export const ensureBracketIntegrity = async (localDb: any): Promise<number> => {
 
   // Push updates to Supabase if online and syncCount happened
   if (syncCount > 0 && isDbOnline) {
-    for (const match of localDb.matches) {
-      if (match.tournament === settings.competitionName && match.season === settings.season) {
-        try {
-          await supabase.from("football_matches").upsert(match);
-        } catch (err) {
-          console.error(`[Bracket Engine] Failed to upsert match ${match.id} to Supabase:`, err);
-        }
+    const matchesToUpsert = localDb.matches.filter((match: any) => match.tournament === settings.competitionName && match.season === settings.season);
+    if (matchesToUpsert.length > 0) {
+      try {
+        await supabase.from("football_matches").upsert(matchesToUpsert);
+      } catch (err) {
+        console.error(`[Bracket Engine] Failed bulk upsert of matches to Supabase:`, err);
       }
     }
   }
@@ -1297,14 +1296,14 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
     // Write Teams and Matches to Supabase
     if (useSupabase) {
       try {
-        // Upsert Teams
-        for (const team of fetchedTeams) {
-          await supabase.from("football_teams").upsert(team);
+        // Upsert Teams in bulk
+        if (fetchedTeams.length > 0) {
+          await supabase.from("football_teams").upsert(fetchedTeams);
         }
 
-        // Upsert Matches
-        for (const match of fetchedMatches) {
-          await supabase.from("football_matches").upsert(match);
+        // Upsert Matches in bulk
+        if (fetchedMatches.length > 0) {
+          await supabase.from("football_matches").upsert(fetchedMatches);
         }
       } catch (dbErr: any) {
         console.warn("[Football Engine] Supabase database write failed (RLS restrictions/connection issues). Saved to local cache instead.", dbErr.message || dbErr);
@@ -1417,12 +1416,12 @@ Successful via ${successProvider}`;
   if (useSupabase) {
     try {
       const seededTeams = LEAGUE_TEAMS[settings.competitionId] || LEAGUE_TEAMS[1];
-      for (const team of seededTeams) {
-        await supabase.from("football_teams").upsert(team);
+      if (seededTeams.length > 0) {
+        await supabase.from("football_teams").upsert(seededTeams);
       }
       const activeMatches = localDb.matches.filter((m: any) => m.tournament === settings.competitionName && m.season === settings.season);
-      for (const match of activeMatches) {
-        await supabase.from("football_matches").upsert(match);
+      if (activeMatches.length > 0) {
+        await supabase.from("football_matches").upsert(activeMatches);
       }
     } catch (dbErr: any) {
       console.warn("[Football Engine] Seeded simulation database upsert failed:", dbErr.message || dbErr);
@@ -1540,6 +1539,12 @@ export const initFootballSchedulers = () => {
 // Express router for Football module
 export const createFootballRouter = (): Router => {
   const router = Router();
+
+  // Enforce strict JSON Content-Type for all football API endpoints and sub-routes
+  router.use((req, res, next) => {
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    next();
+  });
 
   // Helper to load complete match objects (hydrated with home/away teams)
   const getHydratedMatches = (matches: FootballMatch[], teams: FootballTeam[]): FootballMatch[] => {
@@ -2294,13 +2299,21 @@ export const createFootballRouter = (): Router => {
         }
       }
 
-      // Immediately fetch all data from official API-Football
+      // Immediately fetch all data from official API-Football safely
       console.log(`[Football Engine] Settings updated by Admin. Triggering immediate live API sync...`);
-      const syncResult = await syncFixtures();
+      let syncResult;
+      try {
+        syncResult = await syncFixtures();
+      } catch (syncErr: any) {
+        console.warn("[Football Settings API Sync] Live synchronization failed/timed out, falling back to local simulation:", syncErr.message || syncErr);
+        syncResult = { count: 0, source: "simulation_fallback" };
+      }
 
       res.json({ 
         success: true, 
-        message: `Football settings updated! Synchronized ${syncResult.count} fixtures from ${syncResult.source === "api" ? "Official API-Football" : "Simulation"}!`,
+        message: syncResult.source === "simulation_fallback" 
+          ? "Football settings updated locally! However, immediate live API synchronization failed/timed out; reverted gracefully to simulation mode."
+          : `Football settings updated! Synchronized ${syncResult.count} fixtures from ${syncResult.source === "api" ? "Official API-Football" : "Simulation"}!`,
         syncCount: syncResult.count,
         source: syncResult.source
       });

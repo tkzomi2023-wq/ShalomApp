@@ -276,8 +276,20 @@ export const footballApi = {
       body: JSON.stringify({ requesterEmail })
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || "Reset failed");
+      let errMsg = "Reset failed";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const err = await res.json();
+          errMsg = err.error || err.message || errMsg;
+        } else {
+          const text = await res.text();
+          errMsg = text.slice(0, 150) || `HTTP error ${res.status}: ${res.statusText}`;
+        }
+      } catch (e) {
+        errMsg = `HTTP error ${res.status}: ${res.statusText}`;
+      }
+      throw new Error(errMsg);
     }
     return res.json();
   },
@@ -316,8 +328,20 @@ export const footballApi = {
       })
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || "Failed to save settings");
+      let errMsg = "Failed to save settings";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const err = await res.json();
+          errMsg = err.error || err.message || errMsg;
+        } else {
+          const text = await res.text();
+          errMsg = text.slice(0, 150) || `HTTP error ${res.status}: ${res.statusText}`;
+        }
+      } catch (e) {
+        errMsg = `HTTP error ${res.status}: ${res.statusText}`;
+      }
+      throw new Error(errMsg);
     }
     return res.json();
   },
