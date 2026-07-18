@@ -47,6 +47,7 @@ import {
 
 import { FootballMatch, FootballPrediction, LeaderboardEntry, StandingsGroup, FootballStats, MatchStatus, FootballTeam } from "../types/football";
 import { footballApi, ApiStatus, FOOTBALL_SETUP_SQL, getPointsForRound } from "../lib/football";
+import { supabase } from "../lib/supabase";
 import { Member } from "../types";
 import { checkIsAdmin } from "../lib/auth";
 import { Confetti } from "./Confetti";
@@ -78,6 +79,27 @@ const getTeamName = (team: FootballTeam | undefined | null): string => {
     return "To Be Determined";
   }
   return team.name;
+};
+
+const AnimatedScore: React.FC<{
+  score: number | string | null;
+  className?: string;
+}> = ({ score, className = "" }) => {
+  const displayScore = score !== null && score !== undefined ? score : "-";
+  return (
+    <AnimatePresence mode="popLayout" initial={false}>
+      <motion.span
+        key={displayScore}
+        initial={{ opacity: 0, scale: 0.7, y: -5 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.7, y: 5 }}
+        transition={{ type: "spring", stiffness: 350, damping: 22 }}
+        className={`inline-block min-w-[0.8rem] text-center ${className}`}
+      >
+        {displayScore}
+      </motion.span>
+    </AnimatePresence>
+  );
 };
 
 interface FootballModuleProps {
@@ -148,6 +170,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "connected" | "error">("connecting");
 
   // Confetti and settings states
   const [showConfetti, setShowConfetti] = useState<boolean>(false);
@@ -273,6 +296,49 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       setStats(null);
     }
     loadData();
+  }, [currentUser]);
+
+  // Realtime Supabase Subscriptions for Live Match Data Updates
+  useEffect(() => {
+    setRealtimeStatus("connecting");
+    
+    const matchesChannel = supabase
+      .channel("football-matches-realtime-sub")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "football_matches" },
+        (payload) => {
+          console.log("[Realtime] Match change detected:", payload);
+          loadData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "football_predictions" },
+        (payload) => {
+          console.log("[Realtime] Prediction change detected:", payload);
+          loadData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "football_configs" },
+        (payload) => {
+          console.log("[Realtime] Config change detected:", payload);
+          loadData();
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setRealtimeStatus("connected");
+        } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+          setRealtimeStatus("error");
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(matchesChannel);
+    };
   }, [currentUser]);
 
   useEffect(() => {
@@ -464,6 +530,52 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     }
   };
 
+  const handleToggleLeague = async (compId: number) => {
+    if (!currentUser || !isAdmin) return;
+    
+    try {
+      setSyncing(true);
+      setActionError(null);
+      setActionSuccess(null);
+      
+      const comp = COMPETITIONS.find(c => c.id === compId);
+      if (!comp) return;
+
+      // 1. Save new settings to Supabase
+      const res = await footballApi.saveSettings(
+        currentUser.email,
+        compId,
+        comp.name,
+        settings.season,
+        settings.syncInterval,
+        settings.apiFootballKey,
+        settings.apiFootballUrl,
+        settings.footballDataKey,
+        settings.footballDataHost,
+        settings.theSportsDbKey,
+        settings.theSportsDbHost
+      );
+      
+      // Update local settings state so the header reflects it instantly
+      setSettings(prev => ({
+        ...prev,
+        competitionId: compId,
+        competitionName: comp.name
+      }));
+
+      // 2. Trigger active sync to fetch matches of the newly selected league
+      const syncRes = await footballApi.syncFootball(currentUser.email);
+      setActionSuccess(`Switched to ${comp.name} and synced matches successfully!`);
+      
+      // 3. Reload everything
+      await loadData();
+    } catch (err: any) {
+      setActionError(err.message || "Failed to switch league and synchronize matches");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleSaveApiSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || !isAdmin) return;
@@ -650,14 +762,36 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
           </p>
         </div>
 
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="px-4 py-2 bg-stone-100 dark:bg-stone-850 hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 rounded-xl text-xs font-bold transition flex items-center gap-2 border border-stone-200 dark:border-stone-800 disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh Stats
-        </button>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+          {isAdmin && (
+            <div className="flex items-center gap-2 bg-stone-100 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 shadow-sm min-w-[180px]">
+              <span className="text-xs font-black text-stone-500 dark:text-stone-400 whitespace-nowrap">
+                🏆 League:
+              </span>
+              <select
+                value={settings.competitionId}
+                disabled={loading || syncing}
+                onChange={(e) => handleToggleLeague(Number(e.target.value))}
+                className="bg-transparent border-none text-xs font-black text-stone-850 dark:text-stone-100 focus:outline-none focus:ring-0 cursor-pointer disabled:opacity-50 w-full"
+              >
+                {COMPETITIONS.map((comp) => (
+                  <option key={comp.id} value={comp.id} className="bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100">
+                    {comp.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="px-4 py-2 bg-stone-100 dark:bg-stone-850 hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-stone-200 dark:border-stone-800 disabled:opacity-50 h-[38px] cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh Stats
+          </button>
+        </div>
       </div>
 
       {/* API Connection & Data Sync Health Monitor Banner */}
@@ -688,10 +822,16 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
             {settings.competitionName} ({settings.season})
           </span>
           {apiStatus?.operatingMode && (
-            <span className="text-[10px] text-stone-500 dark:text-stone-400 mt-0.5">
+            <span className="text-[10px] text-stone-500 dark:text-stone-400 mt-0.5 block leading-none">
               Mode: {apiStatus.operatingMode}
             </span>
           )}
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${realtimeStatus === "connected" ? "bg-emerald-500 shadow-sm shadow-emerald-500/50 animate-pulse" : realtimeStatus === "connecting" ? "bg-amber-500" : "bg-rose-500"}`} />
+            <span className="text-[10px] font-bold text-stone-600 dark:text-stone-300">
+              Realtime Feed: {realtimeStatus === "connected" ? "Live Stream Connected" : realtimeStatus === "connecting" ? "Establishing stream..." : "Offline / Standby"}
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center md:justify-end gap-3">
@@ -822,9 +962,9 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                         </div>
                         
                         <div className="flex items-center gap-4">
-                          <span className="text-4xl font-black">{match.home_score}</span>
+                          <AnimatedScore score={match.home_score} className="text-4xl font-black min-w-[2rem]" />
                           <span className="text-stone-500 font-black text-lg">:</span>
-                          <span className="text-4xl font-black">{match.away_score}</span>
+                          <AnimatedScore score={match.away_score} className="text-4xl font-black min-w-[2rem]" />
                         </div>
 
                         <div className="text-center w-24">
@@ -1009,8 +1149,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
 
                               <div className="flex items-center gap-6 font-bold">
                                 <span className="text-right w-20 truncate">{getTeamName(match.homeTeam)}</span>
-                                <div className="px-3 py-1 bg-stone-200 dark:bg-stone-800 rounded-lg font-black font-mono">
-                                  {match.home_score} - {match.away_score}
+                                <div className="px-3 py-1 bg-stone-200 dark:bg-stone-800 rounded-lg font-black font-mono flex items-center gap-1 justify-center min-w-[4.5rem]">
+                                  <AnimatedScore score={match.home_score} />
+                                  <span className="text-stone-400 dark:text-stone-600 font-bold">-</span>
+                                  <AnimatedScore score={match.away_score} />
                                 </div>
                                 <span className="text-left w-20 truncate">{getTeamName(match.awayTeam)}</span>
                               </div>
@@ -1201,8 +1343,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                             
                             <div className="text-center">
                               {match.status === "FT" || match.status === "LIVE" ? (
-                                <div className="px-3 py-1 bg-stone-100 dark:bg-stone-800 rounded-lg text-sm font-black font-mono">
-                                  {match.home_score} - {match.away_score}
+                                <div className="px-3 py-1 bg-stone-100 dark:bg-stone-800 rounded-lg text-sm font-black font-mono flex items-center gap-1 justify-center min-w-[4rem]">
+                                  <AnimatedScore score={match.home_score} />
+                                  <span className="text-stone-400 dark:text-stone-600 font-bold">-</span>
+                                  <AnimatedScore score={match.away_score} />
                                 </div>
                               ) : (
                                 <div className="flex flex-col items-center">
@@ -1467,8 +1611,16 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                             </span>
                             <div className="flex items-center gap-4 text-xs font-bold">
                               <span className="truncate max-w-24">{getTeamName(match.homeTeam)}</span>
-                              <span className="px-1.5 py-0.5 bg-stone-200 dark:bg-stone-800 rounded font-black font-mono">
-                                {match.status === "FT" || match.status === "LIVE" ? `${match.home_score} - ${match.away_score}` : "VS"}
+                              <span className="px-1.5 py-0.5 bg-stone-200 dark:bg-stone-800 rounded font-black font-mono flex items-center gap-1 justify-center min-w-[3.5rem]">
+                                {match.status === "FT" || match.status === "LIVE" ? (
+                                  <>
+                                    <AnimatedScore score={match.home_score} />
+                                    <span className="text-stone-400 dark:text-stone-600 font-bold">-</span>
+                                    <AnimatedScore score={match.away_score} />
+                                  </>
+                                ) : (
+                                  "VS"
+                                )}
                               </span>
                               <span className="truncate max-w-24">{getTeamName(match.awayTeam)}</span>
                             </div>

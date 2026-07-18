@@ -121,8 +121,12 @@ export function OnboardingTour({ user, onComplete }: OnboardingTourProps) {
 
   const activeStep = steps[currentStep];
 
-  // Tooltip dynamic positioning calculation helper
+  // Tooltip dynamic positioning calculation helper with strict boundary checking and flipping
   const getTooltipPositionStyle = () => {
+    const margin = 16;
+    const cardWidth = 320;
+    const cardHeight = 240; // Safe estimate for card height
+
     if (!highlightRect || activeStep.position === 'center' || window.innerWidth < 640) {
       // Center of screen fallback for mobile or when no target is present
       return {
@@ -130,52 +134,71 @@ export function OnboardingTour({ user, onComplete }: OnboardingTourProps) {
         left: '50%',
         transform: 'translate(-50%, -50%)',
         position: 'fixed' as const,
-        maxWidth: 'calc(100vw - 32px)',
+        width: 'calc(100vw - 32px)',
+        maxWidth: '340px',
         maxHeight: 'calc(100vh - 40px)',
       };
     }
 
-    const margin = 16;
-    const cardWidth = 320;
-    const cardHeight = 220; // estimate
-    const scrollY = window.scrollY;
-
     const targetCenterX = highlightRect.left + highlightRect.width / 2;
     const targetCenterY = highlightRect.top + highlightRect.height / 2;
 
+    let computedTop = 0;
+    let computedLeft = 0;
+
     switch (activeStep.position) {
       case 'bottom':
-        return {
-          top: `${highlightRect.bottom + margin}px`,
-          left: `${Math.max(margin, Math.min(window.innerWidth - cardWidth - margin, targetCenterX - cardWidth / 2))}px`,
-          position: 'fixed' as const,
-        };
+        computedTop = highlightRect.bottom + margin;
+        computedLeft = targetCenterX - cardWidth / 2;
+        // Flip to top if it exceeds the viewport height
+        if (computedTop + cardHeight > window.innerHeight - margin) {
+          computedTop = highlightRect.top - cardHeight - margin;
+        }
+        break;
       case 'top':
-        return {
-          top: `${Math.max(margin, highlightRect.top - cardHeight - margin - 50)}px`,
-          left: `${Math.max(margin, Math.min(window.innerWidth - cardWidth - margin, targetCenterX - cardWidth / 2))}px`,
-          position: 'fixed' as const,
-        };
+        computedTop = highlightRect.top - cardHeight - margin;
+        computedLeft = targetCenterX - cardWidth / 2;
+        // Flip to bottom if it goes off the top edge
+        if (computedTop < margin) {
+          computedTop = highlightRect.bottom + margin;
+        }
+        break;
       case 'left':
-        return {
-          top: `${Math.max(margin, targetCenterY - cardHeight / 2)}px`,
-          left: `${Math.max(margin, highlightRect.left - cardWidth - margin)}px`,
-          position: 'fixed' as const,
-        };
+        computedTop = targetCenterY - cardHeight / 2;
+        computedLeft = highlightRect.left - cardWidth - margin;
+        // Flip to right if it goes off the left edge
+        if (computedLeft < margin) {
+          computedLeft = highlightRect.right + margin;
+        }
+        break;
       case 'right':
-        return {
-          top: `${Math.max(margin, targetCenterY - cardHeight / 2)}px`,
-          left: `${Math.min(window.innerWidth - cardWidth - margin, highlightRect.right + margin)}px`,
-          position: 'fixed' as const,
-        };
+        computedTop = targetCenterY - cardHeight / 2;
+        computedLeft = highlightRect.right + margin;
+        // Flip to left if it goes off the right edge
+        if (computedLeft + cardWidth > window.innerWidth - margin) {
+          computedLeft = highlightRect.left - cardWidth - margin;
+        }
+        break;
       default:
         return {
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
           position: 'fixed' as const,
+          width: `${cardWidth}px`,
         };
     }
+
+    // Safety fallback clamp to guarantee it never extends outside the viewport boundaries
+    computedTop = Math.max(margin, Math.min(window.innerHeight - cardHeight - margin, computedTop));
+    computedLeft = Math.max(margin, Math.min(window.innerWidth - cardWidth - margin, computedLeft));
+
+    return {
+      top: `${computedTop}px`,
+      left: `${computedLeft}px`,
+      position: 'fixed' as const,
+      width: `${cardWidth}px`,
+    };
   };
 
   const tooltipStyle = getTooltipPositionStyle();

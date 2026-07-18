@@ -335,7 +335,36 @@ function AppContent() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectionSuccess, setConnectionSuccess] = useState<boolean | null>(null);
-  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football'>('directory');
+  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football'>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football'].includes(tab)) {
+      return tab as any;
+    }
+    const hash = window.location.hash.replace('#', '');
+    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football'].includes(hash)) {
+      return hash as any;
+    }
+    return 'directory';
+  });
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', currentTab);
+    window.history.replaceState({ tab: currentTab }, '', url.toString());
+  }, [currentTab]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football'].includes(tab)) {
+        setCurrentTab(tab as any);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   
   // Keep track of the current date to auto-dismiss birthday banners and effects when the day rolls over.
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -824,7 +853,7 @@ function AppContent() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (user && user.role === 'standard') {
+    if (user) {
       const tourCompleted = localStorage.getItem('sy_onboarding_tour_v1');
       if (tourCompleted !== 'completed') {
         const timer = setTimeout(() => {
@@ -835,7 +864,7 @@ function AppContent() {
     } else {
       setShowOnboardingTour(false);
     }
-  }, [user?.id, user?.role]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (user && user.dob && isBirthdayToday(user.dob, currentDate)) {
