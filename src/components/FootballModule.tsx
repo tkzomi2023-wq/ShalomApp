@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Trophy,
@@ -31,7 +31,8 @@ import {
   Info,
   Radio,
   Save,
-  Key
+  Key,
+  Table
 } from "lucide-react";
 import {
   BarChart,
@@ -52,6 +53,7 @@ import { Member } from "../types";
 import { checkIsAdmin } from "../lib/auth";
 import { Confetti } from "./Confetti";
 import { BentoStatsSkeleton, UpcomingMatchSkeleton, FixtureCardSkeleton, LiveMatchSkeleton } from "./FootballSkeletons";
+import { D3LeagueTable } from "./D3LeagueTable";
 
 const COMPETITIONS = [
   { id: 1, name: "FIFA World Cup" },
@@ -106,7 +108,7 @@ interface FootballModuleProps {
   currentUser: Member | null;
 }
 
-type SubPage = "index" | "fixtures" | "predictions" | "leaderboard" | "standings" | "my-predictions" | "statistics" | "admin";
+type SubPage = "index" | "fixtures" | "predictions" | "leaderboard" | "standings" | "my-predictions" | "statistics" | "admin" | "league-table";
 
 export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<SubPage>("index");
@@ -201,6 +203,20 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+
+  const [toasts, setToasts] = useState<Array<{
+    id: string;
+    matchId: number;
+    title: string;
+    desc: string;
+    matchDisplay: string;
+    logo?: string;
+  }>>([]);
+
+  const matchesRef = useRef<FootballMatch[]>([]);
+  useEffect(() => {
+    matchesRef.current = matches;
+  }, [matches]);
 
   const [savingApiSettings, setSavingApiSettings] = useState<boolean>(false);
   const [apiSettingsError, setApiSettingsError] = useState<string | null>(null);
@@ -309,6 +325,42 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
         { event: "*", schema: "public", table: "football_matches" },
         (payload) => {
           console.log("[Realtime] Match change detected:", payload);
+          if (payload.eventType === "UPDATE") {
+            const oldRow = payload.old;
+            const newRow = payload.new;
+            if (oldRow && newRow) {
+              const prevMatch = matchesRef.current.find(m => m.id === newRow.id);
+              const oldHome = prevMatch ? prevMatch.home_score : oldRow.home_score;
+              const oldAway = prevMatch ? prevMatch.away_score : oldRow.away_score;
+              const newHome = newRow.home_score;
+              const newAway = newRow.away_score;
+
+              const homeGoal = (newHome !== null && oldHome !== null && newHome > oldHome);
+              const awayGoal = (newAway !== null && oldAway !== null && newAway > oldAway);
+
+              if (homeGoal || awayGoal) {
+                const homeTeamName = prevMatch?.homeTeam?.name || "Home Team";
+                const awayTeamName = prevMatch?.awayTeam?.name || "Away Team";
+                const scorerName = homeGoal ? homeTeamName : awayTeamName;
+                const scorerLogo = homeGoal ? prevMatch?.homeTeam?.logo : prevMatch?.awayTeam?.logo;
+
+                const toastId = Math.random().toString();
+                const goalToast = {
+                  id: toastId,
+                  matchId: newRow.id,
+                  title: "GOAL!!! ⚽",
+                  desc: `${scorerName} has scored!`,
+                  matchDisplay: `${homeTeamName} ${newHome} - ${newAway} ${awayTeamName}`,
+                  logo: scorerLogo || undefined
+                };
+
+                setToasts(prev => [...prev, goalToast]);
+                setTimeout(() => {
+                  setToasts(prev => prev.filter(t => t.id !== toastId));
+                }, 6000);
+              }
+            }
+          }
           loadData();
         }
       )
@@ -727,6 +779,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     { id: "my-predictions", label: "My Predictions", icon: CheckCircle2 },
     { id: "leaderboard", label: "Leaderboard", icon: Trophy },
     { id: "standings", label: "Standings", icon: List },
+    { id: "league-table", label: "League Table", icon: Table },
     { id: "statistics", label: "Statistics", icon: BarChart3 }
   ];
 
@@ -735,7 +788,52 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-6" id="football-module-container">
+    <div className="w-full max-w-7xl mx-auto px-4 py-6 relative" id="football-module-container">
+      {/* Realtime Goal scoring toast notifications */}
+      <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, y: -20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, y: -20 }}
+              className="bg-stone-900/95 dark:bg-stone-950/95 text-white p-4 rounded-2xl shadow-2xl border border-stone-800 pointer-events-auto flex gap-3.5 items-center backdrop-blur-md"
+            >
+              {toast.logo ? (
+                <img
+                  src={toast.logo}
+                  alt=""
+                  className="w-10 h-10 object-contain p-1 bg-white dark:bg-stone-900 rounded-xl shrink-0"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center font-bold text-lg shrink-0">
+                  ⚽
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase font-black tracking-widest text-emerald-400">
+                  {toast.title}
+                </div>
+                <div className="text-sm font-black mt-0.5 leading-snug truncate">
+                  {toast.desc}
+                </div>
+                <div className="text-xs font-mono font-bold text-stone-300 mt-1.5 px-2.5 py-1 bg-stone-800/80 rounded-lg inline-block truncate max-w-full">
+                  {toast.matchDisplay}
+                </div>
+              </div>
+              <button
+                onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                className="text-stone-400 hover:text-white font-bold text-xl px-1.5 focus:outline-none cursor-pointer shrink-0"
+              >
+                ×
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       <Confetti active={showConfetti} onComplete={() => setShowConfetti(false)} />
       {/* Upper Module header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -1569,6 +1667,11 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                 </div>
               )}
             </motion.div>
+          )}
+
+          {/* D3 LEAGUE TABLE VIEW */}
+          {activeTab === "league-table" && (
+            <D3LeagueTable standings={standings} />
           )}
 
           {/* 5. MY PREDICTIONS VIEW */}
