@@ -186,19 +186,7 @@ const resolveFootballUrl = (path: string): string => {
 // Robust wrapper for API requests that handles HTML responses, offline states, and parsing issues elegantly.
 // Check if environment is a static hosting platform (Netlify, Vercel, GitHub Pages) without local backend routes
 const isStaticNetlify = (): boolean => {
-  if (typeof window === "undefined") return false;
-  return (
-    window.location.hostname.includes("netlify.app") ||
-    window.location.hostname.includes("vercel.app") ||
-    window.location.hostname.includes("github.io") ||
-    (!import.meta.env.VITE_API_BASE_URL && 
-     !window.location.hostname.includes("localhost") && 
-     !window.location.hostname.includes("127.0.0.1") && 
-     !window.location.hostname.includes("0.0.0.0") && 
-     !window.location.hostname.includes("run.app") && 
-     !window.location.hostname.includes("googleusercontent.com") &&
-     !window.location.hostname.includes("aistudio"))
-  );
+  return false;
 };
 
 // Robust wrapper for API requests that handles HTML responses, offline states, and parsing issues elegantly.
@@ -536,7 +524,7 @@ export const footballApi = {
           hasApiKey: false,
           hasSupabaseTables: true,
           apiEndpoint: "Direct Supabase (Serverless Client-Side)",
-          operatingMode: "Client-Side Direct Supabase Mode",
+          operatingMode: "Supabase Realtime",
           isApiLive: true,
           apiError: null
         };
@@ -548,7 +536,7 @@ export const footballApi = {
         hasApiKey: false,
         hasSupabaseTables: true,
         apiEndpoint: "Direct Supabase (Client Fallback)",
-        operatingMode: "Client-Side Direct Supabase Mode",
+        operatingMode: "Supabase Realtime",
         isApiLive: true,
         apiError: null
       };
@@ -619,12 +607,25 @@ export const footballApi = {
 
     const teamsMap: Record<number, FootballTeam> = {};
     teams.forEach(t => { teamsMap[t.id] = t; });
-    matches.forEach(m => {
+
+    // Filter matches dynamically to only display those belonging to the currently configured competition and season
+    let settings: any = { competitionName: "FIFA World Cup", season: "2026" };
+    try {
+      settings = await this.getClientSettings();
+    } catch (e) {
+      console.warn("Failed to get client settings in getClientMatches:", e);
+    }
+
+    const filteredMatches = matches.filter(
+      m => m.tournament === settings.competitionName && m.season === settings.season
+    );
+
+    filteredMatches.forEach(m => {
       m.homeTeam = teamsMap[m.home_team_id];
       m.awayTeam = teamsMap[m.away_team_id];
     });
 
-    return matches;
+    return filteredMatches;
   },
 
   // 3. Get predictions made by user
@@ -1221,9 +1222,9 @@ export const footballApi = {
     const theSportsDbKey = settings.theSportsDbKey || "3";
     const theSportsDbHost = settings.theSportsDbHost || "https://www.thesportsdb.com/api/v1/json";
 
-    const hasApiKey = !!apiFootballKey && apiFootballKey !== "7bd67bdab71254a48036fa1eff71ed21" && apiFootballKey !== "7042e46eb559f59187b674889b0257d1";
-    const hasFdKey = !!footballDataKey && footballDataKey !== "2a0cdc4facce4172818124d35506bc28";
-    const hasTsdbKey = !!theSportsDbKey && theSportsDbKey !== "3";
+    const hasApiKey = !!apiFootballKey && apiFootballKey.trim() !== "";
+    const hasFdKey = !!footballDataKey && footballDataKey.trim() !== "";
+    const hasTsdbKey = !!theSportsDbKey && theSportsDbKey.trim() !== "";
 
     let fetchedMatches: FootballMatch[] = [];
     let fetchedTeams: FootballTeam[] = [];
@@ -1944,9 +1945,9 @@ export const footballApi = {
     const theSportsDbKey = settings.theSportsDbKey || "3";
     const theSportsDbHost = settings.theSportsDbHost || "https://www.thesportsdb.com/api/v1/json";
 
-    const hasApiKey = !!apiFootballKey && apiFootballKey !== "7bd67bdab71254a48036fa1eff71ed21" && apiFootballKey !== "7042e46eb559f59187b674889b0257d1";
-    const hasFdKey = !!footballDataKey && footballDataKey !== "2a0cdc4facce4172818124d35506bc28";
-    const hasTsdbKey = !!theSportsDbKey && theSportsDbKey !== "3";
+    const hasApiKey = !!apiFootballKey && apiFootballKey.trim() !== "";
+    const hasFdKey = !!footballDataKey && footballDataKey.trim() !== "";
+    const hasTsdbKey = !!theSportsDbKey && theSportsDbKey.trim() !== "";
 
     let storedHealth = {
       "API-Football": {
@@ -2006,7 +2007,7 @@ export const footballApi = {
     return {
       providers: storedHealth,
       activeProvider,
-      operatingMode: "Client-Side Direct Supabase Mode",
+      operatingMode: "Supabase Realtime",
       settings: {
         competitionId: settings.competitionId,
         competitionName: settings.competitionName,

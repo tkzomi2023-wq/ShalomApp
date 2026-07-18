@@ -231,6 +231,21 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     timestamp: string;
   } | null>(null);
 
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("football_auto_refresh_enabled") === "true";
+    } catch (_) {
+      return false;
+    }
+  });
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(() => {
+    try {
+      return Number(localStorage.getItem("football_auto_refresh_interval")) || 60;
+    } catch (_) {
+      return 60;
+    }
+  });
+
   // Filter states for fixtures page
   const [roundFilter, setRoundFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("All Teams");
@@ -339,6 +354,36 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       setFallbackBanner(null);
     }
   }, [syncing]);
+
+  // Persist Auto-Refresh states to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("football_auto_refresh_enabled", autoRefreshEnabled.toString());
+    } catch (_) {}
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("football_auto_refresh_interval", autoRefreshInterval.toString());
+    } catch (_) {}
+  }, [autoRefreshInterval]);
+
+  // Handle periodic auto-refresh
+  const loadDataRef = useRef(loadData);
+  useEffect(() => {
+    loadDataRef.current = loadData;
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+
+    const intervalMs = autoRefreshInterval * 1000;
+    const intervalId = setInterval(() => {
+      loadDataRef.current();
+    }, intervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [autoRefreshEnabled, autoRefreshInterval]);
 
   // Realtime Supabase Subscriptions for Live Match Data Updates
   useEffect(() => {
@@ -918,6 +963,53 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
               </select>
             </div>
           )}
+
+          <div className="flex items-center gap-3 bg-stone-100 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 shadow-sm h-[38px]" id="header-auto-refresh-control">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-stone-500 dark:text-stone-400 whitespace-nowrap">
+                Auto-Refresh:
+              </span>
+              <button
+                type="button"
+                onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  autoRefreshEnabled ? "bg-emerald-500" : "bg-stone-300 dark:bg-stone-700"
+                }`}
+                title={autoRefreshEnabled ? "Disable Auto-Refresh" : "Enable Auto-Refresh"}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    autoRefreshEnabled ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            <AnimatePresence>
+              {autoRefreshEnabled && (
+                <motion.div
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: "auto", opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  className="flex items-center gap-1.5 border-l border-stone-200 dark:border-stone-750 pl-3 overflow-hidden"
+                >
+                  <select
+                    value={autoRefreshInterval}
+                    onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+                    className="bg-transparent border-none text-xs font-black text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-0 cursor-pointer pr-1"
+                  >
+                    <option value={30} className="bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100">30s</option>
+                    <option value={60} className="bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100">1m</option>
+                    <option value={300} className="bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100">5m</option>
+                  </select>
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <button
             onClick={loadData}

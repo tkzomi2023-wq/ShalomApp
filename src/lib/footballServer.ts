@@ -91,8 +91,23 @@ const getTheSportsDbHost = (): string => {
   return process.env.THESPORTSDB_HOST || process.env.VITE_THESPORTSDB_HOST || "https://www.thesportsdb.com/api/v1/json";
 };
 
+const isApiKeyConfigured = (): boolean => {
+  const key = getApiKey();
+  return !!key && key.trim() !== "";
+};
+
+const isFdKeyConfigured = (): boolean => {
+  const key = getFootballDataOrgKey();
+  return !!key && key.trim() !== "";
+};
+
+const isTsdbKeyConfigured = (): boolean => {
+  const key = getTheSportsDbKey();
+  return !!key && key.trim() !== "";
+};
+
 export interface ProviderHealth {
-  status: "Healthy" | "Degraded" | "Failed";
+  status: "Healthy" | "Degraded" | "Failed" | "Offline/Fallback";
   latency: number;
   remainingRequests: number;
   subscription: string;
@@ -1185,7 +1200,7 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
   const apiKey = getApiKey();
   const apiHost = getApiHost();
 
-  if (apiKey && apiKey !== "7bd67bdab71254a48036fa1eff71ed21") {
+  if (isApiKeyConfigured() && apiKey) {
     const start = Date.now();
     try {
       console.log(`[Football Engine] Trying API-Football for league ${compId}, season ${querySeason}...`);
@@ -1342,7 +1357,7 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
     const fdCode = getFootballDataOrgCode(compId);
     const fdKey = getFootballDataOrgKey();
     
-    if (fdCode && fdKey) {
+    if (fdCode && fdKey && isFdKeyConfigured()) {
       const start = Date.now();
       try {
         console.log(`[Football Engine] Fallback Triggered: Querying Football-Data.org for code ${fdCode}, season ${querySeason}...`);
@@ -1864,14 +1879,39 @@ export const createFootballRouter = (): Router => {
     const localDb = loadLocalDB();
     const activeProvider = localDb.settings?.activeProvider || "Simulated Seed";
     
+    const hasApiKey = isApiKeyConfigured();
+    const hasFdKey = isFdKeyConfigured();
+    const hasTsdbKey = isTsdbKeyConfigured();
+
     if (providerHealthStates["API-Football"]) {
       providerHealthStates["API-Football"].apiUrl = getApiUrl();
+      if (!hasApiKey) {
+        providerHealthStates["API-Football"].status = "Offline/Fallback";
+        providerHealthStates["API-Football"].lastError = "Key Not Set";
+      } else if (providerHealthStates["API-Football"].status === "Offline/Fallback") {
+        providerHealthStates["API-Football"].status = "Healthy";
+        providerHealthStates["API-Football"].lastError = null;
+      }
     }
     if (providerHealthStates["Football-Data.org"]) {
       providerHealthStates["Football-Data.org"].apiUrl = getFootballDataOrgHost();
+      if (!hasFdKey) {
+        providerHealthStates["Football-Data.org"].status = "Offline/Fallback";
+        providerHealthStates["Football-Data.org"].lastError = "Key Not Set";
+      } else if (providerHealthStates["Football-Data.org"].status === "Offline/Fallback") {
+        providerHealthStates["Football-Data.org"].status = "Healthy";
+        providerHealthStates["Football-Data.org"].lastError = null;
+      }
     }
     if (providerHealthStates["TheSportsDB"]) {
       providerHealthStates["TheSportsDB"].apiUrl = getTheSportsDbHost();
+      if (!hasTsdbKey) {
+        providerHealthStates["TheSportsDB"].status = "Offline/Fallback";
+        providerHealthStates["TheSportsDB"].lastError = "Key Not Set";
+      } else if (providerHealthStates["TheSportsDB"].status === "Offline/Fallback") {
+        providerHealthStates["TheSportsDB"].status = "Healthy";
+        providerHealthStates["TheSportsDB"].lastError = null;
+      }
     }
     
     res.json({
@@ -1879,9 +1919,9 @@ export const createFootballRouter = (): Router => {
       activeProvider,
       operatingMode: isDbOnline ? "Supabase Realtime" : "Local Database Fallback",
       settings: localDb.settings,
-      hasApiKey: !!getApiKey() && getApiKey() !== "7bd67bdab71254a48036fa1eff71ed21" && getApiKey() !== "7042e46eb559f59187b674889b0257d1",
-      hasFdKey: !!getFootballDataOrgKey() && getFootballDataOrgKey() !== "2a0cdc4facce4172818124d35506bc28",
-      hasTsdbKey: !!getTheSportsDbKey() && getTheSportsDbKey() !== "3"
+      hasApiKey,
+      hasFdKey,
+      hasTsdbKey
     });
   });
 
