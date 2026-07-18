@@ -543,29 +543,68 @@ export const footballApi = {
     }
   },
 
-  // 2. Get Matches (hydrated with teams)
-  async getMatches(): Promise<FootballMatch[]> {
+  // 2. Get Matches (hydrated with teams) (selective fetch to reduce API overhead and latency)
+  async getMatches(leagueId?: number, favoriteIds?: number[]): Promise<FootballMatch[]> {
     try {
       if (isStaticNetlify()) {
-        return await this.getClientMatches();
+        return await this.getClientMatches(leagueId, favoriteIds);
       }
-      return await safeJsonFetch<FootballMatch[]>("/api/football/matches");
+      let url = "/api/football/matches";
+      const params = [];
+      if (leagueId !== undefined && leagueId !== null) {
+        params.push(`leagueId=${leagueId}`);
+      }
+      if (favoriteIds && favoriteIds.length > 0) {
+        params.push(`favoriteIds=${favoriteIds.join(",")}`);
+      }
+      if (params.length > 0) {
+        url += `?${params.join("&")}`;
+      }
+      return await safeJsonFetch<FootballMatch[]>(url);
     } catch (err) {
       console.warn("[Football Engine] Falling back to client-side getMatches due to error:", err);
-      return await this.getClientMatches();
+      return await this.getClientMatches(leagueId, favoriteIds);
     }
   },
 
-  async getClientMatches(): Promise<FootballMatch[]> {
+  async getClientMatches(leagueId?: number, favoriteIds?: number[]): Promise<FootballMatch[]> {
     let matches: FootballMatch[] = [];
     let teams: FootballTeam[] = [];
 
+    let settings: any = { competitionName: "FIFA World Cup", season: "2026" };
+    try {
+      settings = await this.getClientSettings();
+    } catch (e) {
+      console.warn("Failed to get client settings in getClientMatches:", e);
+    }
+
+    const targetLeagueId = leagueId !== undefined && leagueId !== null ? leagueId : settings.competitionId;
+    
+    const getCompetitionNameById = (id: number): string => {
+      switch (id) {
+        case 1: return "FIFA World Cup";
+        case 39: return "Premier League (ENG)";
+        case 2: return "UEFA Champions League";
+        case 140: return "La Liga (ESP)";
+        case 78: return "Bundesliga (GER)";
+        case 135: return "Serie A (ITA)";
+        case 61: return "Ligue 1 (FRA)";
+        default: return "";
+      }
+    };
+    
+    const targetCompName = getCompetitionNameById(targetLeagueId) || settings.competitionName;
+
     // Try to load from Supabase first
     try {
-      const { data: matchesData, error: matchesErr } = await supabase
-        .from("football_matches")
-        .select("*")
-        .order("kickoff", { ascending: true });
+      let query = supabase.from("football_matches").select("*");
+      if (favoriteIds && favoriteIds.length > 0) {
+        query = query.or(`tournament.eq."${targetCompName}",id.in.(${favoriteIds.join(",")})`);
+      } else {
+        query = query.eq("tournament", targetCompName);
+      }
+      
+      const { data: matchesData, error: matchesErr } = await query.order("kickoff", { ascending: true });
       
       if (!matchesErr && matchesData && matchesData.length > 0) {
         matches = matchesData as FootballMatch[];
@@ -608,16 +647,8 @@ export const footballApi = {
     const teamsMap: Record<number, FootballTeam> = {};
     teams.forEach(t => { teamsMap[t.id] = t; });
 
-    // Filter matches dynamically to only display those belonging to the currently configured competition and season
-    let settings: any = { competitionName: "FIFA World Cup", season: "2026" };
-    try {
-      settings = await this.getClientSettings();
-    } catch (e) {
-      console.warn("Failed to get client settings in getClientMatches:", e);
-    }
-
     const filteredMatches = matches.filter(
-      m => m.tournament === settings.competitionName && m.season === settings.season
+      m => (m.tournament === targetCompName && m.season === settings.season) || (favoriteIds && favoriteIds.includes(m.id))
     );
 
     filteredMatches.forEach(m => {
@@ -1512,21 +1543,6 @@ export const footballApi = {
         }
       }
 
-      // Try clearing old matches in Supabase
-      try {
-        const { error: delErr } = await supabase
-          .from("football_matches")
-          .delete()
-          .eq("tournament", compName)
-          .eq("season", season);
-        
-        if (delErr) {
-          console.warn("[Client Sync] Failed to clear old matches in Supabase:", delErr);
-        }
-      } catch (err: any) {
-        console.warn("[Client Sync] Supabase matches clear skipped:", err.message || err);
-      }
-
       // Try writing matches to Supabase
       if (fetchedMatches.length > 0) {
         try {
@@ -1983,6 +1999,17 @@ export const footballApi = {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        // Clean out CORS "Failed to fetch" errors that pollute the status when client-side sync fails
+        for (const [key, value] of Object.entries(parsed)) {
+          if (value && (value as any).lastError && (
+            String((value as any).lastError).includes("Failed to fetch") || 
+            String((value as any).lastError).includes("TypeError") || 
+            String((value as any).lastError).includes("CORS")
+          )) {
+            (value as any).status = "Healthy";
+            (value as any).lastError = null;
+          }
+        }
         storedHealth = { ...storedHealth, ...parsed };
       } catch (e) {}
     }

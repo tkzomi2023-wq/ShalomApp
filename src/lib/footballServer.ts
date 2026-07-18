@@ -1925,7 +1925,7 @@ export const createFootballRouter = (): Router => {
     });
   });
 
-  // 2. Get Matches
+  // 2. Get Matches (selective fetch to reduce API overhead and latency)
   router.get("/matches", async (req: Request, res: Response) => {
     try {
       const isDbOnline = await checkSupabaseSupport();
@@ -1942,8 +1942,37 @@ export const createFootballRouter = (): Router => {
         season: "2026"
       };
 
+      // Extract selective query parameters
+      const leagueId = req.query.leagueId ? Number(req.query.leagueId) : null;
+      const favoriteIds = req.query.favoriteIds ? String(req.query.favoriteIds).split(",").map(Number).filter(id => !isNaN(id)) : [];
+
+      const targetLeagueId = leagueId !== null ? leagueId : settings.competitionId;
+      const getCompetitionNameById = (id: number): string => {
+        switch (id) {
+          case 1: return "FIFA World Cup";
+          case 39: return "Premier League (ENG)";
+          case 2: return "UEFA Champions League";
+          case 140: return "La Liga (ESP)";
+          case 78: return "Bundesliga (GER)";
+          case 135: return "Serie A (ITA)";
+          case 61: return "Ligue 1 (FRA)";
+          default: return "";
+        }
+      };
+      
+      const targetCompName = getCompetitionNameById(targetLeagueId) || settings.competitionName;
+      const targetSeason = settings.season;
+
       if (isDbOnline) {
-        const { data: mData } = await supabase.from("football_matches").select("*").order("kickoff", { ascending: true });
+        // Query selectively from Supabase: matches of target tournament OR any favorited matches
+        let query = supabase.from("football_matches").select("*");
+        if (favoriteIds.length > 0) {
+          query = query.or(`tournament.eq."${targetCompName}",id.in.(${favoriteIds.join(",")})`);
+        } else {
+          query = query.eq("tournament", targetCompName);
+        }
+
+        const { data: mData } = await query.order("kickoff", { ascending: true });
         const { data: tData } = await supabase.from("football_teams").select("*");
         matches = (mData || []) as FootballMatch[];
         teams = (tData || []) as FootballTeam[];
@@ -1952,8 +1981,11 @@ export const createFootballRouter = (): Router => {
         teams = db.teams;
       }
 
-      // Filter matches dynamically to only display those belonging to the currently configured competition and season
-      const filteredMatches = matches.filter(m => m.tournament === settings.competitionName && m.season === settings.season);
+      // Filter matches dynamically to display target tournament/season matches plus any pinned favorites
+      const filteredMatches = matches.filter(m => 
+        (m.tournament === targetCompName && m.season === targetSeason) || 
+        favoriteIds.includes(m.id)
+      );
 
       const hydrated = getHydratedMatches(filteredMatches, teams);
       res.json(hydrated);
