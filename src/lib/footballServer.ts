@@ -1154,7 +1154,7 @@ const mapTheSportsDbMatches = (tsdbEvents: any[], tournamentName: string, season
 };
 
 // Serverside Multi-Provider Sync
-export const syncFixtures = async (): Promise<{ success: boolean; count: number; source: "api" | "seeded" }> => {
+export const syncFixtures = async (): Promise<{ success: boolean; count: number; source: "api" | "seeded" | "simulation_fallback"; fallbackEvent?: any }> => {
   console.log("[Football Engine] Starting multi-provider synchronisation flow...");
   
   const isDbOnline = await checkSupabaseSupport();
@@ -1177,6 +1177,7 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
   let fetchedTeams: FootballTeam[] = [];
   let successProvider = "";
   let useSupabase = isDbOnline;
+  let serverFallbackEvent: any = null;
 
   // ==========================================
   // PROVIDER 1: API-Football (Primary)
@@ -1314,6 +1315,18 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
       } else {
         providerHealthStates["API-Football"].status = "Failed";
         providerHealthStates["API-Football"].lastError = `HTTP ${res.status}`;
+        if (res.status === 404 || res.status === 429) {
+          const fdCode = getFootballDataOrgCode(compId);
+          const fdKey = getFootballDataOrgKey();
+          const fallbackTo = (fdCode && fdKey) ? "Football-Data.org" : (getTheSportsDbId(compId) ? "TheSportsDB" : "Seeded Backup / Simulation");
+          serverFallbackEvent = {
+            active: true,
+            primaryStatus: res.status,
+            primaryProvider: "API-Football",
+            fallbackProvider: fallbackTo,
+            timestamp: new Date().toISOString()
+          };
+        }
       }
     } catch (err: any) {
       console.warn("[Football Engine] API-Football fetch failed, attempting fallback:", err.message || err);
@@ -1498,7 +1511,7 @@ Successful via ${successProvider}`;
     // Award points
     await updateResults();
 
-    return { success: true, count: fetchedMatches.length, source: "api" };
+    return { success: true, count: fetchedMatches.length, source: "api", fallbackEvent: serverFallbackEvent };
   }
 
   // ==========================================
@@ -2565,7 +2578,8 @@ export const createFootballRouter = (): Router => {
           ? "Successfully synced with Live API-Football!"
           : "Advancement Sync Simulated. Matches progressed successfully!",
         count: syncResult.count,
-        source: syncResult.source
+        source: syncResult.source,
+        fallbackEvent: syncResult.fallbackEvent || null
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

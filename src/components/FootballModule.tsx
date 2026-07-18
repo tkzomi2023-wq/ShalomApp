@@ -223,6 +223,13 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
   const [apiSettingsSuccess, setApiSettingsSuccess] = useState<string | null>(null);
 
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
+  const [fallbackBanner, setFallbackBanner] = useState<{
+    active: boolean;
+    primaryStatus: number | string;
+    primaryProvider: string;
+    fallbackProvider: string;
+    timestamp: string;
+  } | null>(null);
 
   // Filter states for fixtures page
   const [roundFilter, setRoundFilter] = useState<string>("All");
@@ -313,6 +320,25 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     }
     loadData();
   }, [currentUser]);
+
+  // Load fallback warning event from localStorage when sync finishes
+  useEffect(() => {
+    const saved = localStorage.getItem("football_fallback_event");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.active) {
+          setFallbackBanner(parsed);
+        } else {
+          setFallbackBanner(null);
+        }
+      } catch (_) {
+        setFallbackBanner(null);
+      }
+    } else {
+      setFallbackBanner(null);
+    }
+  }, [syncing]);
 
   // Realtime Supabase Subscriptions for Live Match Data Updates
   useEffect(() => {
@@ -492,6 +518,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       
       const res = await footballApi.syncFootball(currentUser.email);
       setActionSuccess(res.message);
+      if (res && (res as any).fallbackEvent) {
+        localStorage.setItem("football_fallback_event", JSON.stringify((res as any).fallbackEvent));
+        setFallbackBanner((res as any).fallbackEvent);
+      }
       await loadData();
     } catch (err: any) {
       setActionError(err.message || "Sync failed");
@@ -513,6 +543,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       
       const res = await footballApi.syncFootball(currentUser.email);
       setActionSuccess(res.message);
+      if (res && (res as any).fallbackEvent) {
+        localStorage.setItem("football_fallback_event", JSON.stringify((res as any).fallbackEvent));
+        setFallbackBanner((res as any).fallbackEvent);
+      }
       await loadData();
     } catch (err: any) {
       setActionError(err.message || "Synchronization failed");
@@ -618,6 +652,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       // 2. Trigger active sync to fetch matches of the newly selected league
       const syncRes = await footballApi.syncFootball(currentUser.email);
       setActionSuccess(`Switched to ${comp.name} and synced matches successfully!`);
+      if (syncRes && (syncRes as any).fallbackEvent) {
+        localStorage.setItem("football_fallback_event", JSON.stringify((syncRes as any).fallbackEvent));
+        setFallbackBanner((syncRes as any).fallbackEvent);
+      }
       
       // 3. Reload everything
       await loadData();
@@ -986,6 +1024,42 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                 </div>
               </div>
             )}
+          </motion.div>
+        )}
+        {fallbackBanner && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-6 p-4 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 rounded-2xl text-xs font-medium flex items-start gap-3 border border-amber-200 dark:border-amber-900 shadow-sm relative overflow-hidden"
+          >
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500" />
+            <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded-xl text-amber-600 dark:text-amber-400">
+              <Zap className="w-4 h-4 animate-pulse" />
+            </div>
+            <div className="flex-1 pr-6">
+              <div className="font-bold text-amber-900 dark:text-amber-200 text-sm">
+                Automatic API Provider Fallback Triggered
+              </div>
+              <p className="mt-1 leading-relaxed text-amber-700 dark:text-amber-300/90">
+                The primary endpoint <strong className="font-black">({fallbackBanner.primaryProvider})</strong> returned status code <strong className="font-black">{fallbackBanner.primaryStatus}</strong>.
+                To maintain uninterrupted prediction dashboard services, the engine automatically switched to secondary provider <strong className="font-black">({fallbackBanner.fallbackProvider})</strong>.
+              </p>
+              <div className="text-[10px] text-stone-500 dark:text-stone-400 font-mono mt-2 flex items-center gap-1">
+                <span>Timestamp:</span>
+                <span>{new Date(fallbackBanner.timestamp).toLocaleString()}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                localStorage.removeItem("football_fallback_event");
+                setFallbackBanner(null);
+              }}
+              className="absolute top-3.5 right-3.5 text-amber-600 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-100 transition-colors cursor-pointer text-base leading-none font-bold p-1 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-lg"
+              title="Dismiss warning"
+            >
+              ×
+            </button>
           </motion.div>
         )}
         {actionSuccess && (

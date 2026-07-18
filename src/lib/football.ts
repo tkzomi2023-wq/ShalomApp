@@ -1371,6 +1371,17 @@ export const footballApi = {
           healthStates["API-Football"].status = "Failed";
           healthStates["API-Football"].lastError = `HTTP ${res.status}`;
           addClientLog("API-FOOTBALL", `Connection failed with status HTTP ${res.status}`);
+          if (res.status === 404 || res.status === 429) {
+            const fallbackTo = hasFdKey ? "Football-Data.org" : (hasTsdbKey ? "TheSportsDB" : "Seeded Backup / Simulation");
+            addClientLog("API-FOOTBALL", `HTTP ${res.status} error detected on primary provider. Automatically switching to secondary API provider: ${fallbackTo}...`);
+            localStorage.setItem("football_fallback_event", JSON.stringify({
+              active: true,
+              primaryStatus: res.status,
+              primaryProvider: "API-Football",
+              fallbackProvider: fallbackTo,
+              timestamp: new Date().toISOString()
+            }));
+          }
         }
       } catch (err: any) {
         healthStates["API-Football"].status = "Failed";
