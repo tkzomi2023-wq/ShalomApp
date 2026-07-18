@@ -569,25 +569,53 @@ export const footballApi = {
   },
 
   async getClientMatches(): Promise<FootballMatch[]> {
-    const { data: matchesData, error: matchesErr } = await supabase
-      .from("football_matches")
-      .select("*")
-      .order("kickoff", { ascending: true });
-    
-    if (matchesErr) {
-      console.warn("[Football Engine] Direct Matches Select Error:", matchesErr);
+    let matches: FootballMatch[] = [];
+    let teams: FootballTeam[] = [];
+
+    // Try to load from Supabase first
+    try {
+      const { data: matchesData, error: matchesErr } = await supabase
+        .from("football_matches")
+        .select("*")
+        .order("kickoff", { ascending: true });
+      
+      if (!matchesErr && matchesData && matchesData.length > 0) {
+        matches = matchesData as FootballMatch[];
+      }
+    } catch (err) {
+      console.warn("[Football Engine] Supabase matches select failed:", err);
     }
 
-    const { data: teamsData, error: teamsErr } = await supabase
-      .from("football_teams")
-      .select("*");
-
-    if (teamsErr) {
-      console.warn("[Football Engine] Direct Teams Select Error:", teamsErr);
+    try {
+      const { data: teamsData, error: teamsErr } = await supabase
+        .from("football_teams")
+        .select("*");
+      
+      if (!teamsErr && teamsData && teamsData.length > 0) {
+        teams = teamsData as FootballTeam[];
+      }
+    } catch (err) {
+      console.warn("[Football Engine] Supabase teams select failed:", err);
     }
 
-    const matches = (matchesData || []) as FootballMatch[];
-    const teams = (teamsData || []) as FootballTeam[];
+    // Fallback to localStorage if Supabase data is empty
+    if (matches.length === 0) {
+      try {
+        const localM = localStorage.getItem("football_local_matches");
+        if (localM) {
+          matches = JSON.parse(localM);
+        }
+      } catch (_) {}
+    }
+
+    if (teams.length === 0) {
+      try {
+        const localT = localStorage.getItem("football_local_teams");
+        if (localT) {
+          teams = JSON.parse(localT);
+        }
+      } catch (_) {}
+    }
 
     const teamsMap: Record<number, FootballTeam> = {};
     teams.forEach(t => { teamsMap[t.id] = t; });
@@ -613,15 +641,31 @@ export const footballApi = {
   },
 
   async getClientUserPredictions(userId: string): Promise<FootballPrediction[]> {
-    const { data, error } = await supabase
-      .from("football_predictions")
-      .select("*")
-      .eq("user_id", userId);
-    
-    if (error) {
-      console.error("[Football Engine] Direct Predictions Fetch Error:", error);
+    let preds: FootballPrediction[] = [];
+    try {
+      const { data, error } = await supabase
+        .from("football_predictions")
+        .select("*")
+        .eq("user_id", userId);
+      
+      if (!error && data && data.length > 0) {
+        preds = data as FootballPrediction[];
+      }
+    } catch (err) {
+      console.warn("[Football Engine] Direct Predictions Fetch Error:", err);
     }
-    return (data || []) as FootballPrediction[];
+
+    if (preds.length === 0) {
+      try {
+        const localP = localStorage.getItem("football_local_predictions");
+        if (localP) {
+          const allLocal = JSON.parse(localP) as FootballPrediction[];
+          preds = allLocal.filter(p => p.user_id === userId);
+        }
+      } catch (_) {}
+    }
+
+    return preds;
   },
 
   // 4. Submit a prediction
@@ -666,12 +710,12 @@ export const footballApi = {
     predictedHomeScore?: number | null,
     predictedAwayScore?: number | null
   ): Promise<{ success: boolean; message: string }> {
-    // Determine the current active settings to assign competition and season
-    const { data: sData } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
-    const competition_id = sData?.competition_id || 1;
-    const season = sData?.season || "2026";
+    const settings = await this.getClientSettings();
+    const competition_id = settings.competitionId;
+    const season = settings.season;
 
     const predictionData: any = {
+      id: Math.floor(Math.random() * 1000000), // temp local ID
       user_id: userId,
       user_name: userName || "Anonymous User",
       user_email: userEmail || "",
@@ -683,65 +727,73 @@ export const footballApi = {
       updated_at: new Date().toISOString()
     };
 
-    // First, check if row exists so we can update or insert safely
-    const { data: existing } = await supabase
-      .from("football_predictions")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("match_id", matchId);
+    // Save locally first so it always works
+    try {
+      const localP = localStorage.getItem("football_local_predictions");
+      let allLocal: any[] = [];
+      if (localP) {
+        allLocal = JSON.parse(localP);
+      }
+      // Remove any existing prediction for this user and match
+      allLocal = allLocal.filter(p => !(p.user_id === userId && p.match_id === matchId));
+      allLocal.push(predictionData);
+      localStorage.setItem("football_local_predictions", JSON.stringify(allLocal));
+    } catch (_) {}
 
-    let attempts = 0;
-    const maxAttempts = 3;
-    const payload = { ...predictionData, competition_id, season };
+    // Now try to save to Supabase
+    try {
+      const { data: existing } = await supabase
+        .from("football_predictions")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("match_id", matchId);
 
-    while (attempts < maxAttempts) {
-      try {
-        if (existing && existing.length > 0) {
-          const { error: updErr } = await supabase
-            .from("football_predictions")
-            .update(payload)
-            .eq("id", existing[0].id);
-          if (updErr) throw updErr;
-        } else {
-          const { error: insErr } = await supabase
-            .from("football_predictions")
-            .insert({ ...payload, created_at: new Date().toISOString() });
-          if (insErr) throw insErr;
-        }
-        break; // Success
-      } catch (err: any) {
-        attempts++;
-        const errorMsg = (err.message || "").toLowerCase();
-        let removedAny = false;
+      const payload = { ...predictionData, competition_id, season };
+      delete payload.id; // remove temp local ID
 
-        const columnsToTest = ["competition_id", "season"];
-        for (const col of columnsToTest) {
-          if (errorMsg.includes(col.toLowerCase())) {
-            if (payload[col] !== undefined) {
-              delete payload[col];
-              removedAny = true;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        try {
+          if (existing && existing.length > 0) {
+            const { error: updErr } = await supabase
+              .from("football_predictions")
+              .update(payload)
+              .eq("id", existing[0].id);
+            if (updErr) throw updErr;
+          } else {
+            const { error: insErr } = await supabase
+              .from("football_predictions")
+              .insert({ ...payload, created_at: new Date().toISOString() });
+            if (insErr) throw insErr;
+          }
+          break; // Success
+        } catch (err: any) {
+          attempts++;
+          const errorMsg = (err.message || "").toLowerCase();
+          let removedAny = false;
+
+          const columnsToTest = ["competition_id", "season"];
+          for (const col of columnsToTest) {
+            if (errorMsg.includes(col.toLowerCase())) {
+              if (payload[col] !== undefined) {
+                delete payload[col];
+                removedAny = true;
+              }
             }
           }
-        }
 
-        const match = (err.message || "").match(/Could not find the '([^']+)' column/i)
-                   || (err.message || "").match(/column "([^"]+)" of relation/i)
-                   || (err.message || "").match(/column "([^"]+)" does not exist/i);
-        if (match && match[1]) {
-          const col = match[1];
-          if (payload[col] !== undefined) {
-            delete payload[col];
-            removedAny = true;
+          if (!removedAny || attempts >= maxAttempts) {
+            throw err;
           }
         }
-
-        if (!removedAny || attempts >= maxAttempts) {
-          throw err;
-        }
       }
+      return { success: true, message: "Prediction submitted successfully to database and local cache!" };
+    } catch (err) {
+      console.warn("Could not save prediction to Supabase, saved to browser cache instead:", err);
+      return { success: true, message: "Prediction saved successfully to your browser storage!" };
     }
-
-    return { success: true, message: "Prediction submitted successfully directly to Supabase!" };
   },
 
   // 5. Get dynamic leaderboard
@@ -758,22 +810,54 @@ export const footballApi = {
   },
 
   async getClientLeaderboard(): Promise<LeaderboardEntry[]> {
-    const { data: pData } = await supabase.from("football_predictions").select("*");
-    const { data: mData } = await supabase.from("football_matches").select("id, tournament, season");
-    const { data: sData } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+    let pData: any = null;
+    let mData: any = null;
+    let sData: any = null;
 
-    const predictions = (pData || []) as FootballPrediction[];
-    const matches = (mData || []) as FootballMatch[];
-    const settings = sData || {
-      competition_id: 1,
-      competition_name: "FIFA World Cup",
-      season: "2026"
-    };
+    try {
+      const { data } = await supabase.from("football_predictions").select("*");
+      pData = data;
+    } catch (_) {}
 
-    const compName = settings.competition_name || "FIFA World Cup";
+    try {
+      const { data } = await supabase.from("football_matches").select("id, tournament, season");
+      mData = data;
+    } catch (_) {}
+
+    try {
+      const { data } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+      sData = data;
+    } catch (_) {}
+
+    let predictions = (pData || []) as FootballPrediction[];
+    let matches = (mData || []) as FootballMatch[];
+
+    // Fallbacks
+    if (predictions.length === 0) {
+      try {
+        const localP = localStorage.getItem("football_local_predictions");
+        if (localP) {
+          predictions = JSON.parse(localP);
+        }
+      } catch (_) {}
+    }
+
+    if (matches.length === 0) {
+      try {
+        const localM = localStorage.getItem("football_local_matches");
+        if (localM) {
+          matches = JSON.parse(localM);
+        }
+      } catch (_) {}
+    }
+
+    const settings = sData || await this.getClientSettings();
+    const compName = settings.competitionName || settings.competition_name || "FIFA World Cup";
+    const season = settings.season || "2026";
+
     const activeMatchIds = new Set(
       matches
-        .filter(m => m.tournament === compName && m.season === settings.season)
+        .filter(m => m.tournament === compName && m.season === season)
         .map(m => m.id)
     );
 
@@ -866,20 +950,52 @@ export const footballApi = {
   },
 
   async getClientStandings(): Promise<StandingsGroup[]> {
-    const { data: mData } = await supabase.from("football_matches").select("*");
-    const { data: tData } = await supabase.from("football_teams").select("*");
-    const { data: sData } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+    let mData: any = null;
+    let tData: any = null;
+    let sData: any = null;
 
-    const matches = (mData || []) as FootballMatch[];
-    const teams = (tData || []) as FootballTeam[];
-    const settings = sData || {
-      competition_id: 1,
-      competition_name: "FIFA World Cup",
-      season: "2026"
-    };
+    try {
+      const { data } = await supabase.from("football_matches").select("*");
+      mData = data;
+    } catch (_) {}
 
-    const compName = settings.competition_name || "FIFA World Cup";
-    const activeMatches = matches.filter(m => m.tournament === compName && m.season === settings.season);
+    try {
+      const { data } = await supabase.from("football_teams").select("*");
+      tData = data;
+    } catch (_) {}
+
+    try {
+      const { data } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+      sData = data;
+    } catch (_) {}
+
+    let matches = (mData || []) as FootballMatch[];
+    let teams = (tData || []) as FootballTeam[];
+
+    // Fallbacks
+    if (matches.length === 0) {
+      try {
+        const localM = localStorage.getItem("football_local_matches");
+        if (localM) {
+          matches = JSON.parse(localM);
+        }
+      } catch (_) {}
+    }
+
+    if (teams.length === 0) {
+      try {
+        const localT = localStorage.getItem("football_local_teams");
+        if (localT) {
+          teams = JSON.parse(localT);
+        }
+      } catch (_) {}
+    }
+
+    const settings = sData || await this.getClientSettings();
+    const compName = settings.competitionName || settings.competition_name || "FIFA World Cup";
+    const season = settings.season || "2026";
+
+    const activeMatches = matches.filter(m => m.tournament === compName && m.season === season);
     const hasGroups = activeMatches.some(m => m.round.toLowerCase().includes("group") || m.round.toLowerCase().includes("stage"));
 
     const activeTeamIds = new Set<number>();
@@ -1362,64 +1478,118 @@ export const footballApi = {
     let processedCount = 0;
 
     if (fetchedMatches.length > 0) {
-      addClientLog("SYSTEM", `Writing ${fetchedTeams.length} teams and ${fetchedMatches.length} matches to Supabase...`);
+      addClientLog("SYSTEM", `Writing ${fetchedTeams.length} teams and ${fetchedMatches.length} matches to local cache and Supabase...`);
       
-      // Upsert Teams
+      // Save to localStorage immediately so it is reliable even without a database
+      try {
+        localStorage.setItem("football_local_matches", JSON.stringify(fetchedMatches));
+        localStorage.setItem("football_local_teams", JSON.stringify(fetchedTeams));
+        processedCount = fetchedMatches.length;
+      } catch (_) {}
+
+      // Try writing teams to Supabase
       if (fetchedTeams.length > 0) {
-        const { error: teamErr } = await supabase.from("football_teams").upsert(fetchedTeams);
-        if (teamErr) {
-          addClientLog("SYSTEM", `Teams upsert failed: ${teamErr.message}`);
-          console.warn("[Client Sync] Teams upsert error:", teamErr);
+        try {
+          const { error: teamErr } = await supabase.from("football_teams").upsert(fetchedTeams);
+          if (teamErr) {
+            addClientLog("SYSTEM", `Teams upsert skipped/failed: ${teamErr.message}`);
+            console.warn("[Client Sync] Teams upsert error:", teamErr);
+          }
+        } catch (err: any) {
+          console.warn("[Client Sync] Supabase teams write skipped:", err.message || err);
         }
       }
 
-      // Clean old matches first
-      const { error: delErr } = await supabase
-        .from("football_matches")
-        .delete()
-        .eq("tournament", compName)
-        .eq("season", season);
-      
-      if (delErr) {
-        console.warn("[Client Sync] Failed to clear old matches:", delErr);
+      // Try clearing old matches in Supabase
+      try {
+        const { error: delErr } = await supabase
+          .from("football_matches")
+          .delete()
+          .eq("tournament", compName)
+          .eq("season", season);
+        
+        if (delErr) {
+          console.warn("[Client Sync] Failed to clear old matches in Supabase:", delErr);
+        }
+      } catch (err: any) {
+        console.warn("[Client Sync] Supabase matches clear skipped:", err.message || err);
       }
 
-      // Upsert Matches
+      // Try writing matches to Supabase
       if (fetchedMatches.length > 0) {
-        const { error: matchErr } = await supabase.from("football_matches").upsert(fetchedMatches);
-        if (matchErr) {
-          addClientLog("SYSTEM", `Matches upsert failed: ${matchErr.message}`);
-          console.warn("[Client Sync] Matches upsert error:", matchErr);
-        } else {
-          processedCount = fetchedMatches.length;
+        try {
+          const { error: matchErr } = await supabase.from("football_matches").upsert(fetchedMatches);
+          if (matchErr) {
+            addClientLog("SYSTEM", `Matches upsert skipped/failed: ${matchErr.message}`);
+            console.warn("[Client Sync] Matches upsert error:", matchErr);
+          } else {
+            processedCount = fetchedMatches.length;
+          }
+        } catch (err: any) {
+          console.warn("[Client Sync] Supabase matches write skipped:", err.message || err);
         }
       }
 
-      // Save sync state in settings table
-      await supabase.from("football_configs").upsert({
-        id: 1,
-        competition_id: compId,
-        competition_name: compName,
-        season: season,
-        last_sync_time: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
+      // Try saving sync state in Supabase config
+      try {
+        await supabase.from("football_configs").upsert({
+          id: 1,
+          competition_id: compId,
+          competition_name: compName,
+          season: season,
+          last_sync_time: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      } catch (err: any) {
+        console.warn("[Client Sync] Supabase config write skipped:", err.message || err);
+      }
 
-      addClientLog("SYSTEM", `Database write finished. Advancing knockouts bracket integrity...`);
-      await ensureBracketIntegrityClient(fetchedMatches, { competitionName: compName, season });
+      addClientLog("SYSTEM", `Data write finished. Advancing knockouts bracket integrity...`);
+      try {
+        await ensureBracketIntegrityClient(fetchedMatches, { competitionName: compName, season });
+      } catch (err) {
+        console.warn("[Client Sync] Bracket integrity skipped:", err);
+      }
 
     } else {
-      // Offline/fallback progression of matches
-      addClientLog("SYSTEM", "No API keys configured or all providers offline. Running simulated progression of matches...");
-      const simulatedResult = await this.clientSimulateProgression(compName, season);
-      processedCount = simulatedResult.count;
-      addClientLog("SYSTEM", simulatedResult.message);
+      addClientLog("SYSTEM", "No API keys configured or all providers offline. Simulated goal progression is disabled as requested.");
+      processedCount = 0;
     }
 
     // 2. Score predictions
     addClientLog("SYSTEM", "Synchronising and scoring predictions against latest match results...");
-    const { data: latestMatches } = await supabase.from("football_matches").select("*").eq("tournament", compName).eq("season", season);
-    const { data: predictions } = await supabase.from("football_predictions").select("*");
+    
+    let latestMatches: any = null;
+    let predictions: any = null;
+
+    try {
+      const { data: mData } = await supabase.from("football_matches").select("*").eq("tournament", compName).eq("season", season);
+      latestMatches = mData;
+    } catch (_) {}
+
+    try {
+      const { data: pData } = await supabase.from("football_predictions").select("*");
+      predictions = pData;
+    } catch (_) {}
+
+    // Fallbacks
+    if (!latestMatches || latestMatches.length === 0) {
+      try {
+        const localM = localStorage.getItem("football_local_matches");
+        if (localM) {
+          latestMatches = JSON.parse(localM);
+        }
+      } catch (_) {}
+    }
+
+    if (!predictions || predictions.length === 0) {
+      try {
+        const localP = localStorage.getItem("football_local_predictions");
+        if (localP) {
+          predictions = JSON.parse(localP);
+        }
+      } catch (_) {}
+    }
 
     let scoredCount = 0;
     const updatedPredictions: any[] = [];
@@ -1451,12 +1621,32 @@ export const footballApi = {
     }
 
     if (updatedPredictions.length > 0) {
-      const { error: predUpdErr } = await supabase.from("football_predictions").upsert(updatedPredictions);
-      if (predUpdErr) {
-        addClientLog("SYSTEM", `Predictions scoring save failed: ${predUpdErr.message}`);
-        console.warn("[Client Sync] Predictions scoring failed:", predUpdErr);
-      } else {
-        addClientLog("SYSTEM", `Successfully graded ${scoredCount} predictions.`);
+      // Save locally first
+      try {
+        const localP = localStorage.getItem("football_local_predictions");
+        if (localP) {
+          const allLocal = JSON.parse(localP) as FootballPrediction[];
+          updatedPredictions.forEach(upd => {
+            const index = allLocal.findIndex(p => p.id === upd.id || (p.match_id === upd.match_id && p.user_id === upd.user_id));
+            if (index !== -1) {
+              allLocal[index].points = upd.points;
+              allLocal[index].updated_at = upd.updated_at;
+            }
+          });
+          localStorage.setItem("football_local_predictions", JSON.stringify(allLocal));
+        }
+      } catch (_) {}
+
+      try {
+        const { error: predUpdErr } = await supabase.from("football_predictions").upsert(updatedPredictions);
+        if (predUpdErr) {
+          addClientLog("SYSTEM", `Predictions scoring save skipped/failed: ${predUpdErr.message}`);
+          console.warn("[Client Sync] Predictions scoring failed:", predUpdErr);
+        } else {
+          addClientLog("SYSTEM", `Successfully graded ${scoredCount} predictions in database.`);
+        }
+      } catch (err) {
+        console.warn("[Client Sync] Supabase predictions score save skipped:", err);
       }
     }
 
@@ -1465,74 +1655,17 @@ export const footballApi = {
     return {
       success: true,
       message: successProvider 
-        ? `Successfully fetched ${processedCount} live fixtures from ${successProvider}, synchronised bracket, and graded ${scoredCount} predictions!`
-        : `Direct client-side simulated sync completed. Auto-progressed ${processedCount} matches & scored ${scoredCount} predictions successfully!`,
+        ? `Successfully fetched ${processedCount} live fixtures from ${successProvider}, updated local storage and browser cache, and graded ${scoredCount} predictions!`
+        : `Direct client-side sync completed. Loaded latest match fixtures and graded ${scoredCount} predictions!`,
       count: processedCount
     };
   },
 
   async clientSimulateProgression(compName: string, season: string): Promise<{ message: string, count: number }> {
-    // Fetch matches
-    const { data: matchesData } = await supabase.from("football_matches").select("*").eq("tournament", compName).eq("season", season);
-    const matches = (matchesData || []) as FootballMatch[];
-
-    const now = new Date();
-    let progressedCount = 0;
-    const progressedMatches: any[] = [];
-
-    for (const match of matches) {
-      let wasUpdated = false;
-      if (match.status === "NS" && new Date(match.kickoff) < now) {
-        const kickoffTime = new Date(match.kickoff).getTime();
-        const elapsedMs = now.getTime() - kickoffTime;
-        
-        // Over 2 hours -> Finished
-        if (elapsedMs > 7200000) {
-          match.status = "FT";
-          if (match.home_score === null || match.away_score === null) {
-            match.home_score = Math.floor(Math.random() * 4);
-            match.away_score = Math.floor(Math.random() * 3);
-            if (match.home_score > match.away_score) {
-              match.winner_team_id = match.home_team_id;
-            } else if (match.home_score < match.away_score) {
-              match.winner_team_id = match.away_team_id;
-            } else {
-              match.winner_team_id = null;
-            }
-          }
-          wasUpdated = true;
-        } else {
-          // Live match
-          match.status = "LIVE";
-          if (match.home_score === null || match.away_score === null) {
-            match.home_score = Math.floor(Math.random() * 2);
-            match.away_score = Math.floor(Math.random() * 2);
-          }
-          wasUpdated = true;
-        }
-      }
-
-      if (wasUpdated) {
-        progressedCount++;
-        progressedMatches.push({
-          id: match.id,
-          status: match.status,
-          home_score: match.home_score,
-          away_score: match.away_score,
-          winner_team_id: match.winner_team_id,
-          updated_at: new Date().toISOString()
-        });
-      }
-    }
-
-    if (progressedMatches.length > 0) {
-      const { error: matchUpdErr } = await supabase.from("football_matches").upsert(progressedMatches);
-      if (matchUpdErr) console.warn("[Client Sim] Match updates failed:", matchUpdErr);
-    }
-
+    console.log("[Football Engine] Random goal simulation is disabled as requested by the user. Real API keys are required to retrieve active scores.");
     return {
-      message: `Simulated sync completed. Auto-progressed ${progressedCount} matches successfully!`,
-      count: progressedCount
+      message: "Simulation skipped. Real API data is required to update scores.",
+      count: 0
     };
   },
 
@@ -1598,21 +1731,44 @@ export const footballApi = {
   },
 
   async getClientSettings(): Promise<any> {
-    const { data: sData } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
-    const { data: aData } = await supabase.from("api_configs").select("*").eq("id", 1).maybeSingle();
+    let sData: any = null;
+    let aData: any = null;
+
+    try {
+      const { data } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+      sData = data;
+    } catch (err) {
+      console.warn("Failed to select from football_configs:", err);
+    }
+
+    try {
+      const { data } = await supabase.from("api_configs").select("*").eq("id", 1).maybeSingle();
+      aData = data;
+    } catch (err) {
+      console.warn("Failed to select from api_configs:", err);
+    }
+
+    // Load local storage settings as a fallback (crucial for Netlify / local-only operation)
+    let localSettings: any = {};
+    try {
+      const saved = localStorage.getItem("football_local_settings");
+      if (saved) {
+        localSettings = JSON.parse(saved);
+      }
+    } catch (_) {}
 
     return {
-      competitionId: sData?.competition_id || 1,
-      competitionName: sData?.competition_name || "FIFA World Cup",
-      season: sData?.season || "2026",
-      syncInterval: sData?.sync_interval || 10,
-      lastSyncTime: sData?.last_sync_time || new Date().toISOString(),
-      apiFootballKey: aData?.api_football_key || sData?.api_football_key || "",
-      apiFootballUrl: aData?.api_football_url || sData?.api_football_url || "",
-      footballDataKey: aData?.football_data_key || sData?.football_data_key || "",
-      footballDataHost: aData?.football_data_host || sData?.football_data_host || "",
-      theSportsDbKey: aData?.the_sportsdb_key || sData?.the_sportsdb_key || "",
-      theSportsDbHost: aData?.the_sportsdb_host || sData?.the_sportsdb_host || ""
+      competitionId: sData?.competition_id || localSettings.competitionId || 1,
+      competitionName: sData?.competition_name || localSettings.competitionName || "FIFA World Cup",
+      season: sData?.season || localSettings.season || "2026",
+      syncInterval: sData?.sync_interval || localSettings.syncInterval || 10,
+      lastSyncTime: sData?.last_sync_time || localSettings.lastSyncTime || new Date().toISOString(),
+      apiFootballKey: aData?.api_football_key || sData?.api_football_key || localSettings.apiFootballKey || "",
+      apiFootballUrl: aData?.api_football_url || sData?.api_football_url || localSettings.apiFootballUrl || "https://v3.football.api-sports.io",
+      footballDataKey: aData?.football_data_key || sData?.football_data_key || localSettings.footballDataKey || "",
+      footballDataHost: aData?.football_data_host || sData?.football_data_host || localSettings.footballDataHost || "https://api.football-data.org/v4",
+      theSportsDbKey: aData?.the_sportsdb_key || sData?.the_sportsdb_key || localSettings.theSportsDbKey || "3",
+      theSportsDbHost: aData?.the_sportsdb_host || sData?.the_sportsdb_host || localSettings.theSportsDbHost || "https://www.thesportsdb.com/api/v1/json"
     };
   },
 
@@ -1669,32 +1825,64 @@ export const footballApi = {
     theSportsDbKey?: string,
     theSportsDbHost?: string
   ): Promise<{ success: boolean; message: string }> {
-    const { error: sErr } = await supabase.from("football_configs").upsert({
-      id: 1,
-      competition_id: competitionId,
-      competition_name: competitionName,
-      season: season,
-      sync_interval: syncInterval,
-      last_sync_time: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    });
+    // Save to localStorage FIRST so it always succeeds on static hosts (Netlify)
+    const localSettings = {
+      competitionId,
+      competitionName,
+      season,
+      syncInterval,
+      lastSyncTime: new Date().toISOString(),
+      apiFootballKey: apiFootballKey || "",
+      apiFootballUrl: apiFootballUrl || "https://v3.football.api-sports.io",
+      footballDataKey: footballDataKey || "",
+      footballDataHost: footballDataHost || "https://api.football-data.org/v4",
+      theSportsDbKey: theSportsDbKey || "3",
+      theSportsDbHost: theSportsDbHost || "https://www.thesportsdb.com/api/v1/json"
+    };
+    localStorage.setItem("football_local_settings", JSON.stringify(localSettings));
 
-    if (sErr) throw sErr;
+    let supabaseSaved = false;
+    let errorMsg = "";
+    try {
+      const { error: sErr } = await supabase.from("football_configs").upsert({
+        id: 1,
+        competition_id: competitionId,
+        competition_name: competitionName,
+        season: season,
+        sync_interval: syncInterval,
+        last_sync_time: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
 
-    const { error: aErr } = await supabase.from("api_configs").upsert({
-      id: 1,
-      api_football_key: apiFootballKey || "",
-      api_football_url: apiFootballUrl || "",
-      football_data_key: footballDataKey || "",
-      football_data_host: footballDataHost || "",
-      the_sportsdb_key: theSportsDbKey || "",
-      the_sportsdb_host: theSportsDbHost || "",
-      updated_at: new Date().toISOString()
-    });
+      if (!sErr) {
+        const { error: aErr } = await supabase.from("api_configs").upsert({
+          id: 1,
+          api_football_key: apiFootballKey || "",
+          api_football_url: apiFootballUrl || "",
+          football_data_key: footballDataKey || "",
+          football_data_host: footballDataHost || "",
+          the_sportsdb_key: theSportsDbKey || "",
+          the_sportsdb_host: theSportsDbHost || "",
+          updated_at: new Date().toISOString()
+        });
+        if (!aErr) {
+          supabaseSaved = true;
+        } else {
+          errorMsg = aErr.message;
+        }
+      } else {
+        errorMsg = sErr.message;
+      }
+    } catch (err: any) {
+      errorMsg = err.message || String(err);
+      console.warn("[Football Engine] Could not save settings to Supabase, saved locally instead:", err);
+    }
 
-    if (aErr) throw aErr;
-
-    return { success: true, message: "Configurations saved successfully directly to Supabase!" };
+    if (supabaseSaved) {
+      return { success: true, message: "Configurations saved successfully directly to Supabase and browser storage!" };
+    } else {
+      return { success: true, message: `Configurations saved successfully to browser storage. (Supabase save skipped: ${errorMsg || "Database unconfigured"})` };
+    }
   },
 
   // 12. Get system synchronizer logs (Admin only)
