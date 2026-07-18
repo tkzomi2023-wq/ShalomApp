@@ -41,7 +41,8 @@ import {
   Trophy,
   Medal,
   Crown,
-  ChevronDown
+  ChevronDown,
+  Loader2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -82,6 +83,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   const [formMonth, setFormMonth] = useState('January');
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Bulk actions states
@@ -188,6 +190,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     setFormAddress('');
     setFormAmount('');
     setFormError(null);
+    setIsSubmitting(false);
     setIsBulkMode(false);
     setBulkEntries(() => {
       const initial: { [month: string]: { selected: boolean; amount: number | ''; date: string } } = {};
@@ -201,6 +204,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   // Submit record helper
   const handleRecordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    
     setFormError(null);
 
     if (!formName.trim() || !formAddress.trim()) {
@@ -214,33 +219,92 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       return;
     }
 
+    setIsSubmitting(true);
+
     try {
       if (editingRecord) {
-        if (formAmount === '') {
-          setFormError('Please enter an amount.');
-          return;
+        if (isBulkMode) {
+          // Bulk edit/update flow for the contributor!
+          const selectedBulkMonths = (Object.entries(bulkEntries) as [string, { selected: boolean; amount: number | ''; date: string; id?: string }][]).filter(([_, val]) => val.selected);
+          
+          if (selectedBulkMonths.length === 0) {
+            setFormError('Please select at least one month for bulk editing.');
+            return;
+          }
+
+          // Validate selected months
+          const operations: Promise<any>[] = [];
+          for (const [month, data] of Object.entries(bulkEntries) as [string, { selected: boolean; amount: number | ''; date: string; id?: string }][]) {
+            if (data.selected) {
+              const amountVal = data.amount !== '' ? Number(data.amount) : Number(formAmount);
+              if (isNaN(amountVal) || amountVal <= 0) {
+                setFormError(`Please specify a valid amount greater than 0 for ${month}.`);
+                return;
+              }
+              
+              const dateVal = data.date || formDate;
+              if (data.id) {
+                // Update existing record
+                operations.push(financialsDb.updateFinancialRecord(data.id, {
+                  name: formName.trim(),
+                  address: formAddress.trim(),
+                  amount: amountVal,
+                  area: formArea,
+                  payment_month: month,
+                  payment_date: dateVal
+                }));
+              } else {
+                // Insert new record
+                operations.push(financialsDb.addFinancialRecord({
+                  name: formName.trim(),
+                  address: formAddress.trim(),
+                  amount: amountVal,
+                  area: formArea,
+                  payment_month: month,
+                  payment_date: dateVal
+                }, currentUser.email, currentUser.name));
+              }
+            } else {
+              // Not selected. If it had an id, it means it was deleted/unchecked by user
+              if (data.id) {
+                operations.push(financialsDb.deleteFinancialRecord(data.id));
+              }
+            }
+          }
+
+          await Promise.all(operations);
+
+          onAddLog(
+            'Bulk Edit Financial Records', 
+            `Updated bulk payments configuration for "${formName.trim()}" (${formArea})`
+          );
+        } else {
+          if (formAmount === '') {
+            setFormError('Please enter an amount.');
+            return;
+          }
+          if (Number(formAmount) <= 0) {
+            setFormError('Amount must be greater than 0.');
+            return;
+          }
+          // Edit flow
+          const updated = await financialsDb.updateFinancialRecord(editingRecord.id, {
+            name: formName.trim(),
+            address: formAddress.trim(),
+            amount: Number(formAmount),
+            area: formArea,
+            payment_month: formMonth,
+            payment_date: formDate
+          });
+          
+          onAddLog(
+            'Edit Financial Record', 
+            `Updated payment of ₹${updated.amount} for "${updated.name}" (${updated.area}, ${updated.payment_month})`
+          );
         }
-        if (Number(formAmount) <= 0) {
-          setFormError('Amount must be greater than 0.');
-          return;
-        }
-        // Edit flow
-        const updated = await financialsDb.updateFinancialRecord(editingRecord.id, {
-          name: formName.trim(),
-          address: formAddress.trim(),
-          amount: Number(formAmount),
-          area: formArea,
-          payment_month: formMonth,
-          payment_date: formDate
-        });
-        
-        onAddLog(
-          'Edit Financial Record', 
-          `Updated payment of ₹${updated.amount} for "${updated.name}" (${updated.area}, ${updated.payment_month})`
-        );
       } else if (isBulkMode) {
         // Bulk add flow
-        const selectedBulkMonths = (Object.entries(bulkEntries) as [string, { selected: boolean; amount: number | ''; date: string }][]).filter(([_, val]) => val.selected);
+        const selectedBulkMonths = (Object.entries(bulkEntries) as [string, { selected: boolean; amount: number | ''; date: string; id?: string }][]).filter(([_, val]) => val.selected);
         if (selectedBulkMonths.length === 0) {
           setFormError('Please select at least one month for bulk adding.');
           return;
@@ -309,6 +373,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       closeForm();
     } catch (err: any) {
       setFormError(err.message || 'Operation failed');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -3104,31 +3170,59 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   </select>
                 </div>
 
-                {!editingRecord && (
-                  <div className="sm:col-span-2 p-3.5 bg-emerald-50/50 border border-emerald-100 rounded-2xl flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-black text-emerald-950 block">Bulk Payment Mode</span>
-                      <span className="text-[10px] text-emerald-700 block">Record multiple months for this contributor in a single form submit</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsBulkMode(!isBulkMode)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                        isBulkMode ? 'bg-emerald-600' : 'bg-stone-300'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
-                          isBulkMode ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
+                <div className="sm:col-span-2 p-3.5 bg-emerald-50/50 border border-emerald-100 rounded-2xl flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-black text-emerald-950 block">
+                      {editingRecord ? 'Bulk Edit & Payment Mode' : 'Bulk Payment Mode'}
+                    </span>
+                    <span className="text-[10px] text-emerald-700 block">
+                      {editingRecord 
+                        ? 'Manage multiple months of payments for this contributor in a single view' 
+                        : 'Record multiple months for this contributor in a single form submit'}
+                    </span>
                   </div>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newMode = !isBulkMode;
+                      setIsBulkMode(newMode);
+                      if (newMode && formName.trim()) {
+                        // Pre-populate with existing records for this contributor
+                        const contributorRecords = records.filter(r => r.name.trim().toLowerCase() === formName.trim().toLowerCase());
+                        const updatedBulk: { [month: string]: { selected: boolean; amount: number | ''; date: string; id?: string } } = {};
+                        MONTHS.forEach(m => {
+                          updatedBulk[m] = { selected: false, amount: '', date: new Date().toISOString().split('T')[0], id: undefined };
+                        });
+                        contributorRecords.forEach(r => {
+                          if (MONTHS.includes(r.payment_month)) {
+                            updatedBulk[r.payment_month] = {
+                              selected: true,
+                              amount: r.amount,
+                              date: r.payment_date,
+                              id: r.id
+                            };
+                          }
+                        });
+                        setBulkEntries(updatedBulk);
+                      }
+                    }}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                      isBulkMode ? 'bg-emerald-600' : 'bg-stone-300'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                        isBulkMode ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
 
-                {isBulkMode && !editingRecord ? (
+                {isBulkMode ? (
                   <div className="sm:col-span-2 space-y-3 pt-2">
-                    <label className="block text-[10px] font-bold text-stone-450 uppercase">Select Months & Customize Amounts *</label>
+                    <label className="block text-[10px] font-bold text-stone-450 uppercase">
+                      {editingRecord ? 'Manage Months, Amounts & Dates *' : 'Select Months & Customize Amounts *'}
+                    </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1 border border-stone-150 p-2.5 rounded-2xl bg-stone-50">
                       {MONTHS.map(month => {
                         const entry = bulkEntries[month];
@@ -3238,15 +3332,41 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   type="button"
                   onClick={closeForm}
                   className="px-4 py-2.5 border hover:bg-stone-50 text-stone-605 rounded-xl text-xs font-bold cursor-pointer"
+                  disabled={isSubmitting}
                 >
                   Close Panel
                 </button>
-                <button
+                <motion.button
                   type="submit"
-                  className="px-5 py-2.5 font-black rounded-xl text-xs shadow-xs inline-flex items-center gap-1 transition-all bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-sm active:translate-y-[1px]"
+                  disabled={isSubmitting}
+                  whileHover={{ scale: isSubmitting ? 1 : 1.02 }}
+                  whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  className={`px-5 py-2.5 font-black rounded-xl text-xs shadow-xs inline-flex items-center justify-center gap-1.5 transition-all text-white ${
+                    isSubmitting 
+                      ? 'bg-emerald-700/70 opacity-75 cursor-not-allowed select-none' 
+                      : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 cursor-pointer shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20'
+                  }`}
                 >
-                  <span>{editingRecord ? 'Save Audit Row' : 'Submit Receipt'}</span>
-                </button>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1 text-white" />
+                      <span>
+                        {editingRecord 
+                          ? (isBulkMode ? 'Saving Bulk Audits...' : 'Saving Row...') 
+                          : (isBulkMode ? 'Submitting Receipts...' : 'Submitting Receipt...')}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {editingRecord 
+                          ? (isBulkMode ? 'Save Bulk Audits' : 'Save Audit Row') 
+                          : (isBulkMode ? 'Submit Receipts' : 'Submit Receipt')}
+                      </span>
+                    </>
+                  )}
+                </motion.button>
               </div>
             </form>
           </div>

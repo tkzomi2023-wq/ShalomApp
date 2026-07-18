@@ -135,7 +135,7 @@ interface SmtpConfig {
   from?: string;
 }
 
-function getSmtpConfig(): SmtpConfig | null {
+async function getSmtpConfig(): Promise<SmtpConfig | null> {
   // Check env first
   if (process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS) {
     return {
@@ -150,10 +150,36 @@ function getSmtpConfig(): SmtpConfig | null {
   try {
     if (fs.existsSync(SMTP_CONFIG_FILE)) {
       const data = fs.readFileSync(SMTP_CONFIG_FILE, "utf-8");
-      return JSON.parse(data) as SmtpConfig;
+      const config = JSON.parse(data) as SmtpConfig;
+      if (config && config.host && config.port && config.user && config.pass) {
+        return config;
+      }
     }
   } catch (err) {
     console.error("Failed to read SMTP config file:", err);
+  }
+  // Check Supabase third
+  try {
+    const { data, error } = await supabase
+      .from("smtp_configs")
+      .select("*")
+      .eq("id", "singleton")
+      .single();
+
+    if (!error && data && data.host && data.port && data.user && data.pass) {
+      const dbConfig: SmtpConfig = {
+        host: data.host,
+        port: data.port,
+        user: data.user,
+        pass: data.pass,
+        from: data.from
+      };
+      // Cache locally
+      fs.writeFileSync(SMTP_CONFIG_FILE, JSON.stringify(dbConfig, null, 2), "utf-8");
+      return dbConfig;
+    }
+  } catch (err: any) {
+    console.error("Failed to fetch SMTP config from Supabase in getSmtpConfig:", err.message || err);
   }
   return null;
 }
@@ -401,7 +427,7 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
     }
 
     // 4. Send a separate email for each celebrant
-    const smtpConfig = getSmtpConfig();
+    const smtpConfig = await getSmtpConfig();
     const appUrl = process.env.APP_URL || "http://localhost:3000";
 
     for (const c of celebrants) {
@@ -563,9 +589,9 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
 }
 
 // REST API endpoint to retrieve birthday logs
-app.get("/api/birthday-email/status", (req, res) => {
+app.get("/api/birthday-email/status", async (req, res) => {
   const store = loadLogsStore();
-  const smtpConfig = getSmtpConfig();
+  const smtpConfig = await getSmtpConfig();
   res.json({
     lastRunDate: store.lastRunDate,
     logs: store.logs,
@@ -574,13 +600,13 @@ app.get("/api/birthday-email/status", (req, res) => {
 });
 
 // REST API endpoint to load SMTP configuration (Only accessible to tkpaite2016@gmail.com)
-app.get("/api/birthday-email/smtp-config", (req, res) => {
+app.get("/api/birthday-email/smtp-config", async (req, res) => {
   const requesterEmail = req.query.email as string;
   if (!requesterEmail || requesterEmail.toLowerCase() !== "tkpaite2016@gmail.com") {
     return res.status(403).json({ error: "Access Denied: SMTP configurations are restricted." });
   }
 
-  const config = getSmtpConfig();
+  const config = await getSmtpConfig();
   if (config) {
     res.json({
       host: config.host,
@@ -603,7 +629,7 @@ app.post("/api/birthday-email/smtp-config", async (req, res) => {
   }
 
   try {
-    const existing = getSmtpConfig();
+    const existing = await getSmtpConfig();
     const finalPass = (pass !== undefined && pass !== null) ? pass : (existing?.pass || "");
     const config: SmtpConfig = { host, port, user, pass: finalPass, from };
     
@@ -645,7 +671,7 @@ app.post("/api/birthday-email/send-wish", async (req, res) => {
     return res.status(400).json({ error: "No celebrants specified." });
   }
 
-  const smtpConfig = getSmtpConfig();
+  const smtpConfig = await getSmtpConfig();
   if (!smtpConfig) {
     return res.status(400).json({ 
       error: "SMTP is not configured yet. Please configure SMTP settings using the administrator panel first." 
@@ -788,7 +814,7 @@ app.post("/api/birthday-email/preview-email", async (req, res) => {
   }
 
   // Determine which SMTP configuration to use
-  const savedSmtpConfig = getSmtpConfig();
+  const savedSmtpConfig = await getSmtpConfig();
   const host = smtpConfig?.host || savedSmtpConfig?.host;
   const port = smtpConfig?.port || savedSmtpConfig?.port;
   const user = smtpConfig?.user || savedSmtpConfig?.user;
