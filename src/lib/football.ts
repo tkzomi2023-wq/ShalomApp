@@ -66,10 +66,27 @@ CREATE TABLE IF NOT EXISTS public.football_configs (
   api_football_key TEXT,
   api_football_url TEXT,
   football_data_key TEXT,
+  football_data_host TEXT,
+  the_sportsdb_key TEXT,
+  the_sportsdb_host TEXT,
   last_sync_time TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   CONSTRAINT single_row CHECK (id = 1)
+);
+
+-- 4b. Create API configurations table
+CREATE TABLE IF NOT EXISTS public.api_configs (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  api_football_key TEXT,
+  api_football_url TEXT,
+  football_data_key TEXT,
+  football_data_host TEXT,
+  the_sportsdb_key TEXT,
+  the_sportsdb_host TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  CONSTRAINT single_row_api CHECK (id = 1)
 );
 
 -- Safe upgrades for existing databases
@@ -78,11 +95,16 @@ ALTER TABLE public.football_predictions ADD COLUMN IF NOT EXISTS season TEXT;
 ALTER TABLE public.football_predictions ADD COLUMN IF NOT EXISTS predicted_home_score INTEGER;
 ALTER TABLE public.football_predictions ADD COLUMN IF NOT EXISTS predicted_away_score INTEGER;
 
+ALTER TABLE public.football_configs ADD COLUMN IF NOT EXISTS football_data_host TEXT;
+ALTER TABLE public.football_configs ADD COLUMN IF NOT EXISTS the_sportsdb_key TEXT;
+ALTER TABLE public.football_configs ADD COLUMN IF NOT EXISTS the_sportsdb_host TEXT;
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.football_teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.football_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.football_predictions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.football_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.api_configs ENABLE ROW LEVEL SECURITY;
 
 -- Create policies (drop first to allow safe re-runs)
 DROP POLICY IF EXISTS "Allow public read of football_teams" ON public.football_teams;
@@ -103,6 +125,11 @@ CREATE POLICY "Allow public management of football_predictions" ON public.footba
 DROP POLICY IF EXISTS "Allow public read of football_configs" ON public.football_configs;
 DROP POLICY IF EXISTS "Allow public management of football_configs" ON public.football_configs;
 CREATE POLICY "Allow public management of football_configs" ON public.football_configs
+  FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public read of api_configs" ON public.api_configs;
+DROP POLICY IF EXISTS "Allow public management of api_configs" ON public.api_configs;
+CREATE POLICY "Allow public management of api_configs" ON public.api_configs
   FOR ALL USING (true) WITH CHECK (true);
 `;
 
@@ -361,9 +388,33 @@ export const footballApi = {
   },
 
   // 10. Get football configuration settings
-  async getSettings(requesterEmail?: string): Promise<{ competitionId: number; competitionName: string; season: string; syncInterval: number; lastSyncTime?: string; apiFootballKey?: string; apiFootballUrl?: string; footballDataKey?: string }> {
+  async getSettings(requesterEmail?: string): Promise<{ 
+    competitionId: number; 
+    competitionName: string; 
+    season: string; 
+    syncInterval: number; 
+    lastSyncTime?: string; 
+    apiFootballKey?: string; 
+    apiFootballUrl?: string; 
+    footballDataKey?: string;
+    footballDataHost?: string;
+    theSportsDbKey?: string;
+    theSportsDbHost?: string;
+  }> {
     const url = requesterEmail ? `/api/football/settings?requesterEmail=${encodeURIComponent(requesterEmail)}` : "/api/football/settings";
-    return safeJsonFetch<{ competitionId: number; competitionName: string; season: string; syncInterval: number; lastSyncTime?: string; apiFootballKey?: string; apiFootballUrl?: string; footballDataKey?: string }>(url);
+    return safeJsonFetch<{ 
+      competitionId: number; 
+      competitionName: string; 
+      season: string; 
+      syncInterval: number; 
+      lastSyncTime?: string; 
+      apiFootballKey?: string; 
+      apiFootballUrl?: string; 
+      footballDataKey?: string;
+      footballDataHost?: string;
+      theSportsDbKey?: string;
+      theSportsDbHost?: string;
+    }>(url);
   },
 
   // 11. Save football configuration settings (Admin only)
@@ -375,7 +426,10 @@ export const footballApi = {
     syncInterval: number,
     apiFootballKey?: string,
     apiFootballUrl?: string,
-    footballDataKey?: string
+    footballDataKey?: string,
+    footballDataHost?: string,
+    theSportsDbKey?: string,
+    theSportsDbHost?: string
   ): Promise<{ success: boolean; message: string }> {
     return safeJsonFetch<{ success: boolean; message: string }>("/api/football/settings", {
       method: "POST",
@@ -388,7 +442,10 @@ export const footballApi = {
         syncInterval,
         apiFootballKey,
         apiFootballUrl,
-        footballDataKey
+        footballDataKey,
+        footballDataHost,
+        theSportsDbKey,
+        theSportsDbHost
       })
     });
   },

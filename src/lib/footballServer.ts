@@ -20,7 +20,7 @@ const getApiUrl = (): string => {
       }
     }
   } catch (e) {}
-  return "https://v3.football.api-sports.io";
+  return process.env.FOOTBALL_API_HOST || process.env.VITE_FOOTBALL_API_HOST || process.env.FOOTBALL_API_URL || "https://v3.football.api-sports.io";
 };
 
 // We prefer FOOTBALL_API_KEY from environment variables
@@ -31,7 +31,7 @@ const getApiKey = (): string | null => {
       return db.settings.apiFootballKey;
     }
   } catch (e) {}
-  return process.env.FOOTBALL_API_KEY || process.env.VITE_FOOTBALL_API_KEY || "7bd67bdab71254a48036fa1eff71ed21";
+  return process.env.FOOTBALL_API_KEY || process.env.VITE_FOOTBALL_API_KEY || "7042e46eb559f59187b674889b0257d1";
 };
 
 const getApiHost = (): string => {
@@ -42,7 +42,7 @@ const getApiHost = (): string => {
       return match[1];
     }
   } catch (e) {}
-  return process.env.FOOTBALL_API_HOST || "v3.football.api-sports.io";
+  return "v3.football.api-sports.io";
 };
 
 const getFootballDataOrgKey = (): string | null => {
@@ -52,7 +52,20 @@ const getFootballDataOrgKey = (): string | null => {
       return db.settings.footballDataKey;
     }
   } catch (e) {}
-  return process.env.FOOTBALL_DATA_ORG_KEY || process.env.VITE_FOOTBALL_DATA_ORG_KEY || "";
+  return process.env.FOOTBALL_DATA_ORG_KEY || process.env.VITE_FOOTBALL_DATA_ORG_KEY || "2a0cdc4facce4172818124d35506bc28";
+};
+
+const getFootballDataOrgHost = (): string => {
+  try {
+    const db = loadLocalDB();
+    if (db.settings?.footballDataHost) {
+      const host = db.settings.footballDataHost.trim();
+      if (host && (host.startsWith("http://") || host.startsWith("https://"))) {
+        return host;
+      }
+    }
+  } catch (e) {}
+  return process.env.FOOTBALL_DATA_ORG_HOST || process.env.VITE_FOOTBALL_DATA_ORG_HOST || "https://api.football-data.org/v4";
 };
 
 const getTheSportsDbKey = (): string | null => {
@@ -62,7 +75,20 @@ const getTheSportsDbKey = (): string | null => {
       return db.settings.theSportsDbKey;
     }
   } catch (e) {}
-  return process.env.THESPORTSDB_KEY || process.env.VITE_THESPORTSDB_KEY || "3"; // '3' is the default public key
+  return process.env.THESPORTSDB_KEY || process.env.VITE_THESPORTSDB_KEY || "3";
+};
+
+const getTheSportsDbHost = (): string => {
+  try {
+    const db = loadLocalDB();
+    if (db.settings?.theSportsDbHost) {
+      const host = db.settings.theSportsDbHost.trim();
+      if (host && (host.startsWith("http://") || host.startsWith("https://"))) {
+        return host;
+      }
+    }
+  } catch (e) {}
+  return process.env.THESPORTSDB_HOST || process.env.VITE_THESPORTSDB_HOST || "https://www.thesportsdb.com/api/v1/json";
 };
 
 export interface ProviderHealth {
@@ -435,7 +461,9 @@ interface FootballSettings {
   apiFootballKey?: string;
   apiFootballUrl?: string;
   footballDataKey?: string;
+  footballDataHost?: string;
   theSportsDbKey?: string;
+  theSportsDbHost?: string;
 }
 
 // Local JSON File Database Interface
@@ -495,10 +523,52 @@ const saveLocalDB = (db: LocalFootballDB) => {
   }
 };
 
+const updateEnvFile = (updates: Record<string, string>) => {
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    let content = "";
+    if (fs.existsSync(envPath)) {
+      content = fs.readFileSync(envPath, "utf-8");
+    } else {
+      const examplePath = path.join(process.cwd(), ".env.example");
+      if (fs.existsSync(examplePath)) {
+        content = fs.readFileSync(examplePath, "utf-8");
+      }
+    }
+
+    const lines = content.split(/\r?\n/);
+    const updatedKeys = new Set<string>();
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line && !line.startsWith("#") && line.includes("=")) {
+        const parts = line.split("=");
+        const key = parts[0].trim();
+        if (updates[key] !== undefined) {
+          lines[i] = `${key}=${updates[key]}`;
+          updatedKeys.add(key);
+        }
+      }
+    }
+
+    for (const [key, val] of Object.entries(updates)) {
+      if (!updatedKeys.has(key)) {
+        lines.push(`${key}=${val}`);
+      }
+    }
+
+    fs.writeFileSync(envPath, lines.join("\n"), "utf-8");
+    console.log("[Football Config] Updated .env file successfully with keys:", Object.keys(updates));
+  } catch (err: any) {
+    console.warn("[Football Config] Failed to update .env file:", err.message || err);
+  }
+};
+
 // Check if Supabase Football tables exist and are writeable
 let hasSupabaseTables = false;
 let cachedSupabaseSupport: boolean | null = null;
 let cachedFootballConfigsSupport: boolean | null = null;
+let cachedApiConfigsSupport: boolean | null = null;
 
 const checkFootballConfigsSupport = async (): Promise<boolean> => {
   if (cachedFootballConfigsSupport !== null) {
@@ -518,61 +588,134 @@ const checkFootballConfigsSupport = async (): Promise<boolean> => {
   }
 };
 
+const checkApiConfigsSupport = async (): Promise<boolean> => {
+  if (cachedApiConfigsSupport !== null) {
+    return cachedApiConfigsSupport;
+  }
+  try {
+    const { error } = await supabase.from("api_configs").select("id").limit(1);
+    if (error && (error.code === "PGRST116" || error.message.includes("does not exist") || error.message.includes("Could not find the table"))) {
+      cachedApiConfigsSupport = false;
+      return false;
+    }
+    cachedApiConfigsSupport = true;
+    return true;
+  } catch (e) {
+    cachedApiConfigsSupport = false;
+    return false;
+  }
+};
+
 const syncSettingsWithSupabase = async () => {
   try {
     const hasConfigsTable = await checkFootballConfigsSupport();
-    if (!hasConfigsTable) {
-      console.log("[Football Config] Note: remote football_configs table does not exist yet. Please execute the latest setup SQL in your Supabase SQL editor to enable remote configurations storage.");
-      return;
-    }
+    const hasApiConfigsTable = await checkApiConfigsSupport();
 
-    const { data, error } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
-    if (error) {
-      console.log("[Football Config] Supabase football_configs select error:", error.message);
+    if (!hasConfigsTable && !hasApiConfigsTable) {
+      console.log("[Football Config] Note: remote football_configs and api_configs tables do not exist yet. Please execute the latest setup SQL in your Supabase SQL editor to enable remote configurations storage.");
       return;
     }
 
     const localDb = loadLocalDB();
-    if (data) {
-      console.log("[Football Config] Found remote configurations in Supabase, syncing with local cache...");
-      let remoteUrl = data.api_football_url;
-      if (remoteUrl) {
-        remoteUrl = remoteUrl.trim();
-        if (remoteUrl.includes("@") || (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://"))) {
-          remoteUrl = "https://v3.football.api-sports.io";
-        }
-      } else {
-        remoteUrl = "https://v3.football.api-sports.io";
-      }
 
-      localDb.settings = {
-        competitionId: data.competition_id ?? localDb.settings?.competitionId ?? 1,
-        competitionName: data.competition_name ?? localDb.settings?.competitionName ?? "FIFA World Cup",
-        season: data.season ?? localDb.settings?.season ?? "2026",
-        syncInterval: data.sync_interval ?? localDb.settings?.syncInterval ?? 10,
-        lastSyncTime: data.last_sync_time ?? localDb.settings?.lastSyncTime,
-        apiFootballKey: data.api_football_key !== undefined && data.api_football_key !== null ? data.api_football_key : localDb.settings?.apiFootballKey,
-        apiFootballUrl: remoteUrl,
-        footballDataKey: data.football_data_key !== undefined && data.football_data_key !== null ? data.football_data_key : localDb.settings?.footballDataKey
-      };
-      saveLocalDB(localDb);
-    } else {
-      // No config exists yet, let's insert the current local settings to initialize the table
-      if (localDb.settings) {
-        console.log("[Football Config] Initializing remote configurations in Supabase...");
-        await supabase.from("football_configs").insert({
-          id: 1,
-          competition_id: localDb.settings.competitionId,
-          competition_name: localDb.settings.competitionName,
-          season: localDb.settings.season,
-          sync_interval: localDb.settings.syncInterval,
-          api_football_key: localDb.settings.apiFootballKey || "",
-          api_football_url: localDb.settings.apiFootballUrl || "",
-          football_data_key: localDb.settings.footballDataKey || "",
-          last_sync_time: localDb.settings.lastSyncTime || new Date().toISOString()
-        });
+    // 1. Sync general football settings from football_configs
+    if (hasConfigsTable) {
+      const { data, error } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+      if (error) {
+        console.log("[Football Config] Supabase football_configs select error:", error.message);
+      } else if (data) {
+        console.log("[Football Config] Found remote general configurations in Supabase football_configs...");
+        localDb.settings = {
+          ...localDb.settings,
+          competitionId: data.competition_id ?? localDb.settings?.competitionId ?? 1,
+          competitionName: data.competition_name ?? localDb.settings?.competitionName ?? "FIFA World Cup",
+          season: data.season ?? localDb.settings?.season ?? "2026",
+          syncInterval: data.sync_interval ?? localDb.settings?.syncInterval ?? 10,
+          lastSyncTime: data.last_sync_time ?? localDb.settings?.lastSyncTime,
+        };
+      } else {
+        // No general config exists yet, let's insert the current local settings to initialize the table
+        if (localDb.settings) {
+          console.log("[Football Config] Initializing remote general configurations in Supabase football_configs...");
+          await supabase.from("football_configs").insert({
+            id: 1,
+            competition_id: localDb.settings.competitionId,
+            competition_name: localDb.settings.competitionName,
+            season: localDb.settings.season,
+            sync_interval: localDb.settings.syncInterval,
+            last_sync_time: localDb.settings.lastSyncTime || new Date().toISOString()
+          });
+        }
       }
     }
+
+    // 2. Sync API configurations from api_configs
+    if (hasApiConfigsTable) {
+      const { data, error } = await supabase.from("api_configs").select("*").eq("id", 1).maybeSingle();
+      if (error) {
+        console.log("[Football Config] Supabase api_configs select error:", error.message);
+      } else if (data) {
+        console.log("[Football Config] Found remote API configurations in Supabase api_configs...");
+        let remoteUrl = data.api_football_url;
+        if (remoteUrl) {
+          remoteUrl = remoteUrl.trim();
+          if (remoteUrl.includes("@") || (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://"))) {
+            remoteUrl = "https://v3.football.api-sports.io";
+          }
+        } else {
+          remoteUrl = "https://v3.football.api-sports.io";
+        }
+
+        localDb.settings = {
+          ...localDb.settings,
+          apiFootballKey: data.api_football_key !== undefined && data.api_football_key !== null ? data.api_football_key : localDb.settings?.apiFootballKey,
+          apiFootballUrl: remoteUrl,
+          footballDataKey: data.football_data_key !== undefined && data.football_data_key !== null ? data.football_data_key : localDb.settings?.footballDataKey,
+          footballDataHost: data.football_data_host !== undefined && data.football_data_host !== null ? data.football_data_host : localDb.settings?.footballDataHost,
+          theSportsDbKey: data.the_sportsdb_key !== undefined && data.the_sportsdb_key !== null ? data.the_sportsdb_key : localDb.settings?.theSportsDbKey,
+          theSportsDbHost: data.the_sportsdb_host !== undefined && data.the_sportsdb_host !== null ? data.the_sportsdb_host : localDb.settings?.theSportsDbHost
+        };
+      } else {
+        // No api config exists yet, let's insert the current local settings to initialize the table
+        if (localDb.settings) {
+          console.log("[Football Config] Initializing remote API configurations in Supabase api_configs...");
+          await supabase.from("api_configs").insert({
+            id: 1,
+            api_football_key: localDb.settings.apiFootballKey || "",
+            api_football_url: localDb.settings.apiFootballUrl || "",
+            football_data_key: localDb.settings.footballDataKey || "",
+            football_data_host: localDb.settings.footballDataHost || "",
+            the_sportsdb_key: localDb.settings.theSportsDbKey || "",
+            the_sportsdb_host: localDb.settings.theSportsDbHost || ""
+          });
+        }
+      }
+    } else if (hasConfigsTable) {
+      // Fallback: If api_configs does not exist, fetch API credentials from football_configs if it exists
+      const { data, error } = await supabase.from("football_configs").select("*").eq("id", 1).maybeSingle();
+      if (!error && data) {
+        let remoteUrl = data.api_football_url;
+        if (remoteUrl) {
+          remoteUrl = remoteUrl.trim();
+          if (remoteUrl.includes("@") || (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://"))) {
+            remoteUrl = "https://v3.football.api-sports.io";
+          }
+        } else {
+          remoteUrl = "https://v3.football.api-sports.io";
+        }
+        localDb.settings = {
+          ...localDb.settings,
+          apiFootballKey: data.api_football_key !== undefined && data.api_football_key !== null ? data.api_football_key : localDb.settings?.apiFootballKey,
+          apiFootballUrl: remoteUrl,
+          footballDataKey: data.football_data_key !== undefined && data.football_data_key !== null ? data.football_data_key : localDb.settings?.footballDataKey,
+          footballDataHost: data.football_data_host !== undefined && data.football_data_host !== null ? data.football_data_host : localDb.settings?.footballDataHost,
+          theSportsDbKey: data.the_sportsdb_key !== undefined && data.the_sportsdb_key !== null ? data.the_sportsdb_key : localDb.settings?.theSportsDbKey,
+          theSportsDbHost: data.the_sportsdb_host !== undefined && data.the_sportsdb_host !== null ? data.the_sportsdb_host : localDb.settings?.theSportsDbHost
+        };
+      }
+    }
+
+    saveLocalDB(localDb);
   } catch (err: any) {
     console.warn("[Football Config] Error syncing settings with Supabase:", err.message || err);
   }
@@ -585,37 +728,26 @@ const checkSupabaseSupport = async (): Promise<boolean> => {
 
   try {
     const { error: readError } = await supabase.from("football_matches").select("id").limit(1);
-    if (readError && (readError.code === "PGRST116" || readError.message.includes("does not exist"))) {
-      hasSupabaseTables = false;
-      cachedSupabaseSupport = false;
-      return false;
+    if (readError) {
+      const msg = readError.message || "";
+      if (msg.includes("does not exist") || msg.includes("Could not find the table") || readError.code === "PGRST116") {
+        hasSupabaseTables = false;
+        cachedSupabaseSupport = false;
+        return false;
+      }
     }
-    
-    // Check if we have write permissions by performing a test upsert on a dummy team (id: 0)
-    const testTeam = {
-      id: 0,
-      name: "Connection Test Team",
-      logo: "https://media.api-sports.io/football/teams/0.png",
-      code: "TST"
-    };
-    
-    const { error: writeError } = await supabase.from("football_teams").upsert(testTeam);
-    if (writeError) {
-      console.log("[Football Engine] Supabase is online but write-protected by RLS policies. Falling back to local DB cache for writes.");
-      hasSupabaseTables = true; // tables exist, but write-protected
-      cachedSupabaseSupport = false;
-      return false;
-    }
-    
-    // Clean up the test team
-    await supabase.from("football_teams").delete().eq("id", 0);
     
     hasSupabaseTables = true;
     cachedSupabaseSupport = true;
-    await syncSettingsWithSupabase();
+    
+    // Attempt syncing settings with Supabase if it exists
+    await syncSettingsWithSupabase().catch((syncErr) => {
+      console.warn("[Football Engine] Sync settings with Supabase failed:", syncErr);
+    });
+    
     return true;
   } catch (err: any) {
-    console.log("[Football Engine] Failed to establish write access to Supabase:", err.message || err);
+    console.log("[Football Engine] Failed to establish read access to Supabase:", err.message || err);
     hasSupabaseTables = false;
     cachedSupabaseSupport = false;
     return false;
@@ -1201,7 +1333,8 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
       const start = Date.now();
       try {
         console.log(`[Football Engine] Fallback Triggered: Querying Football-Data.org for code ${fdCode}, season ${querySeason}...`);
-        const res = await fetch(`https://api.football-data.org/v4/competitions/${fdCode}/matches?season=${querySeason}`, {
+        const fdHost = getFootballDataOrgHost();
+        const res = await fetch(`${fdHost}/competitions/${fdCode}/matches?season=${querySeason}`, {
           headers: {
             "X-Auth-Token": fdKey
           }
@@ -1248,7 +1381,8 @@ export const syncFixtures = async (): Promise<{ success: boolean; count: number;
       const start = Date.now();
       try {
         console.log(`[Football Engine] Fallback Triggered: Querying TheSportsDB for league ${tsdbId}, season ${querySeason}...`);
-        const res = await fetch(`https://www.thesportsdb.com/api/v1/json/${tsdbKey}/eventsseason.php?id=${tsdbId}&s=${querySeason}`);
+        const tsdbHost = getTheSportsDbHost();
+        const res = await fetch(`${tsdbHost}/${tsdbKey}/eventsseason.php?id=${tsdbId}&s=${querySeason}`);
         
         const latency = Date.now() - start;
         providerHealthStates["TheSportsDB"].latency = latency;
@@ -1709,11 +1843,22 @@ export const createFootballRouter = (): Router => {
   // 1b. Get Multi-Provider Health Status
   router.get("/provider-status", async (req: Request, res: Response) => {
     const isDbOnline = await checkSupabaseSupport();
+    if (isDbOnline) {
+      await syncSettingsWithSupabase().catch((err) => {
+        console.warn("[Football Engine] provider-status settings sync error:", err);
+      });
+    }
     const localDb = loadLocalDB();
     const activeProvider = localDb.settings?.activeProvider || "Simulated Seed";
     
     if (providerHealthStates["API-Football"]) {
       providerHealthStates["API-Football"].apiUrl = getApiUrl();
+    }
+    if (providerHealthStates["Football-Data.org"]) {
+      providerHealthStates["Football-Data.org"].apiUrl = getFootballDataOrgHost();
+    }
+    if (providerHealthStates["TheSportsDB"]) {
+      providerHealthStates["TheSportsDB"].apiUrl = getTheSportsDbHost();
     }
     
     res.json({
@@ -1721,9 +1866,9 @@ export const createFootballRouter = (): Router => {
       activeProvider,
       operatingMode: isDbOnline ? "Supabase Realtime" : "Local Database Fallback",
       settings: localDb.settings,
-      hasApiKey: !!getApiKey() && getApiKey() !== "7bd67bdab71254a48036fa1eff71ed21",
-      hasFdKey: !!getFootballDataOrgKey(),
-      hasTsdbKey: !!getTheSportsDbKey()
+      hasApiKey: !!getApiKey() && getApiKey() !== "7bd67bdab71254a48036fa1eff71ed21" && getApiKey() !== "7042e46eb559f59187b674889b0257d1",
+      hasFdKey: !!getFootballDataOrgKey() && getFootballDataOrgKey() !== "2a0cdc4facce4172818124d35506bc28",
+      hasTsdbKey: !!getTheSportsDbKey() && getTheSportsDbKey() !== "3"
     });
   });
 
@@ -2251,7 +2396,7 @@ export const createFootballRouter = (): Router => {
         res.json(settings);
       } else {
         // Strip sensitive credentials for non-admins to ensure security
-        const { apiFootballKey, apiFootballUrl, footballDataKey, ...safeSettings } = settings;
+        const { apiFootballKey, apiFootballUrl, footballDataKey, footballDataHost, theSportsDbKey, theSportsDbHost, ...safeSettings } = settings;
         res.json(safeSettings);
       }
     } catch (err: any) {
@@ -2269,7 +2414,10 @@ export const createFootballRouter = (): Router => {
       syncInterval,
       apiFootballKey,
       apiFootballUrl,
-      footballDataKey
+      footballDataKey,
+      footballDataHost,
+      theSportsDbKey,
+      theSportsDbHost
     } = req.body;
     
     if (!requesterEmail || (requesterEmail as string).toLowerCase() !== "tkpaite2016@gmail.com") {
@@ -2298,7 +2446,10 @@ export const createFootballRouter = (): Router => {
         lastSyncTime: new Date().toISOString(), // Set current time
         apiFootballKey: apiFootballKey !== undefined ? apiFootballKey : db.settings?.apiFootballKey,
         apiFootballUrl: cleanUrl,
-        footballDataKey: footballDataKey !== undefined ? footballDataKey : db.settings?.footballDataKey
+        footballDataKey: footballDataKey !== undefined ? footballDataKey : db.settings?.footballDataKey,
+        footballDataHost: footballDataHost !== undefined ? footballDataHost : db.settings?.footballDataHost,
+        theSportsDbKey: theSportsDbKey !== undefined ? theSportsDbKey : db.settings?.theSportsDbKey,
+        theSportsDbHost: theSportsDbHost !== undefined ? theSportsDbHost : db.settings?.theSportsDbHost
       };
 
       db.logs.push({
@@ -2309,9 +2460,29 @@ export const createFootballRouter = (): Router => {
 
       saveLocalDB(db);
 
+      // Save keys back to the .env file
+      updateEnvFile({
+        FOOTBALL_API_HOST: db.settings.apiFootballUrl || "https://v3.football.api-sports.io",
+        FOOTBALL_API_KEY: db.settings.apiFootballKey || "",
+        FOOTBALL_DATA_ORG_HOST: db.settings.footballDataHost || "https://api.football-data.org/v4",
+        FOOTBALL_DATA_ORG_KEY: db.settings.footballDataKey || "",
+        THESPORTSDB_HOST: db.settings.theSportsDbHost || "https://www.thesportsdb.com/api/v1/json",
+        THESPORTSDB_KEY: db.settings.theSportsDbKey || "3"
+      });
+
+      // Also dynamically update current process.env so they take effect immediately
+      process.env.FOOTBALL_API_HOST = db.settings.apiFootballUrl || "https://v3.football.api-sports.io";
+      process.env.FOOTBALL_API_KEY = db.settings.apiFootballKey || "";
+      process.env.FOOTBALL_DATA_ORG_HOST = db.settings.footballDataHost || "https://api.football-data.org/v4";
+      process.env.FOOTBALL_DATA_ORG_KEY = db.settings.footballDataKey || "";
+      process.env.THESPORTSDB_HOST = db.settings.theSportsDbHost || "https://www.thesportsdb.com/api/v1/json";
+      process.env.THESPORTSDB_KEY = db.settings.theSportsDbKey || "3";
+
       if (isDbOnline) {
         try {
           const hasConfigsTable = await checkFootballConfigsSupport();
+          const hasApiConfigsTable = await checkApiConfigsSupport();
+
           if (hasConfigsTable) {
             await supabase.from("football_configs").upsert({
               id: 1,
@@ -2319,13 +2490,26 @@ export const createFootballRouter = (): Router => {
               competition_name: db.settings.competitionName,
               season: db.settings.season,
               sync_interval: db.settings.syncInterval,
+              last_sync_time: db.settings.lastSyncTime || new Date().toISOString()
+            });
+            console.log("[Football Settings] Saved general settings to football_configs.");
+          } else {
+            console.warn("[Football Settings] Remote configs table football_configs not found. General settings saved locally only.");
+          }
+
+          if (hasApiConfigsTable) {
+            await supabase.from("api_configs").upsert({
+              id: 1,
               api_football_key: db.settings.apiFootballKey || "",
               api_football_url: db.settings.apiFootballUrl || "",
               football_data_key: db.settings.footballDataKey || "",
-              last_sync_time: db.settings.lastSyncTime || new Date().toISOString()
+              football_data_host: db.settings.footballDataHost || "",
+              the_sportsdb_key: db.settings.theSportsDbKey || "",
+              the_sportsdb_host: db.settings.theSportsDbHost || ""
             });
+            console.log("[Football Settings] Saved API configurations to api_configs.");
           } else {
-            console.warn("[Football Settings] Remote configs table football_configs not found. Settings saved locally only.");
+            console.warn("[Football Settings] Remote api_configs table not found; keys/hosts saved locally and to .env only.");
           }
         } catch (dbErr: any) {
           console.warn("[Football Settings] Failed to upsert remote configs:", dbErr.message || dbErr);

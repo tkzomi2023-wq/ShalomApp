@@ -65,7 +65,7 @@ const defaultMeta: MetaConfig = {
   keywords: "Shalom Youth, Youth Fellowship, Mizoram Assemblies of God Church, JSAG, CA, Christian Youth",
   ogImage: "/og-image.png",
   favicon: "/favicon.ico",
-  siteUrl: "https://shalomyouthfellowship.jsag"
+  siteUrl: "https://shalomyouth.netlify.app"
 };
 
 function getMetaConfig(): MetaConfig {

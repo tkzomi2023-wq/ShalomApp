@@ -30,7 +30,8 @@ import {
   Zap,
   Info,
   Radio,
-  Save
+  Save,
+  Key
 } from "lucide-react";
 import {
   BarChart,
@@ -159,6 +160,9 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     apiFootballKey?: string;
     apiFootballUrl?: string;
     footballDataKey?: string;
+    footballDataHost?: string;
+    theSportsDbKey?: string;
+    theSportsDbHost?: string;
   }>({
     competitionId: 1,
     competitionName: "FIFA World Cup",
@@ -166,11 +170,19 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
     syncInterval: 10,
     apiFootballKey: "",
     apiFootballUrl: "",
-    footballDataKey: ""
+    footballDataKey: "",
+    footballDataHost: "",
+    theSportsDbKey: "",
+    theSportsDbHost: ""
   });
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+
+  const [savingApiSettings, setSavingApiSettings] = useState<boolean>(false);
+  const [apiSettingsError, setApiSettingsError] = useState<string | null>(null);
+  const [apiSettingsSuccess, setApiSettingsSuccess] = useState<string | null>(null);
+
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
 
   // Filter states for fixtures page
@@ -433,7 +445,10 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
         settings.syncInterval,
         settings.apiFootballKey,
         settings.apiFootballUrl,
-        settings.footballDataKey
+        settings.footballDataKey,
+        settings.footballDataHost,
+        settings.theSportsDbKey,
+        settings.theSportsDbHost
       );
       
       const successMessage = res.message || "Configurations saved successfully!";
@@ -446,6 +461,44 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
       setActionError(errorMessage);
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleSaveApiSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || !isAdmin) return;
+    
+    try {
+      setSavingApiSettings(true);
+      setApiSettingsError(null);
+      setApiSettingsSuccess(null);
+      setActionError(null);
+      setActionSuccess(null);
+      
+      const res = await footballApi.saveSettings(
+        currentUser.email,
+        settings.competitionId,
+        settings.competitionName,
+        settings.season,
+        settings.syncInterval,
+        settings.apiFootballKey,
+        settings.apiFootballUrl,
+        settings.footballDataKey,
+        settings.footballDataHost,
+        settings.theSportsDbKey,
+        settings.theSportsDbHost
+      );
+      
+      const successMessage = res.message || "API configurations saved successfully!";
+      setApiSettingsSuccess(successMessage);
+      setActionSuccess(successMessage);
+      await loadData();
+    } catch (err: any) {
+      const errorMessage = err.message || "Failed to save API configurations";
+      setApiSettingsError(errorMessage);
+      setActionError(errorMessage);
+    } finally {
+      setSavingApiSettings(false);
     }
   };
 
@@ -1590,87 +1643,148 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
           {/* 7. ADMIN VIEW */}
           {activeTab === "admin" && isAdmin && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
                 {/* Football Settings Panel */}
+                <div className="bg-white dark:bg-stone-850 p-6 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-6 flex flex-col justify-between">
+                  <div className="space-y-6">
+                    <h3 className="text-sm font-black text-stone-900 dark:text-white border-b border-stone-100 dark:border-stone-800 pb-3 flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-emerald-600" /> Football Settings
+                    </h3>
+
+                    <form onSubmit={handleSaveSettings} className="space-y-4" autoComplete="off">
+                      {/* Dummy inputs to capture browser autocomplete and prevent autofilling API credentials with admin email/password */}
+                      <input type="text" name="dummy-username-autofill" style={{ display: 'none' }} autoComplete="new-username" />
+                      <input type="password" name="dummy-password-autofill" style={{ display: 'none' }} autoComplete="new-password" />
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                          🌍 Select Competition
+                        </label>
+                        <select
+                          value={settings.competitionId}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            const comp = COMPETITIONS.find(c => c.id === val);
+                            setSettings(prev => ({
+                              ...prev,
+                              competitionId: val,
+                              competitionName: comp ? comp.name : prev.competitionName
+                            }));
+                          }}
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-bold text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          {COMPETITIONS.map((comp) => (
+                            <option key={comp.id} value={comp.id}>
+                              {comp.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                          📅 Select Season
+                        </label>
+                        <select
+                          value={settings.season}
+                          onChange={(e) => setSettings(prev => ({ ...prev, season: e.target.value }))}
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-bold text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          {SEASONS.map((season) => (
+                            <option key={season} value={season}>
+                              {season}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                          🔄 Sync Interval
+                        </label>
+                        <select
+                          value={settings.syncInterval}
+                          onChange={(e) => setSettings(prev => ({ ...prev, syncInterval: Number(e.target.value) }))}
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-bold text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          {INTERVALS.map((int) => (
+                            <option key={int.value} value={int.value}>
+                              {int.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {settings.lastSyncTime && (
+                        <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-800 flex items-center gap-2 text-[10px] text-stone-500">
+                          <Clock className="w-3.5 h-3.5 text-stone-400" />
+                          <span>
+                            Last Synced: <strong className="text-stone-700 dark:text-stone-300">{formatToISTDate(settings.lastSyncTime)} {formatToISTTime(settings.lastSyncTime)}</strong>
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Inline Settings Error and Success Indicators */}
+                      {settingsError && (
+                        <div className="p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 rounded-xl text-[11px] font-bold flex items-center gap-2 border border-rose-200 dark:border-rose-900">
+                          <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600 dark:text-rose-400" />
+                          <span className="break-all">{settingsError}</span>
+                        </div>
+                      )}
+
+                      {settingsSuccess && (
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 rounded-xl text-[11px] font-bold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900">
+                          <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+                          <span>{settingsSuccess}</span>
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={savingSettings}
+                        className={`w-full py-2.5 font-black text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+                          savingSettings 
+                            ? "bg-emerald-700/50 text-stone-300 cursor-not-allowed animate-pulse" 
+                            : settingsError 
+                              ? "bg-rose-600 hover:bg-rose-700 text-white ring-2 ring-rose-500 ring-offset-2" 
+                              : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        }`}
+                      >
+                        {savingSettings ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Saving Settings...</span>
+                          </>
+                        ) : settingsError ? (
+                          <>
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            <span>Retry Saving</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Save Settings</span>
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+                {/* API Configuration Panel */}
                 <div className="bg-white dark:bg-stone-850 p-6 rounded-2xl border border-stone-200 dark:border-stone-800 space-y-6">
                   <h3 className="text-sm font-black text-stone-900 dark:text-white border-b border-stone-100 dark:border-stone-800 pb-3 flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-emerald-600" /> Football Settings
+                    <Key className="w-4 h-4 text-emerald-600" /> API Configuration
                   </h3>
 
-                  <form onSubmit={handleSaveSettings} className="space-y-4" autoComplete="off">
+                  <form onSubmit={handleSaveApiSettings} className="space-y-4" autoComplete="off">
                     {/* Dummy inputs to capture browser autocomplete and prevent autofilling API credentials with admin email/password */}
                     <input type="text" name="dummy-username-autofill" style={{ display: 'none' }} autoComplete="new-username" />
                     <input type="password" name="dummy-password-autofill" style={{ display: 'none' }} autoComplete="new-password" />
 
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
-                        🌍 Select Competition
-                      </label>
-                      <select
-                        value={settings.competitionId}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          const comp = COMPETITIONS.find(c => c.id === val);
-                          setSettings(prev => ({
-                            ...prev,
-                            competitionId: val,
-                            competitionName: comp ? comp.name : prev.competitionName
-                          }));
-                        }}
-                        className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-bold text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      >
-                        {COMPETITIONS.map((comp) => (
-                          <option key={comp.id} value={comp.id}>
-                            {comp.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
-                        📅 Select Season
-                      </label>
-                      <select
-                        value={settings.season}
-                        onChange={(e) => setSettings(prev => ({ ...prev, season: e.target.value }))}
-                        className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-bold text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      >
-                        {SEASONS.map((season) => (
-                          <option key={season} value={season}>
-                            {season}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
-                        🔄 Sync Interval
-                      </label>
-                      <select
-                        value={settings.syncInterval}
-                        onChange={(e) => setSettings(prev => ({ ...prev, syncInterval: Number(e.target.value) }))}
-                        className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-bold text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      >
-                        {INTERVALS.map((int) => (
-                          <option key={int.value} value={int.value}>
-                            {int.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="border-t border-stone-200 dark:border-stone-800 pt-4 mt-4 space-y-4">
-                      <h4 className="text-xs font-black text-stone-900 dark:text-white uppercase tracking-wider">
-                        🔑 API KEYS & MULTI-PROVIDER CONFIGURATION
-                      </h4>
-                      <p className="text-[10px] text-stone-500">
-                        Customize provider credentials and fallback endpoints. These values override standard environment variables.
-                      </p>
-
+                    <div className="space-y-3 h-96 overflow-y-auto pr-1 scrollbar-thin">
                       <div>
-                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1">
                           ⚽ API-Football URL
                         </label>
                         <input
@@ -1686,7 +1800,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                       </div>
 
                       <div>
-                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1">
                           ⚽ API-Football Key
                         </label>
                         <input
@@ -1702,7 +1816,23 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                       </div>
 
                       <div>
-                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1.5">
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1">
+                          📊 Football-Data.org Host URL
+                        </label>
+                        <input
+                          type="text"
+                          name="footballDataHost"
+                          id="footballDataHost"
+                          autoComplete="off"
+                          value={settings.footballDataHost || ""}
+                          onChange={(e) => setSettings(prev => ({ ...prev, footballDataHost: e.target.value }))}
+                          placeholder="https://api.football-data.org/v4"
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-mono text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1">
                           📊 Football-Data.org Key
                         </label>
                         <input
@@ -1716,57 +1846,80 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                           className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-mono text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                       </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1">
+                          🏆 TheSportsDB Host URL
+                        </label>
+                        <input
+                          type="text"
+                          name="theSportsDbHost"
+                          id="theSportsDbHost"
+                          autoComplete="off"
+                          value={settings.theSportsDbHost || ""}
+                          onChange={(e) => setSettings(prev => ({ ...prev, theSportsDbHost: e.target.value }))}
+                          placeholder="https://www.thesportsdb.com/api/v1/json"
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-mono text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-stone-500 mb-1">
+                          🏆 TheSportsDB Key
+                        </label>
+                        <input
+                          type="password"
+                          name="theSportsDbKey"
+                          id="theSportsDbKey"
+                          autoComplete="new-password"
+                          value={settings.theSportsDbKey || ""}
+                          onChange={(e) => setSettings(prev => ({ ...prev, theSportsDbKey: e.target.value }))}
+                          placeholder="Enter TheSportsDB Key"
+                          className="w-full bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-3 py-2 text-xs font-mono text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
                     </div>
 
-                    {settings.lastSyncTime && (
-                      <div className="p-3 bg-stone-50 dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-800 flex items-center gap-2 text-[10px] text-stone-500">
-                        <Clock className="w-3.5 h-3.5 text-stone-400" />
-                        <span>
-                          Last Synced: <strong className="text-stone-700 dark:text-stone-300">{formatToISTDate(settings.lastSyncTime)} {formatToISTTime(settings.lastSyncTime)}</strong>
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Inline Settings Error and Success Indicators */}
-                    {settingsError && (
+                    {/* Inline API Settings Error and Success Indicators */}
+                    {apiSettingsError && (
                       <div className="p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 rounded-xl text-[11px] font-bold flex items-center gap-2 border border-rose-200 dark:border-rose-900">
                         <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600 dark:text-rose-400" />
-                        <span className="break-all">{settingsError}</span>
+                        <span className="break-all">{apiSettingsError}</span>
                       </div>
                     )}
 
-                    {settingsSuccess && (
+                    {apiSettingsSuccess && (
                       <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 rounded-xl text-[11px] font-bold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900">
                         <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
-                        <span>{settingsSuccess}</span>
+                        <span>{apiSettingsSuccess}</span>
                       </div>
                     )}
 
                     <button
                       type="submit"
-                      disabled={savingSettings}
+                      disabled={savingApiSettings}
                       className={`w-full py-2.5 font-black text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
-                        savingSettings 
+                        savingApiSettings 
                           ? "bg-emerald-700/50 text-stone-300 cursor-not-allowed animate-pulse" 
-                          : settingsError 
+                          : apiSettingsError 
                             ? "bg-rose-600 hover:bg-rose-700 text-white ring-2 ring-rose-500 ring-offset-2" 
                             : "bg-emerald-600 hover:bg-emerald-700 text-white"
                       }`}
                     >
-                      {savingSettings ? (
+                      {savingApiSettings ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Updating Supabase...</span>
+                          <span>Updating api_configs...</span>
                         </>
-                      ) : settingsError ? (
+                      ) : apiSettingsError ? (
                         <>
                           <AlertCircle className="w-3.5 h-3.5" />
-                          <span>Retry Saving Config</span>
+                          <span>Retry Saving API Config</span>
                         </>
                       ) : (
                         <>
                           <Save className="w-3.5 h-3.5" />
-                          <span>Save Configurations</span>
+                          <span>Save API Configs</span>
                         </>
                       )}
                     </button>
@@ -1854,9 +2007,8 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
                 </p>
 
                 {providerStatus ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
                     {Object.entries(providerStatus.providers || {})
-                      .filter(([pName]) => pName !== "TheSportsDB")
                       .map(([pName, pInfo]: [string, any]) => {
                         const isCurrentlyActive = providerStatus.activeProvider === pName;
                         const hasKey = pName === "API-Football" ? providerStatus.hasApiKey : pName === "Football-Data.org" ? providerStatus.hasFdKey : providerStatus.hasTsdbKey;
