@@ -555,7 +555,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
 
       await footballApi.submitPrediction(
         currentUser.id,
-        currentUser.name,
+        currentUser.display_name || currentUser.name,
         currentUser.email,
         predictingMatch.id,
         selectedPrediction,

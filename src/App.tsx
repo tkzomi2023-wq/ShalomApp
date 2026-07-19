@@ -2065,7 +2065,7 @@ function AppContent() {
             
             <div className="space-y-0.5 flex-grow text-center md:text-left relative z-10">
               <h3 className="text-sm sm:text-base md:text-lg font-black tracking-tight leading-tight text-white flex items-center justify-center md:justify-start gap-1.5 flex-wrap">
-                <span>Happy Birthday, {formatMemberName(user.name, user.gender)}!</span>
+                <span>Happy Birthday, {formatMemberName(user.display_name || user.name, user.gender)}!</span>
                 <span className="animate-bounce text-sm sm:text-base">🎁</span>
               </h3>
               <p className="text-[10px] sm:text-[11px] md:text-xs text-pink-50 font-medium max-w-2xl leading-normal opacity-95">

@@ -1877,43 +1877,178 @@ export const createFootballRouter = (): Router => {
       });
     }
     const localDb = loadLocalDB();
-    const activeProvider = localDb.settings?.activeProvider || "Simulated Seed";
-    
+
+    const apiFootballKey = getApiKey() || "";
+    const apiFootballUrl = getApiUrl() || "https://v3.football.api-sports.io";
+    const footballDataKey = getFootballDataOrgKey() || "";
+    const footballDataHost = getFootballDataOrgHost() || "https://api.football-data.org/v4";
+    const theSportsDbKey = getTheSportsDbKey() || "3";
+    const theSportsDbHost = getTheSportsDbHost() || "https://www.thesportsdb.com/api/v1/json";
+
     const hasApiKey = isApiKeyConfigured();
     const hasFdKey = isFdKeyConfigured();
     const hasTsdbKey = isTsdbKeyConfigured();
 
-    if (providerHealthStates["API-Football"]) {
-      providerHealthStates["API-Football"].apiUrl = getApiUrl();
-      if (!hasApiKey) {
-        providerHealthStates["API-Football"].status = "Offline/Fallback";
-        providerHealthStates["API-Football"].lastError = "Key Not Set";
-      } else if (providerHealthStates["API-Football"].status === "Offline/Fallback") {
-        providerHealthStates["API-Football"].status = "Healthy";
-        providerHealthStates["API-Football"].lastError = null;
-      }
+    providerHealthStates["API-Football"].apiUrl = apiFootballUrl;
+    providerHealthStates["Football-Data.org"].apiUrl = footballDataHost;
+    providerHealthStates["TheSportsDB"].apiUrl = theSportsDbHost;
+
+    providerHealthStates["API-Football"].subscription = hasApiKey ? "Active/Free" : "Inactive";
+    providerHealthStates["Football-Data.org"].subscription = hasFdKey ? "Active/Free" : "Inactive";
+    providerHealthStates["TheSportsDB"].subscription = hasTsdbKey ? "Free/Public" : "Inactive";
+
+    const checks: Promise<void>[] = [];
+
+    // 1. Check API-Football
+    if (hasApiKey) {
+      checks.push((async () => {
+        const start = Date.now();
+        try {
+          const apiHost = getApiHost();
+          const controller = new AbortController();
+          const tId = setTimeout(() => controller.abort(), 3500);
+
+          const res = await fetch(`${apiFootballUrl}/status`, {
+            headers: {
+              "x-apisports-key": apiFootballKey,
+              "x-rapidapi-key": apiFootballKey,
+              "x-apisports-host": apiHost
+            },
+            signal: controller.signal
+          });
+          clearTimeout(tId);
+
+          const latency = Date.now() - start;
+          providerHealthStates["API-Football"].latency = latency;
+
+          if (res.ok) {
+            const payload = await res.json();
+            if (payload.errors && Object.keys(payload.errors).length > 0) {
+              const errMsg = JSON.stringify(payload.errors);
+              if (errMsg.includes("Subscription") || errMsg.includes("Free plans") || errMsg.includes("access")) {
+                providerHealthStates["API-Football"].status = "Degraded";
+                providerHealthStates["API-Football"].lastError = "Subscription restriction / Access denied";
+              } else {
+                providerHealthStates["API-Football"].status = "Failed";
+                providerHealthStates["API-Football"].lastError = errMsg;
+              }
+            } else {
+              providerHealthStates["API-Football"].status = "Healthy";
+              providerHealthStates["API-Football"].lastSuccess = new Date().toISOString();
+              providerHealthStates["API-Football"].lastError = null;
+              if (res.headers.get("x-ratelimit-requests-remaining")) {
+                providerHealthStates["API-Football"].remainingRequests = Number(res.headers.get("x-ratelimit-requests-remaining"));
+              }
+            }
+          } else {
+            providerHealthStates["API-Football"].status = "Failed";
+            providerHealthStates["API-Football"].lastError = `HTTP Status ${res.status}`;
+          }
+        } catch (err: any) {
+          const latency = Date.now() - start;
+          providerHealthStates["API-Football"].latency = latency;
+          providerHealthStates["API-Football"].status = "Failed";
+          providerHealthStates["API-Football"].lastError = err.name === "AbortError" ? "Timeout" : err.message || String(err);
+        }
+      })());
+    } else {
+      providerHealthStates["API-Football"].status = "Offline/Fallback";
+      providerHealthStates["API-Football"].lastError = "Key Not Set";
+      providerHealthStates["API-Football"].latency = 0;
     }
-    if (providerHealthStates["Football-Data.org"]) {
-      providerHealthStates["Football-Data.org"].apiUrl = getFootballDataOrgHost();
-      if (!hasFdKey) {
-        providerHealthStates["Football-Data.org"].status = "Offline/Fallback";
-        providerHealthStates["Football-Data.org"].lastError = "Key Not Set";
-      } else if (providerHealthStates["Football-Data.org"].status === "Offline/Fallback") {
-        providerHealthStates["Football-Data.org"].status = "Healthy";
-        providerHealthStates["Football-Data.org"].lastError = null;
-      }
+
+    // 2. Check Football-Data.org
+    if (hasFdKey) {
+      checks.push((async () => {
+        const start = Date.now();
+        try {
+          const controller = new AbortController();
+          const tId = setTimeout(() => controller.abort(), 3500);
+
+          const res = await fetch(`${footballDataHost}/competitions`, {
+            headers: {
+              "X-Auth-Token": footballDataKey
+            },
+            signal: controller.signal
+          });
+          clearTimeout(tId);
+
+          const latency = Date.now() - start;
+          providerHealthStates["Football-Data.org"].latency = latency;
+
+          if (res.ok) {
+            providerHealthStates["Football-Data.org"].status = "Healthy";
+            providerHealthStates["Football-Data.org"].lastSuccess = new Date().toISOString();
+            providerHealthStates["Football-Data.org"].lastError = null;
+            if (res.headers.get("x-requests-remaining")) {
+              providerHealthStates["Football-Data.org"].remainingRequests = Number(res.headers.get("x-requests-remaining"));
+            }
+          } else {
+            providerHealthStates["Football-Data.org"].status = "Failed";
+            providerHealthStates["Football-Data.org"].lastError = `HTTP Status ${res.status}`;
+          }
+        } catch (err: any) {
+          const latency = Date.now() - start;
+          providerHealthStates["Football-Data.org"].latency = latency;
+          providerHealthStates["Football-Data.org"].status = "Failed";
+          providerHealthStates["Football-Data.org"].lastError = err.name === "AbortError" ? "Timeout" : err.message || String(err);
+        }
+      })());
+    } else {
+      providerHealthStates["Football-Data.org"].status = "Offline/Fallback";
+      providerHealthStates["Football-Data.org"].lastError = "Key Not Set";
+      providerHealthStates["Football-Data.org"].latency = 0;
     }
-    if (providerHealthStates["TheSportsDB"]) {
-      providerHealthStates["TheSportsDB"].apiUrl = getTheSportsDbHost();
-      if (!hasTsdbKey) {
-        providerHealthStates["TheSportsDB"].status = "Offline/Fallback";
-        providerHealthStates["TheSportsDB"].lastError = "Key Not Set";
-      } else if (providerHealthStates["TheSportsDB"].status === "Offline/Fallback") {
-        providerHealthStates["TheSportsDB"].status = "Healthy";
-        providerHealthStates["TheSportsDB"].lastError = null;
-      }
+
+    // 3. Check TheSportsDB
+    if (hasTsdbKey) {
+      checks.push((async () => {
+        const start = Date.now();
+        try {
+          const controller = new AbortController();
+          const tId = setTimeout(() => controller.abort(), 3500);
+
+          const res = await fetch(`${theSportsDbHost}/${theSportsDbKey}/listallleagues.php`, {
+            signal: controller.signal
+          });
+          clearTimeout(tId);
+
+          const latency = Date.now() - start;
+          providerHealthStates["TheSportsDB"].latency = latency;
+
+          if (res.ok) {
+            providerHealthStates["TheSportsDB"].status = "Healthy";
+            providerHealthStates["TheSportsDB"].lastSuccess = new Date().toISOString();
+            providerHealthStates["TheSportsDB"].lastError = null;
+          } else {
+            providerHealthStates["TheSportsDB"].status = "Failed";
+            providerHealthStates["TheSportsDB"].lastError = `HTTP Status ${res.status}`;
+          }
+        } catch (err: any) {
+          const latency = Date.now() - start;
+          providerHealthStates["TheSportsDB"].latency = latency;
+          providerHealthStates["TheSportsDB"].status = "Failed";
+          providerHealthStates["TheSportsDB"].lastError = err.name === "AbortError" ? "Timeout" : err.message || String(err);
+        }
+      })());
+    } else {
+      providerHealthStates["TheSportsDB"].status = "Offline/Fallback";
+      providerHealthStates["TheSportsDB"].lastError = "Key Not Set";
+      providerHealthStates["TheSportsDB"].latency = 0;
     }
-    
+
+    if (checks.length > 0) {
+      await Promise.all(checks);
+    }
+
+    // Select correct active provider
+    let activeProvider = localDb.settings?.activeProvider || "Simulated Seed";
+    if (activeProvider === "Simulated Seed" || !activeProvider) {
+      if (hasApiKey && providerHealthStates["API-Football"].status === "Healthy") activeProvider = "API-Football";
+      else if (hasFdKey && providerHealthStates["Football-Data.org"].status === "Healthy") activeProvider = "Football-Data.org";
+      else if (hasTsdbKey && providerHealthStates["TheSportsDB"].status === "Healthy") activeProvider = "TheSportsDB";
+    }
+
     res.json({
       providers: providerHealthStates,
       activeProvider,
@@ -2200,11 +2335,20 @@ export const createFootballRouter = (): Router => {
         season: "2026"
       };
 
+      let profileMap: Record<string, string> = {};
       if (isDbOnline) {
         const { data } = await supabase.from("football_predictions").select("*");
         predictions = (data || []) as FootballPrediction[];
         const { data: mData } = await supabase.from("football_matches").select("id, tournament, season");
         matches = (mData || []) as FootballMatch[];
+
+        // Fetch user profiles to resolve display names dynamically
+        const { data: profilesData } = await supabase.from("profiles").select("id, name, display_name");
+        if (profilesData) {
+          profilesData.forEach(p => {
+            profileMap[p.id] = p.display_name || p.name;
+          });
+        }
       } else {
         predictions = db.predictions;
         matches = db.matches;
@@ -2233,9 +2377,10 @@ export const createFootballRouter = (): Router => {
 
       for (const p of activePredictions) {
         if (!userStats[p.user_id]) {
+          const resolvedName = profileMap[p.user_id] || p.user_name || "Anonymous User";
           userStats[p.user_id] = {
             userId: p.user_id,
-            userName: p.user_name || "Anonymous User",
+            userName: resolvedName,
             userEmail: p.user_email || "",
             points: 0,
             correct: 0,
