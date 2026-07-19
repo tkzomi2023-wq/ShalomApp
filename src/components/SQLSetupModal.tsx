@@ -47,6 +47,13 @@ export const SQLSetupModal: React.FC<SQLSetupModalProps> = ({ isOpen, onClose })
 
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-5 text-sm leading-relaxed text-stone-600 dark:text-stone-300">
+          <div className="bg-rose-50 dark:bg-rose-950/20 text-rose-800 dark:text-rose-400 p-3.5 rounded-xl border border-rose-100 dark:border-rose-900/30 text-xs flex flex-col gap-1 shadow-xs">
+            <span className="font-bold flex items-center gap-1">🚨 Error: column reference "user_id" is ambiguous (Bulk Edit Fix)</span>
+            <span>
+              If you receive an error stating <strong>'column reference "user_id" is ambiguous'</strong> during updates or bulk editing on the financial page, please copy and re-run the updated SQL script below in your Supabase SQL Editor. This redefines the database security helper functions (like <code>is_finance_admin</code>) with renamed parameters to prevent shadowing the <code>user_id</code> column in the profiles table.
+            </span>
+          </div>
+
           <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-xs flex flex-col gap-1 shadow-xs">
             <span className="font-bold flex items-center gap-1">💡 Standard User Contribution View Fix</span>
             <span>

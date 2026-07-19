@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Member, UserRole, isOBUser } from '../types';
+import { Member, UserRole, isOBUser, formatMemberName } from '../types';
 import { db } from '../lib/supabase';
 import { 
   FinancialRecord, 
@@ -77,6 +77,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
   // Form Fields
   const [formName, setFormName] = useState('');
+  const [formUserId, setFormUserId] = useState<string | ''>('');
   const [formAddress, setFormAddress] = useState('');
   const [formAmount, setFormAmount] = useState<number | ''>('');
   const [formArea, setFormArea] = useState('Bial 1');
@@ -171,9 +172,24 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     }
   }, [isAddFormOpen, editingRecord]);
 
+  const getContributorLegalName = (rec: { user_id?: string; name: string }) => {
+    if (rec.user_id) {
+      const match = members.find(m => m.id === rec.user_id);
+      if (match) return formatMemberName(match.username || match.name, match.gender);
+    }
+    // Fallback: search members by name or username
+    const nameMatch = members.find(m => 
+      m.name.trim().toLowerCase() === rec.name.trim().toLowerCase() || 
+      (m.username && m.username.trim().toLowerCase() === rec.name.trim().toLowerCase())
+    );
+    if (nameMatch) return formatMemberName(nameMatch.username || nameMatch.name, nameMatch.gender);
+    return rec.name;
+  };
+
   // Sync edit values
   const setupEditMode = (rec: FinancialRecord) => {
     setEditingRecord(rec);
+    setFormUserId(rec.user_id || '');
     setFormName(rec.name);
     setFormAddress(rec.address);
     setFormAmount(rec.amount);
@@ -183,10 +199,65 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     setIsAddFormOpen(true);
   };
 
+  const setupBulkEditMode = (name: string, address: string, area: string) => {
+    // Attempt to resolve the contributor from members to find user_id
+    const matchedMember = members.find(m => m.name.trim().toLowerCase() === name.trim().toLowerCase() || (m.username && m.username.trim().toLowerCase() === name.trim().toLowerCase()));
+    const targetUserId = matchedMember ? matchedMember.id : undefined;
+
+    // Find all records for this contributor (by user_id if available, or by name as fallback)
+    const contributorRecords = records.filter(r => {
+      if (targetUserId && r.user_id) {
+        return r.user_id === targetUserId;
+      }
+      return r.name.trim().toLowerCase() === name.trim().toLowerCase();
+    });
+    const latestRec = contributorRecords[contributorRecords.length - 1];
+    
+    if (latestRec) {
+      setEditingRecord(latestRec);
+      setFormUserId(latestRec.user_id || targetUserId || '');
+      setFormName(latestRec.name);
+      setFormAddress(latestRec.address);
+      setFormAmount(latestRec.amount);
+      setFormArea(latestRec.area);
+      setFormMonth(latestRec.payment_month);
+      setFormDate(latestRec.payment_date);
+    } else {
+      setEditingRecord(null);
+      setFormUserId(targetUserId || '');
+      setFormName(name);
+      setFormAddress(address);
+      setFormArea(area);
+      setFormAmount('');
+      setFormMonth('January');
+      setFormDate(new Date().toISOString().split('T')[0]);
+    }
+
+    setIsBulkMode(true);
+
+    const updatedBulk: { [month: string]: { selected: boolean; amount: number | ''; date: string; id?: string } } = {};
+    MONTHS.forEach(m => {
+      updatedBulk[m] = { selected: false, amount: '', date: new Date().toISOString().split('T')[0], id: undefined };
+    });
+    contributorRecords.forEach(r => {
+      if (MONTHS.includes(r.payment_month)) {
+        updatedBulk[r.payment_month] = {
+          selected: true,
+          amount: r.amount,
+          date: r.payment_date,
+          id: r.id
+        };
+      }
+    });
+    setBulkEntries(updatedBulk);
+    setIsAddFormOpen(true);
+  };
+
   const closeForm = () => {
     setIsAddFormOpen(false);
     setEditingRecord(null);
     setFormName('');
+    setFormUserId('');
     setFormAddress('');
     setFormAmount('');
     setFormError(null);
@@ -222,6 +293,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     setIsSubmitting(true);
 
     try {
+      const matchedMember = members.find(m => 
+        (formUserId && m.id === formUserId) ||
+        m.name.trim().toLowerCase() === formName.trim().toLowerCase() ||
+        (m.username && m.username.trim().toLowerCase() === formName.trim().toLowerCase())
+      );
+      const resolvedUserId = matchedMember ? matchedMember.id : undefined;
+      const resolvedName = matchedMember ? (matchedMember.username || matchedMember.name) : formName.trim();
+
       if (editingRecord) {
         if (isBulkMode) {
           // Bulk edit/update flow for the contributor!
@@ -246,7 +325,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               if (data.id) {
                 // Update existing record
                 operations.push(financialsDb.updateFinancialRecord(data.id, {
-                  name: formName.trim(),
+                  user_id: resolvedUserId,
+                  name: resolvedName,
                   address: formAddress.trim(),
                   amount: amountVal,
                   area: formArea,
@@ -256,7 +336,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               } else {
                 // Insert new record
                 operations.push(financialsDb.addFinancialRecord({
-                  name: formName.trim(),
+                  user_id: resolvedUserId,
+                  name: resolvedName,
                   address: formAddress.trim(),
                   amount: amountVal,
                   area: formArea,
@@ -276,7 +357,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
           onAddLog(
             'Bulk Edit Financial Records', 
-            `Updated bulk payments configuration for "${formName.trim()}" (${formArea})`
+            `Updated bulk payments configuration for "${resolvedName}" (${formArea})`
           );
         } else {
           if (formAmount === '') {
@@ -289,7 +370,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           }
           // Edit flow
           const updated = await financialsDb.updateFinancialRecord(editingRecord.id, {
-            name: formName.trim(),
+            user_id: resolvedUserId,
+            name: resolvedName,
             address: formAddress.trim(),
             amount: Number(formAmount),
             area: formArea,
@@ -317,7 +399,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           }
           const dateVal = data.date || formDate;
           return {
-            name: formName.trim(),
+            user_id: resolvedUserId,
+            name: resolvedName,
             address: formAddress.trim(),
             amount: amountVal,
             area: formArea,
@@ -334,7 +417,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
         onAddLog(
           'Bulk Add Financial Records', 
-          `Registered bulk payments (${createdList.length} records) for "${formName.trim()}" (${formArea})`
+          `Registered bulk payments (${createdList.length} records) for "${resolvedName}" (${formArea})`
         );
       } else {
         if (formAmount === '') {
@@ -347,7 +430,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
         }
         // Add flow
         const created = await financialsDb.addFinancialRecord({
-          name: formName.trim(),
+          user_id: resolvedUserId,
+          name: resolvedName,
           address: formAddress.trim(),
           amount: Number(formAmount),
           area: formArea,
@@ -555,7 +639,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
   // Filter records dynamically for overall view
   const filteredRecords = records.filter(r => {
-    const matchesSearch = r.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    const legalName = getContributorLegalName(r);
+    const matchesSearch = legalName.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           r.address.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesBial = filterBial === 'All' || r.area === filterBial;
     const matchesMonth = filterMonth === 'All' || r.payment_month === filterMonth;
@@ -579,10 +664,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     const groups: { [key: string]: AggregatedUserRecord } = {};
 
     recordsList.forEach(r => {
-      const key = `${r.name.trim().toLowerCase()}||${r.area.trim().toLowerCase()}`;
+      const legalName = getContributorLegalName(r);
+      const key = r.user_id ? `${r.user_id}||${r.area.trim().toLowerCase()}` : `${legalName.trim().toLowerCase()}||${r.area.trim().toLowerCase()}`;
       if (!groups[key]) {
         groups[key] = {
-          name: r.name,
+          name: legalName,
           bial: r.area,
           address: r.address || '',
           records: [],
@@ -936,14 +1022,15 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
         // Group pdfRecords by name (case-insensitive) and sum amounts
         const contributorMap = new Map<string, { name: string; area: string; total: number; count: number }>();
         pdfRecords.forEach(r => {
-          const key = r.name.toLowerCase().trim();
+          const resolvedName = getContributorLegalName(r);
+          const key = resolvedName.toLowerCase().trim();
           const existing = contributorMap.get(key);
           if (existing) {
             existing.total += r.amount;
             existing.count += 1;
           } else {
             contributorMap.set(key, {
-              name: r.name.trim(),
+              name: resolvedName,
               area: r.area,
               total: r.amount,
               count: 1
@@ -1328,7 +1415,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       doc.setFontSize(10);
       doc.text('Name:', 15, 62);
       doc.setFont('Helvetica', 'bold');
-      doc.text(rec.name, 45, 62);
+      doc.text(getContributorLegalName(rec), 45, 62);
 
       doc.setFont('Helvetica', 'normal');
       doc.text('Geographic Area (Bial):', 15, 68);
@@ -1438,12 +1525,13 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       doc.text('Shalom Youth Audit Committee', 135, finalY + 53);
 
       // Save PDF
-      const fileName = `${rec.name.replace(/\s+/g, '_')}_Contributions_Statement_2026.pdf`;
+      const resolvedName = getContributorLegalName(rec);
+      const fileName = `${resolvedName.replace(/\s+/g, '_')}_Contributions_Statement_2026.pdf`;
       doc.save(fileName);
 
       onAddLog(
         'Generate Individual PDF',
-        `Generated individual contributions statement PDF for member: ${rec.name} (Bial: ${rec.bial}, Total: ₹${rec.totalAmount})`
+        `Generated individual contributions statement PDF for member: ${resolvedName} (Bial: ${rec.bial}, Total: ₹${rec.totalAmount})`
       );
     } catch (e) {
       console.error('Error generating individual PDF:', e);
@@ -2014,7 +2102,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                               className="hover:bg-stone-50/50 active:bg-stone-100/40 transition-colors border-b border-stone-100 cursor-pointer select-none"
                             >
                               <td className="p-4">
-                                <span className="block font-bold text-stone-900 leading-tight">{rec.name}</span>
+                                <span className="block font-bold text-stone-900 leading-tight">{getContributorLegalName(rec)}</span>
                                 <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
                               </td>
                               <td className="p-4 font-bold text-stone-700">
@@ -2083,6 +2171,16 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                             title="Edit latest payment"
                                           >
                                             Edit
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setupBulkEditMode(rec.name, rec.address, rec.bial);
+                                            }}
+                                            className="p-1 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-900 font-extrabold transition-all text-[11px] rounded-lg cursor-pointer border border-emerald-200/60"
+                                            title="Bulk manage payments for this contributor"
+                                          >
+                                            Bulk Edit
                                           </button>
                                           <button
                                             onClick={(e) => {
@@ -2628,7 +2726,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                 </td>
                               )}
                               <td className="p-4">
-                                <span className="block font-bold text-stone-900 leading-tight">{rec.name}</span>
+                                <span className="block font-bold text-stone-900 leading-tight">{getContributorLegalName(rec)}</span>
                                 <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
                               </td>
                               <td className="p-4">
@@ -2694,6 +2792,16 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                             title="Edit latest payment"
                                           >
                                             Edit
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setupBulkEditMode(rec.name, rec.address, rec.bial);
+                                            }}
+                                            className="p-1 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-900 font-extrabold transition-all text-[11px] rounded-lg cursor-pointer border border-emerald-200/60"
+                                            title="Bulk manage payments for this contributor"
+                                          >
+                                            Bulk Edit
                                           </button>
                                           <button
                                             onClick={(e) => {

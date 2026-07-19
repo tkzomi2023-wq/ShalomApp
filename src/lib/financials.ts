@@ -8,6 +8,7 @@ import { DEFAULT_ADMIN_EMAIL } from '../types';
 
 export interface FinancialRecord {
   id: string;
+  user_id?: string;
   name: string;
   address: string;
   amount: number;

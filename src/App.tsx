@@ -1921,7 +1921,7 @@ function AppContent() {
             </button>
 
             <div className="text-right hidden sm:block">
-              <span className="block text-xs font-bold text-white leading-none">{formatMemberName(user.name, user.gender)}</span>
+              <span className="block text-xs font-bold text-white leading-none">{formatMemberName(user.display_name || user.name, user.gender)}</span>
               <span className="inline-flex items-center mt-1">
                 <RoleBadge role={user.role} className="scale-85 origin-right py-0 px-1.5" />
               </span>
@@ -3428,7 +3428,7 @@ function AppContent() {
                       <Sparkles className="w-4 h-4 text-violet-600 dark:text-violet-400 animate-pulse shrink-0" />
                       <div>
                         <h4 className="text-xs font-black text-violet-950 dark:text-violet-200">
-                          Welcome, {user?.name ? user.name.split(' ')[0] : 'Fellow'}! 👋
+                          Welcome, {user ? (user.display_name || user.name).split(' ')[0] : 'Fellow'}! 👋
                         </h4>
                         <p className="text-[9px] text-stone-400 dark:text-stone-500 font-bold">Fellowship Guidelines</p>
                       </div>

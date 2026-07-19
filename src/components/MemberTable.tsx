@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Member, UserRole, ALL_ROLES, OB_ROLES, isOBUser, DEFAULT_ADMIN_EMAIL, formatMemberName, getDefaultAvatar, getCleanAvatar } from '../types';
@@ -40,6 +41,30 @@ interface MemberTableProps {
   isCurrentUserAdmin: boolean;
   onlineUserIds?: string[];
 }
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.03,
+      delayChildren: 0.02
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 12 },
+  show: { 
+    opacity: 1, 
+    y: 0, 
+    transition: { 
+      type: "spring", 
+      stiffness: 110, 
+      damping: 15 
+    } 
+  }
+};
 
 export const MemberTable: React.FC<MemberTableProps> = ({
   members,
@@ -86,6 +111,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   const [exportScope, setExportScope] = useState<'filtered' | 'full'>('filtered');
   const [financialRecords, setFinancialRecords] = useState<any[]>([]);
   const [bialConfigs, setBialConfigs] = useState<BialConfig[]>([]);
+
+  const animKey = `${currentPage}_${viewMode}_${searchTerm}_${statusFilter}_${roleGroupFilter}`;
 
   const AVAILABLE_COLUMNS = [
     { id: 'name', label: 'Name' },
@@ -180,7 +207,11 @@ export const MemberTable: React.FC<MemberTableProps> = ({
       const listToExport = scope === 'filtered' ? filteredMembers : members;
       
       // Order alphabetically in ascending order by name
-      const sortedList = [...listToExport].sort((a, b) => a.name.localeCompare(b.name));
+      const sortedList = [...listToExport].sort((a, b) => {
+        const nameA = a.display_name || a.name;
+        const nameB = b.display_name || b.name;
+        return nameA.localeCompare(nameB);
+      });
 
       const primaryColor = [16, 185, 129]; // Emerald-600
       const secondaryColor = [30, 41, 59]; // Slate-800
@@ -245,7 +276,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
         const row = [(idx + 1).toString()];
         AVAILABLE_COLUMNS.forEach(col => {
           if (selectedColumns.includes(col.id)) {
-            if (col.id === 'name') row.push(formatMemberName(m.name, m.gender));
+            if (col.id === 'name') row.push(formatMemberName(m.display_name || m.name, m.gender));
             else if (col.id === 'email') row.push(m.email);
             else if (col.id === 'phone') row.push(m.phone || 'N/A');
             else if (col.id === 'bial') row.push(bial);
@@ -338,6 +369,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
     // Search filter
     const matchesSearch = 
       member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (member.display_name && member.display_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (member.username && member.username.toLowerCase().includes(searchTerm.toLowerCase())) ||
       member.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (member.phone && member.phone.includes(searchTerm)) ||
       (member.blood_group && member.blood_group.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -357,8 +390,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
     return matchesSearch && matchesStatus && matchesRoleGroup;
   }).sort((a, b) => {
-    let checkA = sortBy === 'name' ? a.name.toLowerCase() : a.created_at;
-    let checkB = sortBy === 'name' ? b.name.toLowerCase() : b.created_at;
+    let checkA = sortBy === 'name' ? (a.display_name || a.name).toLowerCase() : a.created_at;
+    let checkB = sortBy === 'name' ? (b.display_name || b.name).toLowerCase() : b.created_at;
 
     if (checkA < checkB) return sortOrder === 'asc' ? -1 : 1;
     if (checkA > checkB) return sortOrder === 'asc' ? 1 : -1;
@@ -663,12 +696,21 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-100 dark:divide-stone-850 text-stone-700">
+              <motion.tbody 
+                key={animKey}
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="divide-y divide-stone-100 dark:divide-stone-850 text-stone-700"
+              >
                 {paginatedMembers.map(member => {
                   const isDefaultAdmin = member.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
 
                   return (
-                    <tr 
+                    <motion.tr 
+                      variants={itemVariants}
+                      whileHover={{ scale: 1.002, x: 2, backgroundColor: "rgba(16, 185, 129, 0.04)" }}
+                      transition={{ type: "tween", ease: "easeOut", duration: 0.12 }}
                       key={member.id} 
                       className={`hover:bg-emerald-50/20 dark:hover:bg-stone-850/40 transition-colors ${selectedMemberIds.includes(member.id) ? 'bg-emerald-50/10 dark:bg-emerald-950/10' : ''}`}
                     >
@@ -708,7 +750,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                 onClick={() => onOpenProfile(member)}
                                 className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left text-[11px] sm:text-xs truncate max-w-[100px] sm:max-w-none"
                               >
-                                {formatMemberName(member.name, member.gender)}
+                                {formatMemberName(member.display_name || member.name, member.gender)}
                               </button>
                               <span 
                                 className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shrink-0 ${
@@ -866,10 +908,10 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                         </div>
                       </td>
 
-                    </tr>
+                    </motion.tr>
                   );
                 })}
-              </tbody>
+              </motion.tbody>
             </table>
           </div>
         </div>
@@ -877,12 +919,21 @@ export const MemberTable: React.FC<MemberTableProps> = ({
       ) : (
 
         // GRID CARD BOX VIEW
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <motion.div 
+          key={animKey}
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
+        >
           {paginatedMembers.map(member => {
             const isDefaultAdmin = member.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
 
             return (
-              <div 
+              <motion.div 
+                variants={itemVariants}
+                whileHover={{ y: -4, scale: 1.015, boxShadow: "0 12px 20px -8px rgba(0, 0, 0, 0.08)" }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
                 key={member.id}
                 className={`bg-white dark:bg-stone-900 border rounded-2xl p-5 hover:border-emerald-250 dark:hover:border-emerald-900 hover:shadow-md transition-all flex flex-col justify-between space-y-4 ${selectedMemberIds.includes(member.id) ? 'border-emerald-500 ring-2 ring-emerald-500/10' : 'border-stone-150 dark:border-stone-850'}`}
               >
@@ -918,7 +969,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                         onClick={() => onOpenProfile(member)}
                         className="font-extrabold text-stone-900 dark:text-white hover:text-emerald-600 text-sm truncate text-left block"
                       >
-                        {formatMemberName(member.name, member.gender)}
+                        {formatMemberName(member.display_name || member.name, member.gender)}
                       </button>
                       <span 
                         className={`w-2 h-2 rounded-full shrink-0 ${
@@ -1020,10 +1071,10 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                     )}
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
       )}
 
       {/* Pagination Controls */}

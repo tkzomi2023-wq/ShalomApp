@@ -230,6 +230,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   
   // Field values
   const [name, setName] = useState(member.name);
+  const [username, setUsername] = useState(member.username || member.name || '');
+  const [displayName, setDisplayName] = useState(member.display_name || member.name || '');
   const [phone, setPhone] = useState(member.phone || '');
   const [gender, setGender] = useState<'Male' | 'Female' | undefined>(member.gender);
   const [bloodGroup, setBloodGroup] = useState(member.blood_group || '');
@@ -284,6 +286,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   useEffect(() => {
     setName(member.name);
+    setUsername(member.username || member.name || '');
+    setDisplayName(member.display_name || member.name || '');
     setPhone(member.phone || '');
     setGender(member.gender);
     setBloodGroup(member.blood_group || '');
@@ -507,7 +511,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
       const updated: Member = {
         ...member,
-        name,
+        name: username.trim() || name.trim(),
+        username: username.trim() || undefined,
+        display_name: displayName.trim() || undefined,
         phone,
         gender,
         blood_group: bloodGroup,
@@ -938,20 +944,50 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             )}
 
             {isEditing ? (
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="text-base font-bold text-stone-900 dark:text-white bg-stone-50 dark:bg-stone-850 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-850 text-center w-full max-w-xs focus:ring-2 focus:ring-emerald-500/20"
-                placeholder="Full Name"
-              />
+              <div className="space-y-2.5 w-full max-w-xs mx-auto text-left">
+                <div>
+                  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1">
+                    Display Name / Profile Name (Public)
+                  </label>
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={e => setDisplayName(e.target.value)}
+                    className="text-sm font-bold text-stone-900 dark:text-white bg-stone-50 dark:bg-stone-850 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-850 text-center w-full focus:ring-2 focus:ring-emerald-500/20"
+                    placeholder="Profile Name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1 flex items-center justify-between">
+                    <span>Username / Legal Name (Official)</span>
+                    {!isCurrentUserAdmin && (!!member.username && member.username !== member.email.split('@')[0]) && (
+                      <span className="text-[8px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-1 rounded font-bold uppercase">Locked</span>
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    disabled={!isCurrentUserAdmin && (!!member.username && member.username !== member.email.split('@')[0])}
+                    className={`text-sm font-bold text-stone-900 dark:text-white bg-stone-50 dark:bg-stone-850 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-850 text-center w-full focus:ring-2 focus:ring-emerald-500/20 ${
+                      (!isCurrentUserAdmin && (!!member.username && member.username !== member.email.split('@')[0])) ? 'opacity-65 cursor-not-allowed bg-stone-100 dark:bg-stone-900' : ''
+                    }`}
+                    placeholder="Username / Legal Name"
+                  />
+                </div>
+              </div>
             ) : (
-              <h4 className="text-lg font-extrabold text-stone-900 dark:text-white flex items-center gap-1.5 justify-center">
-                {formatMemberName(name, gender)}
-                {member.status === 'approved' && (
-                  <UserCheck className="w-4 h-4 text-emerald-600 bg-emerald-50 p-0.5 rounded-full" />
-                )}
-              </h4>
+              <div className="space-y-1 text-center">
+                <h4 className="text-lg font-extrabold text-stone-900 dark:text-white flex items-center gap-1.5 justify-center">
+                  {formatMemberName(displayName || name, gender)}
+                  {member.status === 'approved' && (
+                    <UserCheck className="w-4 h-4 text-emerald-600 bg-emerald-50 p-0.5 rounded-full" />
+                  )}
+                </h4>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500 font-mono">
+                  Official Name: <strong className="text-stone-600 dark:text-stone-300">{username || name}</strong>
+                </p>
+              </div>
             )}
 
             <div className="mt-1.5 flex flex-wrap gap-1.5 justify-center">

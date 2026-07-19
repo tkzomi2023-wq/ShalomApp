@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
+  user_id UUID,
+  username TEXT,
+  display_name TEXT,
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'standard',
   status TEXT NOT NULL DEFAULT 'pending',
@@ -62,6 +65,14 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS hide_notifications_ui BOOLEAN DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS user_id UUID;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
+
+-- Seed them with defaults
+UPDATE public.profiles SET user_id = id WHERE user_id IS NULL;
+UPDATE public.profiles SET username = name WHERE username IS NULL OR username = '';
+UPDATE public.profiles SET display_name = name WHERE display_name IS NULL OR display_name = '';
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -71,8 +82,8 @@ CREATE OR REPLACE FUNCTION public.is_ob_admin(user_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
   RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = user_id AND role IN ('Founder', 'Admin', 'Chairman', 'Vice Chairman', 'Secretary', 'Assistant Secretary', 'Treasurer', 'Financial Secretary')
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = is_ob_admin.user_id AND p.role IN ('Founder', 'Admin', 'Chairman', 'Vice Chairman', 'Secretary', 'Assistant Secretary', 'Treasurer', 'Financial Secretary')
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -81,8 +92,8 @@ CREATE OR REPLACE FUNCTION public.is_finance_admin(user_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
   RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = user_id AND role IN ('Founder', 'Admin', 'Treasurer', 'Financial Secretary')
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = is_finance_admin.user_id AND p.role IN ('Founder', 'Admin', 'Treasurer', 'Financial Secretary')
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -91,8 +102,8 @@ CREATE OR REPLACE FUNCTION public.is_secretary_admin(user_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
   RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = user_id AND role IN ('Founder', 'Admin', 'Secretary', 'Assistant Secretary')
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = is_secretary_admin.user_id AND p.role IN ('Founder', 'Admin', 'Secretary', 'Assistant Secretary')
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -101,8 +112,8 @@ CREATE OR REPLACE FUNCTION public.is_approved_user(user_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
   RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = user_id AND status = 'approved'
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = is_approved_user.user_id AND p.status = 'approved'
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -241,6 +252,7 @@ ON CONFLICT (id) DO NOTHING;
 -- 4. Financial Records Table
 CREATE TABLE IF NOT EXISTS public.financial_records (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   address TEXT NOT NULL,
   amount NUMERIC NOT NULL,
@@ -251,6 +263,19 @@ CREATE TABLE IF NOT EXISTS public.financial_records (
   created_by_email TEXT NOT NULL,
   created_by_name TEXT NOT NULL
 );
+
+-- Safe upgrade for financial_records
+ALTER TABLE public.financial_records ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+-- Automatically migrate legacy financial records by matching name text to profiles
+UPDATE public.financial_records fr
+SET user_id = p.id
+FROM public.profiles p
+WHERE fr.user_id IS NULL 
+  AND (
+    LOWER(TRIM(fr.name)) = LOWER(TRIM(p.name))
+    OR LOWER(REGEXP_REPLACE(TRIM(fr.name), '^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)', '', 'i')) = LOWER(REGEXP_REPLACE(TRIM(p.name), '^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)', '', 'i'))
+  );
 
 -- Enable RLS for Financial records
 ALTER TABLE public.financial_records ENABLE ROW LEVEL SECURITY;
@@ -684,6 +709,9 @@ class HybridDatabaseManager {
       id: member.id || crypto.randomUUID(),
       email: member.email,
       name: member.name || member.email.split('@')[0],
+      user_id: member.user_id || member.id || crypto.randomUUID(),
+      username: member.username || member.name || member.email.split('@')[0],
+      display_name: member.display_name || member.name || member.email.split('@')[0],
       phone: member.phone || '',
       role: finalRole,
       status: finalStatus,
@@ -761,6 +789,9 @@ class HybridDatabaseManager {
 
       const updatePayload: any = {
         name: newMember.name,
+        user_id: newMember.user_id,
+        username: newMember.username,
+        display_name: newMember.display_name,
         phone: newMember.phone,
         gender: newMember.gender,
         blood_group: newMember.blood_group,
@@ -777,6 +808,9 @@ class HybridDatabaseManager {
         id: newMember.id,
         email: newMember.email,
         name: newMember.name,
+        user_id: newMember.user_id,
+        username: newMember.username,
+        display_name: newMember.display_name,
         phone: newMember.phone,
         role: newMember.role,
         status: newMember.status,
@@ -865,7 +899,7 @@ class HybridDatabaseManager {
           const errorMsg = (err.message || err.details || '').toLowerCase();
           
           let removedAny = false;
-          const columnsToTest = ['hide_notifications_ui', 'theme', 'bial'];
+          const columnsToTest = ['hide_notifications_ui', 'theme', 'bial', 'user_id', 'username', 'display_name'];
           
           for (const col of columnsToTest) {
             if (errorMsg.includes(col.toLowerCase())) {

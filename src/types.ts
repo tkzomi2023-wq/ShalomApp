@@ -19,6 +19,9 @@ export interface Member {
   id: string;
   email: string;
   name: string;
+  user_id?: string;
+  username?: string;
+  display_name?: string;
   phone?: string;
   role: UserRole;
   status: 'pending' | 'approved' | 'rejected';
