@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Globe, Save, RefreshCw, Eye, Sparkles, Check, AlertCircle, Link as LinkIcon, Image as ImageIcon, Upload } from 'lucide-react';
-import { db } from '../lib/supabase';
+import { supabase, db } from '../lib/supabase';
 
 interface MetaConfig {
   title: string;
@@ -187,6 +187,31 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       }
     };
 
+    // Attempt direct database write to Supabase first for absolute high-fidelity persistence
+    let dbSyncSuccess = false;
+    try {
+      const { error: dbError } = await supabase
+        .from('meta_configs')
+        .upsert({
+          id: 'singleton',
+          title: config.title,
+          description: config.description,
+          keywords: config.keywords,
+          og_image: config.ogImage,
+          favicon: config.favicon,
+          site_url: config.siteUrl,
+          updated_at: new Date().toISOString()
+        });
+      
+      if (!dbError) {
+        dbSyncSuccess = true;
+      } else {
+        console.warn('[WebsiteMeta] Direct Supabase upsert returned error:', dbError.message);
+      }
+    } catch (dbErr: any) {
+      console.warn('[WebsiteMeta] Direct Supabase upsert exception:', dbErr.message || dbErr);
+    }
+
     if (isFallbackMode) {
       // Direct LocalStorage fallback mode saving
       try {
@@ -194,7 +219,9 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         updateClientSideInstant();
         setFeedback({ 
           type: 'success', 
-          message: 'Website meta details and OG image settings successfully saved locally! (Fallback Mode Active due to static Netlify hosting)' 
+          message: dbSyncSuccess 
+            ? 'Website meta details saved to browser cache and synced directly with Supabase database!'
+            : 'Website meta details successfully saved locally! (Fallback Mode Active due to static Netlify hosting)' 
         });
       } catch (err: any) {
         setFeedback({ type: 'error', message: err.message || 'Failed to save settings locally.' });
@@ -220,16 +247,28 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         const successData = await safeJsonParse(response);
         setFeedback({ 
           type: 'success', 
-          message: successData.message || 'Website meta details and OG image settings successfully saved!' 
+          message: dbSyncSuccess
+            ? 'Website meta details successfully saved, with high-fidelity database synchronizations complete!'
+            : (successData.message || 'Website meta details and OG image settings successfully saved!')
         });
         updateClientSideInstant();
         localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
       } else {
-        const errData = await safeJsonParse(response);
-        setFeedback({ type: 'error', message: errData.error || 'Failed to save settings' });
+        // If API fails but direct DB write succeeded, we can still report success!
+        if (dbSyncSuccess) {
+          setFeedback({
+            type: 'success',
+            message: 'Website meta details successfully saved and updated directly in the Supabase database!'
+          });
+          updateClientSideInstant();
+          localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
+        } else {
+          const errData = await safeJsonParse(response);
+          setFeedback({ type: 'error', message: errData.error || 'Failed to save settings' });
+        }
       }
     } catch (err: any) {
-      console.warn('Network error while saving settings via API, falling back to LocalStorage:', err);
+      console.warn('Network error while saving settings via API, falling back to LocalStorage & direct DB:', err);
       // Fallback
       try {
         localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
@@ -237,7 +276,9 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         setIsFallbackMode(true);
         setFeedback({ 
           type: 'success', 
-          message: 'Website meta details saved successfully to browser cache. (Switched to Fallback Mode)' 
+          message: dbSyncSuccess
+            ? 'Website meta details saved successfully to browser cache and direct Supabase database!'
+            : 'Website meta details saved successfully to browser cache. (Switched to Fallback Mode)' 
         });
       } catch (e: any) {
         setFeedback({ type: 'error', message: `An error occurred: ${err.message || err}` });
@@ -351,11 +392,11 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
-                      type="url"
+                      type="text"
                       required
                       value={config.ogImage}
                       onChange={(e) => setConfig({ ...config, ogImage: e.target.value })}
-                      placeholder="e.g. https://images.unsplash.com/photo-..."
+                      placeholder="e.g. /og-image.png or https://..."
                       className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
                     />
                     <ImageIcon className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
@@ -393,7 +434,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
-                      type="url"
+                      type="text"
                       required
                       value={config.favicon}
                       onChange={(e) => setConfig({ ...config, favicon: e.target.value })}
@@ -435,7 +476,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
-                      type="url"
+                      type="text"
                       required
                       value={config.siteUrl}
                       onChange={(e) => setConfig({ ...config, siteUrl: e.target.value })}
