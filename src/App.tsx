@@ -296,6 +296,7 @@ function AppContent() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectionSuccess, setConnectionSuccess] = useState<boolean | null>(null);
+  const [connectionRetryCount, setConnectionRetryCount] = useState(0);
   const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
@@ -754,11 +755,13 @@ function AppContent() {
       setDbConnected(isOnline);
       if (isOnline) {
         setConnectionSuccess(true);
+        setConnectionRetryCount(0); // Reset retry counter upon successful connection
         await db.syncLocalDataToSupabase();
         await financialsDb.syncLocalFinancialsToSupabase();
       } else {
         setConnectionError(db.lastError || "Could not reach database. Check if tables are created.");
         setConnectionSuccess(false);
+        setConnectionRetryCount(prev => prev + 1); // Increment retry counter on failure
       }
       const data = await db.getMembers();
       setMembers(data);
@@ -770,6 +773,7 @@ function AppContent() {
       console.error('Failed to load database content:', e);
       setConnectionError(e?.message || String(e));
       setConnectionSuccess(false);
+      setConnectionRetryCount(prev => prev + 1);
     } finally {
       setIsTestingConnection(false);
     }
@@ -779,6 +783,35 @@ function AppContent() {
     if (!user) return;
     loadDatabase();
   }, [user?.id]);
+
+  // Online status listener and auto-reconnect background retry sequence
+  useEffect(() => {
+    if (!user) return;
+
+    const handleOnline = () => {
+      console.log('Network online status changed. Attempting automatic database reconnection...');
+      setConnectionRetryCount(0);
+      loadDatabase();
+    };
+
+    window.addEventListener('online', handleOnline);
+
+    // If connection failed (dbConnected === false) and we haven't exceeded maximum retries
+    let retryTimer: NodeJS.Timeout | null = null;
+    if (dbConnected === false && connectionRetryCount < 5) {
+      // Calculate backoff delay up to 12 seconds max
+      const delay = Math.min(4000 + (connectionRetryCount * 2000), 12000);
+      console.log(`Scheduling automatic background reconnection retry #${connectionRetryCount + 1} in ${delay}ms...`);
+      retryTimer = setTimeout(() => {
+        loadDatabase();
+      }, delay);
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [user?.id, dbConnected, connectionRetryCount]);
 
   // Deep-link routing: automatically open a member's profile if '?profile=...' is present in the URL
   useEffect(() => {
@@ -1683,11 +1716,11 @@ function AppContent() {
     const age = getAge(m.dob!);
     if (age < youngestAge) {
       youngestAge = age;
-      youngestMemberName = m.name;
+      youngestMemberName = m.display_name || m.name;
     }
     if (age > oldestAge) {
       oldestAge = age;
-      oldestMemberName = m.name;
+      oldestMemberName = m.display_name || m.name;
     }
   });
 
@@ -1896,12 +1929,26 @@ function AppContent() {
           </div>
 
           {/* Quick connection / diagnostics indicator */}
-          <div className="hidden lg:flex items-center gap-2 text-xs bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 shrink-0">
-            <span className={`w-2 h-2 rounded-full ${dbConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}></span>
-            <span className="text-white/80">
-              Database: {dbConnected ? 'Supabase Synchronized' : 'High-Fidelity Offline Sync'}
+          <button
+            id="sy-db-connection-badge"
+            onClick={() => {
+              if (!dbConnected && !isTestingConnection) {
+                setConnectionRetryCount(0); // Reset retry count for manual retry
+                loadDatabase();
+              }
+            }}
+            disabled={isTestingConnection}
+            className={`hidden lg:flex items-center gap-2 text-xs bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 shrink-0 transition-all ${!dbConnected ? 'cursor-pointer hover:border-amber-400/50' : 'cursor-default'}`}
+            title={dbConnected ? 'Database connection is healthy and active' : 'Database connection is offline. Click to manually reconnect.'}
+          >
+            <span className={`w-2 h-2 rounded-full ${dbConnected ? 'bg-emerald-400' : isTestingConnection ? 'bg-indigo-400 animate-ping' : 'bg-amber-400 animate-pulse'}`}></span>
+            <span className="text-white/80 font-medium">
+              Database: {isTestingConnection ? 'Connecting...' : dbConnected ? 'Supabase Synchronized' : 'High-Fidelity Offline Sync'}
             </span>
-          </div>
+            {!dbConnected && !isTestingConnection && (
+              <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-md animate-pulse font-bold border border-amber-500/30">Retry</span>
+            )}
+          </button>
 
           {/* Right Section / Profile avatar / Logout */}
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">

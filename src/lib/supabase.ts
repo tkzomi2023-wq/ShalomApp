@@ -633,23 +633,37 @@ class HybridDatabaseManager {
     this.useLocalOnly = false;
   }
 
-  // Check if live Supabase is fully configured with our custom tables
-  async testConnection(): Promise<boolean> {
-    try {
-      const { error } = await supabase.from('profiles').select('id').limit(1);
-      if (error) {
-        const fullMsg = `[Code: ${error.code || 'unknown'}] ${error.message || 'No message'}`;
-        console.warn('Supabase profiles query returned an error:', fullMsg);
-        this.lastError = fullMsg;
-        return false;
+  // Check if live Supabase is fully configured with our custom tables (with robust progressive retries)
+  async testConnection(retries = 3, delayMs = 600): Promise<boolean> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const { error } = await supabase.from('profiles').select('id').limit(1);
+        if (error) {
+          const fullMsg = `[Code: ${error.code || 'unknown'}] ${error.message || 'No message'}`;
+          console.warn(`Supabase profiles query returned an error (attempt ${attempt}/${retries}):`, fullMsg);
+          this.lastError = fullMsg;
+          
+          if (attempt === retries) {
+            return false;
+          }
+        } else {
+          this.lastError = null;
+          return true;
+        }
+      } catch (e: any) {
+        const errStr = e?.message || String(e);
+        console.warn(`Supabase connection test failed (attempt ${attempt}/${retries}):`, errStr);
+        this.lastError = errStr;
+        if (attempt === retries) {
+          return false;
+        }
       }
-      this.lastError = null;
-      return true;
-    } catch (e: any) {
-      console.warn('Supabase connection test failed:', e?.message || e);
-      this.lastError = e?.message || String(e);
-      return false;
+      if (attempt < retries) {
+        // Progressive backoff: wait longer on subsequent attempts
+        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+      }
     }
+    return false;
   }
 
   isLocalStorageMode(): boolean {
