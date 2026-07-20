@@ -39,7 +39,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
     clearError();
 
     if (!name.trim()) {
-      setFormError('Full Name is required.');
+      setFormError('Username is required.');
       return;
     }
     if (!email.trim()) {
@@ -51,7 +51,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
       return;
     }
     if (!dob) {
-      setFormError('Date of Birth is compulsory so we can celebrate your birthday with custom themes and community alerts!');
+      setFormError('Date of Birth is compulsory!');
       return;
     }
     if (!gender) {
@@ -73,7 +73,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
         gender,
         blood_group: bloodGroup || undefined,
         dob: dob || undefined,
-        address: address || undefined
+        address: address || undefined,
+        username: name // Populate username column in Supabase profiles
       };
 
       await signUpWithEmail(email, password, name, phone, extraDetails);
@@ -103,8 +104,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
 
       <form onSubmit={handleSubmit} className="space-y-3.5">
         <div>
-          <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">
-            Full Name
+          <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+            <span>Username</span>
+            <span className="text-[10px] text-emerald-600 font-bold lowercase tracking-normal">Required</span>
           </label>
           <div className="relative">
             <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-stone-400">
@@ -122,8 +124,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">
-            Email Address
+          <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+            <span>Email Address</span>
+            <span className="text-[10px] text-emerald-600 font-bold lowercase tracking-normal">Required</span>
           </label>
           <div className="relative">
             <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-stone-400">
@@ -178,8 +181,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">
-              Gender
+            <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+              <span>Gender</span>
+              <span className="text-[10px] text-emerald-600 font-bold lowercase tracking-normal">Required</span>
             </label>
             <select
               required
@@ -196,8 +200,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">
-              Password
+            <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+              <span>Password</span>
+              <span className="text-[10px] text-emerald-600 font-bold lowercase tracking-normal">Required</span>
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-stone-400">
@@ -215,8 +220,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1">
-              Confirm Password
+            <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+              <span>Confirm Password</span>
+              <span className="text-[10px] text-emerald-600 font-bold lowercase tracking-normal">Required</span>
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-stone-400">
@@ -251,8 +257,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
             <div className="p-4 border-t border-stone-150 dark:border-stone-800 space-y-3.5 bg-white dark:bg-stone-900">
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-stone-500 dark:text-stone-400 uppercase mb-1">
-                    Blood Group
+                  <label className="block text-[11px] font-semibold text-stone-500 dark:text-stone-400 uppercase mb-1 flex justify-between items-center">
+                    <span>Blood Group</span>
+                    <span className="text-[10px] text-stone-400 font-medium normal-case">Optional</span>
                   </label>
                   <input
                     type="text"
@@ -266,8 +273,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
 
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-stone-500 dark:text-stone-400 uppercase mb-1">
-                    Residential Address
+                  <label className="block text-[11px] font-semibold text-stone-500 dark:text-stone-400 uppercase mb-1 flex justify-between items-center">
+                    <span>Residential Address</span>
+                    <span className="text-[10px] text-stone-400 font-medium normal-case">Optional</span>
                   </label>
                   <textarea
                     rows={2}

@@ -58,12 +58,16 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   hide_notifications_ui BOOLEAN DEFAULT false,
   bial TEXT,
   theme TEXT,
+  custom_title TEXT,
+  church_titles TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
 -- Safe upgrade for existing databases
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS custom_title TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS church_titles TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS hide_notifications_ui BOOLEAN DEFAULT false;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS user_id UUID;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS username TEXT;
@@ -668,10 +672,29 @@ class HybridDatabaseManager {
       if (error) {
         throw error;
       }
+
+      // Cache locally for offline resilience
+      if (data && data.length > 0) {
+        try {
+          localStorage.setItem('sy_local_members', JSON.stringify(data));
+        } catch (_) {}
+      }
+
       return data as Member[];
     } catch (err: any) {
-      console.error('Supabase members query error:', err?.message || err);
-      throw err;
+      console.error('Supabase members query error, loading from local cache:', err?.message || err);
+      try {
+        const cached = localStorage.getItem('sy_local_members');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch (_) {}
+      
+      // Fallback to initial mock members if no cache exists
+      return INITIAL_MOCK_MEMBERS;
     }
   }
 
@@ -724,6 +747,8 @@ class HybridDatabaseManager {
       hide_notifications_ui: member.hide_notifications_ui !== undefined ? member.hide_notifications_ui : false,
       bial: member.bial,
       theme: member.theme,
+      custom_title: member.custom_title,
+      church_titles: member.church_titles,
       created_at: member.created_at || new Date().toISOString()
     };
 
@@ -801,7 +826,9 @@ class HybridDatabaseManager {
         email_notifications: newMember.email_notifications,
         hide_notifications_ui: newMember.hide_notifications_ui,
         bial: newMember.bial,
-        theme: newMember.theme
+        theme: newMember.theme,
+        custom_title: newMember.custom_title,
+        church_titles: newMember.church_titles
       };
 
       const insertPayload: any = {
@@ -823,6 +850,8 @@ class HybridDatabaseManager {
         hide_notifications_ui: newMember.hide_notifications_ui,
         bial: newMember.bial,
         theme: newMember.theme,
+        custom_title: newMember.custom_title,
+        church_titles: newMember.church_titles,
         created_at: newMember.created_at
       };
 
@@ -948,6 +977,26 @@ class HybridDatabaseManager {
         }
       }
       console.error("Could not create/update profile:", err.message || err);
+      
+      // Offline fallback: save to local members list so the app is functional!
+      try {
+        const cached = localStorage.getItem('sy_local_members');
+        let members: Member[] = cached ? JSON.parse(cached) : [...INITIAL_MOCK_MEMBERS];
+        if (!Array.isArray(members)) members = [...INITIAL_MOCK_MEMBERS];
+        
+        const idx = members.findIndex(m => m.id === newMember.id || m.email.toLowerCase() === newMember.email.toLowerCase());
+        if (idx > -1) {
+          members[idx] = { ...members[idx], ...newMember };
+        } else {
+          members.unshift(newMember);
+        }
+        localStorage.setItem('sy_local_members', JSON.stringify(members));
+        console.log('Profile cached locally in offline fallback mode.');
+        return newMember;
+      } catch (cacheErr) {
+        console.error('Failed to cache profile locally:', cacheErr);
+      }
+      
       throw err;
     }
 

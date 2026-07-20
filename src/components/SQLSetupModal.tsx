@@ -71,10 +71,11 @@ export const SQLSetupModal: React.FC<SQLSetupModalProps> = ({ isOpen, onClose })
           <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-xs flex flex-col gap-1 shadow-xs">
             <span className="font-bold flex items-center gap-1">📍 User Profile Bial & Theme Update</span>
             <span>
-              To enable explicit Bial assignments and persistent device-synced theme preferences on member profiles, copy the updated SQL script below or execute these commands in your Supabase SQL Editor:
+              To enable explicit Bial assignments, custom double roles/titles, and persistent preferences on member profiles, copy the updated SQL script below or execute these commands in your Supabase SQL Editor:
               <code className="block mt-1.5 p-2 bg-stone-900 text-stone-100 rounded font-mono text-[11px] select-all">
                 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;<br />
-                ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT;
+                ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT;<br />
+                ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS custom_title TEXT;
               </code>
             </span>
           </div>

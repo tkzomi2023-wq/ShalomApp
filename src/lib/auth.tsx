@@ -31,6 +31,7 @@ const safeStorage = {
 interface AuthContextType {
   user: Member | null;
   loading: boolean;
+  loadingStatus: 'connecting' | 'slow' | 'retrying' | 'error';
   error: string | null;
   signInWithEmail: (email: string, password: string) => Promise<Member>;
   signUpWithEmail: (email: string, password: string, name: string, phone: string, extra?: Partial<Member>) => Promise<Member>;
@@ -40,49 +41,77 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   clearError: () => void;
+  retryInit: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, errorMessage = "Timeout"): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(errorMessage)), timeoutMs))
+  ]);
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<Member | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingStatus, setLoadingStatus] = useState<'connecting' | 'slow' | 'retrying' | 'error'>('connecting');
   const [error, setError] = useState<string | null>(null);
 
   // Synchronize state and verify database connection
-  useEffect(() => {
-    async function initAuth() {
+  const initAuth = async (retryAttempt = 0) => {
+    const slowTimer = setTimeout(() => {
+      setLoadingStatus(retryAttempt > 0 ? 'retrying' : 'slow');
+    }, 3500);
+
+    try {
+      setLoading(true);
+      setError(null);
+      if (retryAttempt > 0) {
+        setLoadingStatus('retrying');
+      } else {
+        setLoadingStatus('connecting');
+      }
+
+      // Test connection with 5-second timeout
+      let isSupabaseOnline = false;
       try {
-        setLoading(true);
-        // Test connection to Supabase profiles
-        const isSupabaseOnline = await db.testConnection();
+        isSupabaseOnline = await withTimeout(db.testConnection(), 5000, "Database Connection Timeout");
+      } catch (connErr) {
+        console.warn("Database Connection Timeout or connection test failed. Proceeding in offline/local fallback mode.", connErr);
+        isSupabaseOnline = false;
+      }
 
-        if (safeStorage.getSessionItem('sy_signed_out_by_user') === 'true') {
-          setLoading(false);
-          return;
-        }
+      if (safeStorage.getSessionItem('sy_signed_out_by_user') === 'true') {
+        setLoading(false);
+        setLoadingStatus('connecting');
+        clearTimeout(slowTimer);
+        return;
+      }
 
-        // Check if there is a cached user session locally or in Supabase
-        const cachedUserStr = safeStorage.getItem('sy_current_user');
-        
-        if (isSupabaseOnline) {
+      // Check if there is a cached user session locally or in Supabase
+      const cachedUserStr = safeStorage.getItem('sy_current_user');
+      
+      if (isSupabaseOnline) {
+        try {
           // If we have a live connection, synchronize with Supabase Auth
-          const { data: { session } } = await supabase.auth.getSession();
+          const { data: { session } } = await withTimeout(supabase.auth.getSession(), 5000, "Session Fetch Timeout");
           if (session?.user) {
             const email = session.user.email || '';
-            const members = await db.getMembers();
+            const members = await withTimeout(db.getMembers(), 5000, "Members Sync Timeout");
             let currentProfile = members.find(m => m.email.toLowerCase() === email.toLowerCase());
             
             if (!currentProfile) {
               // Create default profile if missing from database
-              currentProfile = await db.createOrUpdateMember({
+              currentProfile = await withTimeout(db.createOrUpdateMember({
                 id: session.user.id,
                 email,
                 name: session.user.user_metadata?.name || email.split('@')[0],
                 phone: session.user.phone || session.user.user_metadata?.phone || '',
                 role: email === DEFAULT_ADMIN_EMAIL ? 'Founder' : 'standard',
                 status: email === DEFAULT_ADMIN_EMAIL ? 'approved' : 'pending'
-              });
+              }), 5000, "Profile Setup Timeout");
             } else if (currentProfile.id !== session.user.id) {
               // Sync/upgrade profile ID to match active Supabase Auth user ID
               console.log(`[initAuth] Syncing profile ID from ${currentProfile.id} to ${session.user.id}`);
@@ -98,28 +127,60 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const cachedUser = JSON.parse(cachedUserStr);
             setUser(cachedUser);
           }
-        } else {
-          // Local emulator mode
-          if (cachedUserStr) {
-            const cachedUser = JSON.parse(cachedUserStr) as Member;
-            // Get latest data from local profile copy
-            const members = await db.getMembers();
-            const latestProfile = members.find(m => m.email.toLowerCase() === cachedUser.email.toLowerCase());
-            if (latestProfile) {
-              setUser(latestProfile);
-              safeStorage.setItem('sy_current_user', JSON.stringify(latestProfile));
-            } else {
-              setUser(cachedUser);
-            }
+        } catch (syncErr) {
+          console.warn("Error synchronizing with live database, falling back to local storage:", syncErr);
+          isSupabaseOnline = false;
+        }
+      }
+
+      if (!isSupabaseOnline) {
+        // Local emulator/offline mode
+        if (cachedUserStr) {
+          const cachedUser = JSON.parse(cachedUserStr) as Member;
+          // Get latest data from local profile copy
+          const members = await withTimeout(db.getMembers(), 4000, "Local DB Timeout").catch(() => [] as Member[]);
+          const latestProfile = members.find(m => m.email.toLowerCase() === cachedUser.email.toLowerCase());
+          if (latestProfile) {
+            setUser(latestProfile);
+            safeStorage.setItem('sy_current_user', JSON.stringify(latestProfile));
+          } else {
+            setUser(cachedUser);
           }
         }
-      } catch (err: any) {
-        console.error('Auth initialization error:', err);
-      } finally {
-        setLoading(false);
       }
-    }
+      clearTimeout(slowTimer);
+      setLoadingStatus('connecting'); // Reset
+    } catch (err: any) {
+      console.error(`Auth initialization error (attempt ${retryAttempt + 1}):`, err);
+      clearTimeout(slowTimer);
 
+      if (retryAttempt < 2) {
+        // Wait 1.5 seconds and retry
+        console.log(`Retrying initialization in 1.5s...`);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        return initAuth(retryAttempt + 1);
+      } else {
+        // Fallback to cache if we are completely offline but have local user cached
+        const cachedUserStr = safeStorage.getItem('sy_current_user');
+        if (cachedUserStr) {
+          try {
+            const cachedUser = JSON.parse(cachedUserStr);
+            setUser(cachedUser);
+            console.warn("Using cached profile session after failed connections.");
+            setLoadingStatus('connecting');
+            setLoading(false);
+            return;
+          } catch (_) {}
+        }
+        setLoadingStatus('error');
+        setError(err?.message || "Failed to establish a secure connection with Shalom Youth Database.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     initAuth();
 
     // Listen for Auth changes from Supabase
@@ -132,7 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (session?.user) {
         const email = session.user.email || '';
-        const members = await db.getMembers();
+        const members = await db.getMembers().catch(() => [] as Member[]);
         let profile = members.find(m => m.email.toLowerCase() === email.toLowerCase());
         
         if (!profile) {
@@ -142,17 +203,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             name: session.user.user_metadata?.name || email.split('@')[0],
             role: email === DEFAULT_ADMIN_EMAIL ? 'Founder' : 'standard',
             status: email === DEFAULT_ADMIN_EMAIL ? 'approved' : 'pending'
-          });
+          }).catch(() => null);
         } else if (profile.id !== session.user.id) {
           // Sync/upgrade profile ID to match active Supabase Auth user ID
           console.log(`[onAuthStateChange] Syncing profile ID from ${profile.id} to ${session.user.id}`);
-          const success = await db.updateProfileId(profile.id, session.user.id);
+          const success = await db.updateProfileId(profile.id, session.user.id).catch(() => false);
           if (success) {
             profile.id = session.user.id;
           }
         }
-        setUser(profile);
-        safeStorage.setItem('sy_current_user', JSON.stringify(profile));
+        if (profile) {
+          setUser(profile);
+          safeStorage.setItem('sy_current_user', JSON.stringify(profile));
+        }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         safeStorage.removeItem('sy_current_user');
@@ -163,6 +226,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subscription.unsubscribe();
     };
   }, []);
+
+  const retryInit = async () => {
+    await initAuth(0);
+  };
 
   const refreshProfile = async () => {
     if (!user) return;
@@ -349,7 +416,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const cleanedPhone = phone.trim();
       const members = await db.getMembers().catch(() => [] as Member[]);
       
-      let profile = members.find(m => m.phone?.trim() === cleanedPhone);
+      const cleanDigits = (p: string) => p.replace(/\D/g, '');
+      const targetDigits = cleanDigits(cleanedPhone);
+      
+      let profile = members.find(m => {
+        if (!m.phone) return false;
+        const mTrim = m.phone.trim();
+        if (mTrim === cleanedPhone) return true;
+        
+        const mDigits = cleanDigits(mTrim);
+        if (!mDigits || !targetDigits) return false;
+        if (mDigits === targetDigits) return true;
+        
+        // Match last 10 digits (highly robust for various local formats/international prefix additions)
+        if (mDigits.length >= 10 && targetDigits.length >= 10) {
+          return mDigits.slice(-10) === targetDigits.slice(-10);
+        }
+        return false;
+      });
       if (profile && profile.email) {
         let signInData: any = null;
         let signInError: any = null;
@@ -559,6 +643,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         loading,
+        loadingStatus,
         error,
         signInWithEmail,
         signUpWithEmail,
@@ -567,7 +652,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signInWithGoogle,
         signOut,
         refreshProfile,
-        clearError
+        clearError,
+        retryInit
       }}
     >
       {children}

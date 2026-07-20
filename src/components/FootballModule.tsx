@@ -107,11 +107,17 @@ const AnimatedScore: React.FC<{
 
 interface FootballModuleProps {
   currentUser: Member | null;
+  isFootballEnabled?: boolean;
+  onToggleFootballEnabled?: (enabled: boolean) => void;
 }
 
 type SubPage = "index" | "fixtures" | "predictions" | "leaderboard" | "standings" | "my-predictions" | "statistics" | "admin" | "league-table";
 
-export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) => {
+export const FootballModule: React.FC<FootballModuleProps> = ({ 
+  currentUser,
+  isFootballEnabled = true,
+  onToggleFootballEnabled
+}) => {
   const [activeTab, setActiveTab] = useState<SubPage>("index");
   
   const [matches, setMatches] = useState<FootballMatch[]>(() => {
@@ -1078,6 +1084,44 @@ export const FootballModule: React.FC<FootballModuleProps> = ({ currentUser }) =
           </button>
         </div>
       </div>
+
+      {/* Admin Toggle for Predictions Availability */}
+      {isAdmin && (
+        <div className="bg-emerald-50/40 dark:bg-emerald-950/10 border border-emerald-500/20 rounded-3xl p-4.5 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fadeIn">
+          <div className="flex gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 border border-emerald-200/45">
+              <Trophy className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-stone-900 dark:text-white flex items-center gap-1.5">
+                Admin Control: Predictions Tab Public Access
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase ${isFootballEnabled ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400' : 'bg-stone-150 dark:bg-stone-800 text-stone-650 dark:text-stone-400'}`}>
+                  {isFootballEnabled ? 'Active / Visible' : 'Disabled / Hidden'}
+                </span>
+              </h4>
+              <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 max-w-2xl leading-relaxed">
+                Standard members cannot view predictions or place bets when disabled. Administrative accounts always retain full access.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0 bg-white dark:bg-stone-900 border border-stone-250/10 rounded-2xl px-4 py-2 shadow-xs">
+            <span className="text-xs font-extrabold text-stone-600 dark:text-stone-300">Public Access:</span>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isFootballEnabled}
+                onChange={(e) => {
+                  if (onToggleFootballEnabled) {
+                    onToggleFootballEnabled(e.target.checked);
+                  }
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-stone-200 dark:bg-stone-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-stone-600 peer-checked:bg-emerald-600"></div>
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* API Connection & Data Sync Health Monitor Banner */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800 p-5 rounded-3xl animate-fadeIn" id="api-status-monitor-banner">

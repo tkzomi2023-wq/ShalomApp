@@ -136,29 +136,7 @@ interface SmtpConfig {
 }
 
 async function getSmtpConfig(): Promise<SmtpConfig | null> {
-  // Check env first
-  if (process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS) {
-    return {
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT,
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-      from: process.env.SMTP_FROM
-    };
-  }
-  // Check file second
-  try {
-    if (fs.existsSync(SMTP_CONFIG_FILE)) {
-      const data = fs.readFileSync(SMTP_CONFIG_FILE, "utf-8");
-      const config = JSON.parse(data) as SmtpConfig;
-      if (config && config.host && config.port && config.user && config.pass) {
-        return config;
-      }
-    }
-  } catch (err) {
-    console.error("Failed to read SMTP config file:", err);
-  }
-  // Check Supabase third
+  // Always query Supabase first as the primary truth for SMTP configurations
   try {
     const { data, error } = await supabase
       .from("smtp_configs")
@@ -174,13 +152,63 @@ async function getSmtpConfig(): Promise<SmtpConfig | null> {
         pass: data.pass,
         from: data.from
       };
-      // Cache locally
+      // Cache locally for offline resilience
       fs.writeFileSync(SMTP_CONFIG_FILE, JSON.stringify(dbConfig, null, 2), "utf-8");
       return dbConfig;
     }
   } catch (err: any) {
-    console.error("Failed to fetch SMTP config from Supabase in getSmtpConfig:", err.message || err);
+    console.error("Failed to fetch SMTP config from Supabase in getSmtpConfig:", err?.message || err);
   }
+
+  // If Supabase query failed or returned no data, verify if the database connection itself is healthy and live
+  let isDbConnected = false;
+  try {
+    const { error } = await supabase.from("profiles").select("id").limit(1);
+    if (!error) {
+      isDbConnected = true;
+    }
+  } catch (e) {
+    isDbConnected = false;
+  }
+
+  // If the database is completely offline or unreachable, do NOT return any fallback or cached configs.
+  // This ensures the fields are empty when the Supabase connection is not there.
+  if (!isDbConnected) {
+    return null;
+  }
+
+  const isDefaultPlaceholder = (user?: string) => {
+    return !user || user.toLowerCase() === "jsagaizawl@gmail.com";
+  };
+
+  // Check env second
+  if (process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    if (!isDefaultPlaceholder(process.env.SMTP_USER)) {
+      return {
+        host: process.env.SMTP_HOST,
+        port: process.env.SMTP_PORT,
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+        from: process.env.SMTP_FROM
+      };
+    }
+  }
+
+  // Check file third
+  try {
+    if (fs.existsSync(SMTP_CONFIG_FILE)) {
+      const fileData = fs.readFileSync(SMTP_CONFIG_FILE, "utf-8");
+      const config = JSON.parse(fileData) as SmtpConfig;
+      if (config && config.host && config.port && config.user && config.pass) {
+        if (!isDefaultPlaceholder(config.user)) {
+          return config;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to read SMTP config file:", err);
+  }
+
   return null;
 }
 
@@ -198,6 +226,7 @@ interface BirthdayLog {
 
 interface LogsStore {
   lastRunDate: string | null;
+  lastUpcomingRunDate?: string | null;
   logs: BirthdayLog[];
 }
 
@@ -210,6 +239,7 @@ function loadLogsStore(): LogsStore {
       if (parsed) {
         return {
           lastRunDate: parsed.lastRunDate || null,
+          lastUpcomingRunDate: parsed.lastUpcomingRunDate || null,
           logs: Array.isArray(parsed.logs) ? parsed.logs : []
         };
       }
@@ -217,7 +247,7 @@ function loadLogsStore(): LogsStore {
   } catch (err) {
     console.error("Failed to read birthday logs file:", err);
   }
-  return { lastRunDate: null, logs: [] };
+  return { lastRunDate: null, lastUpcomingRunDate: null, logs: [] };
 }
 
 // Save logs helper
@@ -266,6 +296,34 @@ const isBirthdayToday = (dobString?: string): boolean => {
   const ist = getCurrentISTTime();
   if (dobDate.getFullYear() >= ist.year) return false;
   return (dobDate.getMonth() + 1) === ist.month && dobDate.getDate() === ist.date;
+};
+
+// Helper to calculate target month/day for N days ahead in India Standard Time (IST)
+function getISTDateInDays(daysAhead: number): { month: number; date: number } {
+  const utcDate = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const targetDate = new Date(utcDate.getTime() + istOffsetMs + (daysAhead * 24 * 60 * 60 * 1000));
+  return {
+    month: targetDate.getUTCMonth() + 1,
+    date: targetDate.getUTCDate()
+  };
+}
+
+// Helper to determine if a member's birthday is upcoming in N days in India Standard Time (IST)
+const isBirthdayInNDays = (dobString: string | undefined, daysAhead: number): boolean => {
+  if (!dobString) return false;
+  const parts = dobString.split('-');
+  if (parts.length === 3) {
+    const dobMonth = parseInt(parts[1], 10);
+    const dobDay = parseInt(parts[2], 10);
+    const target = getISTDateInDays(daysAhead);
+    return target.month === dobMonth && target.date === dobDay;
+  }
+  
+  const dobDate = new Date(dobString);
+  if (isNaN(dobDate.getTime())) return false;
+  const target = getISTDateInDays(daysAhead);
+  return (dobDate.getMonth() + 1) === target.month && dobDate.getDate() === target.date;
 };
 
 // Helper to download external avatar URLs or parse base64 and output embedded CID attachments
@@ -588,6 +646,242 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
   }
 }
 
+// Check and notify upcoming birthdays (3 days ahead) to secretaries and admins
+async function checkAndNotifyUpcomingBirthdays(force = false): Promise<{
+  checked: boolean;
+  upcomingFound: number;
+  emailsSent: boolean;
+  status: string;
+}> {
+  const store = loadLogsStore();
+  const ist = getCurrentISTTime();
+  const todayString = `${ist.year}-${String(ist.month).padStart(2, '0')}-${String(ist.date).padStart(2, '0')}`;
+
+  // If already run today and not forced, skip
+  if (store.lastUpcomingRunDate === todayString && !force) {
+    return {
+      checked: false,
+      upcomingFound: 0,
+      emailsSent: false,
+      status: `Upcoming check already completed today (${todayString}).`
+    };
+  }
+
+  // Same time check as daily birthdays (on or after 7:30 AM IST) unless forced
+  if (!force) {
+    const isTimeToSend = ist.hours > 7 || (ist.hours === 7 && ist.minutes >= 30);
+    if (!isTimeToSend) {
+      return {
+        checked: false,
+        upcomingFound: 0,
+        emailsSent: false,
+        status: `Skipped: Currently ${String(ist.hours).padStart(2, '0')}:${String(ist.minutes).padStart(2, '0')} IST. Automatic upcoming check only runs on or after 7:30 AM IST.`
+      };
+    }
+  }
+
+  try {
+    // 1. Fetch approved members from Supabase profiles
+    const { data: members, error } = await supabase
+      .from("profiles")
+      .select("*");
+
+    if (error) {
+      throw new Error(`Failed to fetch members for upcoming birthdays: ${error.message}`);
+    }
+
+    if (!members || members.length === 0) {
+      store.lastUpcomingRunDate = todayString;
+      saveLogsStore(store);
+      return {
+        checked: true,
+        upcomingFound: 0,
+        emailsSent: false,
+        status: "No registered members found."
+      };
+    }
+
+    const approvedMembers = members.filter(m => m.status === "approved");
+
+    // 2. Find members whose birthday is exactly 3 days from now
+    const upcomingCelebrants = approvedMembers.filter(m => m.dob && isBirthdayInNDays(m.dob, 3));
+
+    store.lastUpcomingRunDate = todayString;
+    saveLogsStore(store);
+
+    if (upcomingCelebrants.length === 0) {
+      return {
+        checked: true,
+        upcomingFound: 0,
+        emailsSent: false,
+        status: "No upcoming birthdays in 3 days today."
+      };
+    }
+
+    // 3. Find admin/secretary emails
+    const adminsAndSecretaries = approvedMembers.filter(m => 
+      m.role === "Admin" || 
+      m.role === "Secretary" || 
+      m.role === "Assistant Secretary" || 
+      m.email?.toLowerCase() === "tkpaite2016@gmail.com"
+    );
+
+    const adminEmails = Array.from(new Set(
+      adminsAndSecretaries
+        .map(m => m.email?.trim().toLowerCase())
+        .filter(Boolean)
+    ));
+
+    if (adminEmails.length === 0) {
+      adminEmails.push("tkpaite2016@gmail.com"); // Fallback admin email
+    }
+
+    const smtpConfig = await getSmtpConfig();
+    if (!smtpConfig) {
+      console.log("[SMTP] Cannot notify upcoming birthdays: SMTP config not found or invalid.");
+      return {
+        checked: true,
+        upcomingFound: upcomingCelebrants.length,
+        emailsSent: false,
+        status: "SMTP not configured. Skipped sending notifications."
+      };
+    }
+
+    // 4. Send email notification to admins/secretaries
+    const transporter = nodemailer.createTransport({
+      host: smtpConfig.host,
+      port: parseInt(smtpConfig.port || "587"),
+      secure: smtpConfig.port === "465",
+      auth: {
+        user: smtpConfig.user,
+        pass: smtpConfig.pass,
+      },
+    });
+
+    const fromAddress = smtpConfig.from || `"Shalom Youth Fellowship" <${smtpConfig.user}>`;
+
+    for (const c of upcomingCelebrants) {
+      const subject = `🔔 Birthday Alert: ${c.name} has a birthday in 3 days! 🎂`;
+      const appUrl = process.env.APP_URL || "https://shalomyouth.netlify.app";
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Upcoming Birthday Alert</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #fafaf9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 550px; margin: 30px auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #f5f5f4;">
+            <tr>
+              <td style="background: linear-gradient(135deg, #4f46e5, #818cf8); padding: 40px 30px; text-align: center; color: white;">
+                <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; background-color: rgba(255, 255, 255, 0.2); padding: 6px 16px; border-radius: 100px; display: inline-block; margin-bottom: 15px;">
+                  Upcoming Celebration Alert 🔔
+                </div>
+                <h1 style="margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.02em; line-height: 1.2;">Birthday Upcoming in 3 Days!</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 40px 35px;">
+                <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 1.6; color: #44403c;">
+                  Hello Secretary / Admin,
+                </p>
+                <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 1.6; color: #44403c;">
+                  This is an automated notification to alert you that the following member has an upcoming birthday in <strong>3 days</strong>. Please prepare to celebrate and welcome them:
+                </p>
+
+                <!-- Member Card -->
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #fafaf9; border-radius: 16px; border: 1px solid #e7e5e4; margin-bottom: 30px;">
+                  <tr>
+                    <td style="padding: 20px; text-align: center; width: 100px; vertical-align: top;">
+                      ${c.avatar ? `
+                        <img src="${c.avatar}" alt="${c.name}" style="width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 3px solid #e0e7ff;" />
+                      ` : `
+                        <div style="width: 70px; height: 70px; border-radius: 50%; background-color: #e0e7ff; color: #4f46e5; line-height: 70px; font-size: 28px; font-weight: bold; text-align: center;">
+                          ${c.name.charAt(0).toUpperCase()}
+                        </div>
+                      `}
+                    </td>
+                    <td style="padding: 20px 20px 20px 0; vertical-align: top;">
+                      <h3 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 800; color: #1c1917;">${c.name}</h3>
+                      <p style="margin: 0 0 12px 0; font-size: 13px; color: #4f46e5; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em;">${c.role || 'Member'}</p>
+                      
+                      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 13px; color: #57534e; line-height: 1.6;">
+                        <tr>
+                          <td style="width: 90px; font-weight: bold; padding-bottom: 4px;">Date of Birth:</td>
+                          <td style="padding-bottom: 4px;">${c.dob}</td>
+                        </tr>
+                        ${c.bial ? `
+                        <tr>
+                          <td style="font-weight: bold; padding-bottom: 4px;">Bial (Branch):</td>
+                          <td style="padding-bottom: 4px;">${c.bial}</td>
+                        </tr>
+                        ` : ''}
+                        ${c.phone ? `
+                        <tr>
+                          <td style="font-weight: bold; padding-bottom: 4px;">Phone:</td>
+                          <td style="padding-bottom: 4px;">${c.phone}</td>
+                        </tr>
+                        ` : ''}
+                        ${c.email ? `
+                        <tr>
+                          <td style="font-weight: bold;">Email:</td>
+                          <td>${c.email}</td>
+                        </tr>
+                        ` : ''}
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <div style="text-align: center; margin: 30px 0 10px 0;">
+                  <a href="${appUrl}" style="background-color: #4f46e5; color: white; text-decoration: none; padding: 12px 28px; font-weight: bold; font-size: 14px; border-radius: 12px; display: inline-block;">
+                    Open Shalom Youth Portal 🚀
+                  </a>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color: #fafaf9; padding: 24px; text-align: center; border-top: 1px solid #f5f5f4; color: #78716c; font-size: 12px;">
+                <p style="margin: 0 0 4px 0; font-weight: 800; color: #44403c;">Shalom Youth Fellowship</p>
+                <p style="margin: 0;">This email was automatically generated and sent to the Secretary & Admin list.</p>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `;
+
+      // Send to all administrators/secretaries directly
+      for (const adminEmail of adminEmails) {
+        await transporter.sendMail({
+          from: fromAddress,
+          to: adminEmail,
+          subject: subject,
+          html: htmlContent,
+        });
+        console.log(`[SMTP] Successfully sent upcoming birthday alert for ${c.name} to admin ${adminEmail}`);
+      }
+    }
+
+    return {
+      checked: true,
+      upcomingFound: upcomingCelebrants.length,
+      emailsSent: true,
+      status: `Successfully notified admins/secretaries about ${upcomingCelebrants.length} upcoming birthday(s).`
+    };
+
+  } catch (err: any) {
+    console.error("Error running upcoming birthday check task:", err);
+    return {
+      checked: true,
+      upcomingFound: 0,
+      emailsSent: false,
+      status: `Error: ${err.message || err}`
+    };
+  }
+}
+
 // REST API endpoint to retrieve birthday logs
 app.get("/api/birthday-email/status", async (req, res) => {
   const store = loadLogsStore();
@@ -799,6 +1093,14 @@ app.post("/api/birthday-email/trigger", async (req, res) => {
   try {
     const force = req.body.force === true;
     const result = await checkAndSendBirthdayEmails(force);
+    
+    // Also trigger the upcoming birthday email notification system
+    try {
+      await checkAndNotifyUpcomingBirthdays(force);
+    } catch (upcomingErr: any) {
+      console.error("[Scheduler] Manual upcoming birthday alert trigger failed:", upcomingErr);
+    }
+
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to trigger birthday check" });
@@ -924,6 +1226,9 @@ setInterval(() => {
   checkAndSendBirthdayEmails(false).catch(err => {
     console.error("[Scheduler] Error running background birthday check:", err);
   });
+  checkAndNotifyUpcomingBirthdays(false).catch(err => {
+    console.error("[Scheduler] Error running background upcoming birthday check:", err);
+  });
 }, 15 * 60 * 1000); // 15 minutes
 
 // Also trigger immediate check on server boot after 10 seconds to allow standard server startup first
@@ -931,6 +1236,9 @@ setTimeout(() => {
   console.log("[Scheduler] Running initial boot-up birthday check...");
   checkAndSendBirthdayEmails(false).catch(err => {
     console.error("[Scheduler] Error running initial birthday check:", err);
+  });
+  checkAndNotifyUpcomingBirthdays(false).catch(err => {
+    console.error("[Scheduler] Error running initial upcoming birthday check:", err);
   });
 }, 10000);
 

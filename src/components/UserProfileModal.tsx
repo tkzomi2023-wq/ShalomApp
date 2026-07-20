@@ -5,13 +5,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar, DEFAULT_ADMIN_EMAIL, getCleanAvatar } from '../types';
+import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar, DEFAULT_ADMIN_EMAIL, getCleanAvatar, isOBUser } from '../types';
 import { useAuth } from '../lib/auth';
 import { supabase, db } from '../lib/supabase';
 import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard } from 'lucide-react';
 import { RoleBadge } from './RoleBadge';
 import { FinancialRecord, financialsDb, MONTHS, BIAL_IDS } from '../lib/financials';
-import { getActivityLogs } from '../lib/activity';
+import { getActivityLogs, addActivityLog } from '../lib/activity';
 import { MemberIDCardModal } from './MemberIDCardModal';
 
 interface UserProfileModalProps {
@@ -41,6 +41,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
   const canChangeRole = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const canEditBial = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+  const canEditCustomTitle = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [isAvatarUploading, setIsAvatarUploading] = useState(false);
   const [avatarUploadError, setAvatarUploadError] = useState<string | null>(null);
@@ -65,7 +66,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [transparentUploadedUrl, setTransparentUploadedUrl] = useState<string>('');
   const [isTransparentApplied, setIsTransparentApplied] = useState<boolean>(false);
 
-  const runBackgroundRemoval = async (fileToProcess: File) => {
+  const runBackgroundRemoval = async (fileToProcess: File, attempt = 1) => {
+    const withTimeoutHelper = <T,>(promise: Promise<T>, timeoutMs: number, errorMessage = "Timeout"): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(errorMessage)), timeoutMs))
+      ]);
+    };
+
     setIsProcessingBg(true);
     setBgRemovalError(null);
     setBgRemovalProgress('Initializing AI model...');
@@ -73,7 +81,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     try {
       const { removeBackground } = await import('@imgly/background-removal');
       
-      const processedBlob = await removeBackground(fileToProcess, {
+      const backgroundRemovalPromise = removeBackground(fileToProcess, {
         output: {
           layout: 'isomorphic'
         } as any,
@@ -85,15 +93,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           setBgRemovalProgress(`${phase}: ${pct}%`);
         }
       });
-      
+
+      const processedBlob = await withTimeoutHelper(backgroundRemovalPromise, 30000, "Background removal took too long. Memory limit might have been exceeded.");
+
+      setBgRemovalProgress('Saving transparent image to cloud...');
       const previewUrl = URL.createObjectURL(processedBlob);
       setTransparentPreviewUrl(previewUrl);
       setTransparentBlob(processedBlob);
-      setBgRemovalProgress('Saving transparent image to cloud...');
-      
+
       const ext = 'png';
       const filePath = `${member.id}/avatar_transparent_${Date.now()}.${ext}`;
-      const imageUrl = await db.uploadToStorage('avatars', filePath, new File([processedBlob], `avatar_transparent.${ext}`, { type: 'image/png' }));
+      const imageUrl = await withTimeoutHelper(db.uploadToStorage('avatars', filePath, new File([processedBlob], `avatar_transparent.${ext}`, { type: 'image/png' })), 10000, "Saving transparent image timed out.");
       
       setTransparentUploadedUrl(imageUrl);
       setAvatar(imageUrl);
@@ -109,15 +119,37 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         onUpdate(updated);
       }
     } catch (err: any) {
-      console.error('Error removing background:', err);
-      setBgRemovalError(err.message || 'Failed to remove background. Please try another image.');
+      console.warn(`Background removal attempt ${attempt} failed:`, err);
+      if (attempt < 2 && err.message !== "Abort" && !err.message?.includes("took too long")) {
+        // Retry once after 2 seconds
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return runBackgroundRemoval(fileToProcess, attempt + 1);
+      }
+
+      let friendlyMessage = 'We could not remove the background automatically.';
+      if (err.message?.includes("took too long")) {
+        friendlyMessage = "Background removal took too long. This is common on mobile devices or slow networks due to model file sizes.";
+      } else if (err.message?.includes("WASM") || err.message?.includes("WebAssembly")) {
+        friendlyMessage = "Your browser memory limits were exceeded. We recommend using a smaller image or a desktop browser.";
+      }
+
+      setBgRemovalError(friendlyMessage);
+      // Fallback: use original background
+      setRemoveBgToggle(false);
     } finally {
       setIsProcessingBg(false);
       setBgRemovalProgress('');
     }
   };
 
-  const runPassportCrop = async (imageFile: File): Promise<File> => {
+  const runPassportCrop = async (imageFile: File, attempt = 1): Promise<File> => {
+    const withTimeoutHelper = <T,>(promise: Promise<T>, timeoutMs: number, errorMessage = "Timeout"): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(errorMessage)), timeoutMs))
+      ]);
+    };
+
     setIsCroppingPassport(true);
     setPassportCropError(null);
     try {
@@ -129,23 +161,44 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       reader.readAsDataURL(imageFile);
       const base64Image = await base64Promise;
 
-      const res = await fetch("/api/detect-face", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64Image })
-      });
-      if (!res.ok) {
-        throw new Error("Failed to contact the face-detection AI service.");
-      }
-      const coords = await res.json();
-      if (!coords || typeof coords.top !== 'number') {
-        throw new Error("Invalid response from face-detection AI service.");
+      // Call API with a 9-second timeout
+      let res: Response;
+      try {
+        res = await withTimeoutHelper(fetch("/api/detect-face", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: base64Image })
+        }), 9000);
+      } catch (err: any) {
+        if (err.name === 'AbortError' || err.message?.includes("Timeout")) {
+          throw new Error("CONNECTION_TIMEOUT");
+        }
+        throw err;
       }
 
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("RATE_LIMIT");
+        }
+        throw new Error("API_ERROR");
+      }
+
+      const coords = await res.json();
+      if (!coords || coords.error) {
+        if (coords?.error?.includes("face")) {
+          throw new Error("NO_FACE_DETECTED");
+        }
+        throw new Error(coords?.error || "INVALID_COORDS");
+      }
+      if (typeof coords.left !== 'number') {
+        throw new Error("NO_FACE_DETECTED");
+      }
+
+      // Perform canvas drawing
       const img = new Image();
       const loadPromise = new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Failed to load original image for cropping."));
+        img.onerror = () => reject(new Error("FAILED_IMAGE_LOAD"));
       });
       img.src = base64Image;
       await loadPromise;
@@ -160,7 +213,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       canvas.height = 400;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        throw new Error("Could not initialize 2D canvas context.");
+        throw new Error("CANVAS_CONTEXT_FAIL");
       }
 
       ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, 400, 400);
@@ -168,7 +221,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       const blobPromise = new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((blob) => {
           if (blob) resolve(blob);
-          else reject(new Error("Failed to generate cropped image blob."));
+          else reject(new Error("BLOB_GENERATION_FAIL"));
         }, "image/jpeg", 0.95);
       });
       const croppedBlob = await blobPromise;
@@ -176,9 +229,33 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       const ext = 'jpg';
       const croppedFile = new File([croppedBlob], `avatar_passport_${Date.now()}.${ext}`, { type: 'image/jpeg' });
       return croppedFile;
+
     } catch (err: any) {
-      console.warn("Passport auto-cropping failed, defaulting to original image:", err);
-      setPassportCropError(err.message || "Face detection failed. Defaulting to full image.");
+      console.warn(`Face detection attempt ${attempt} failed:`, err.message || err);
+
+      // Retry logic (up to 3 times) with exponential backoff
+      if (attempt < 3 && err.message !== "NO_FACE_DETECTED" && err.message !== "FAILED_IMAGE_LOAD") {
+        const backoffDelay = Math.pow(2, attempt) * 1000; // 2s, then 4s
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+        return runPassportCrop(imageFile, attempt + 1);
+      }
+
+      // Map technical errors to user friendly warnings
+      let friendlyMessage = "We encountered an unexpected error during AI cropping.";
+      if (err.message === "CONNECTION_TIMEOUT") {
+        friendlyMessage = "Poor connection detected. The face-detection service timed out.";
+      } else if (err.message === "RATE_LIMIT") {
+        friendlyMessage = "Face-detection service is currently busy (rate limit reached). Please try again shortly.";
+      } else if (err.message === "NO_FACE_DETECTED") {
+        friendlyMessage = "No clear face was detected in the uploaded photo. Please use a well-lit, front-facing passport style image.";
+      } else if (err.message === "FAILED_IMAGE_LOAD") {
+        friendlyMessage = "The image resolution is too high or the file is corrupted.";
+      } else if (err.message === "API_ERROR") {
+        friendlyMessage = "Failed to contact the face-detection AI service.";
+      }
+
+      setPassportCropError(friendlyMessage);
+      // Return original file so user can proceed
       return imageFile;
     } finally {
       setIsCroppingPassport(false);
@@ -244,6 +321,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [hideNotificationsUI, setHideNotificationsUI] = useState<boolean>(member.hide_notifications_ui === true);
   const [activeTab, setActiveTab] = useState<'personal' | 'roles' | 'financial'>('personal');
   const [bial, setBial] = useState(member.bial || '');
+  const [customTitle, setCustomTitle] = useState(member.custom_title || '');
+  const [churchTitlesInput, setChurchTitlesInput] = useState('');
+  const [churchTitles, setChurchTitles] = useState<string[]>(
+    member.church_titles 
+      ? member.church_titles.split(',').map(t => {
+          const trimmed = t.trim();
+          if (!trimmed) return '';
+          return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+        }).filter(Boolean) 
+      : []
+  );
   const [userRecords, setUserRecords] = useState<FinancialRecord[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
 
@@ -304,6 +392,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     setEmailNotifications(member.email_notifications !== false);
     setHideNotificationsUI(member.hide_notifications_ui === true);
     setBial(member.bial || '');
+    setCustomTitle(member.custom_title || '');
+    setChurchTitles(
+      member.church_titles 
+        ? member.church_titles.split(',').map(t => {
+            const trimmed = t.trim();
+            if (!trimmed) return '';
+            return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+          }).filter(Boolean) 
+        : []
+    );
+    setChurchTitlesInput('');
     
     // Reset or initialize background removal states based on current database state
     setRemoveBgToggle(hasTransparentAvatar);
@@ -364,7 +463,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   if (!isOpen) return null;
 
   const isSelf = currentUser?.id === member.id || (currentUser?.email && currentUser.email.toLowerCase() === member.email.toLowerCase());
-  const canEdit = isSelf || (isCurrentUserAdmin && (member.role === 'standard' || canChangeRole));
+  const isUserAdmin = currentUser ? (currentUser.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(currentUser.role)) : false;
+  const isFounder = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+  const canEdit = isSelf || (isUserAdmin && (member.role === 'standard' || canChangeRole));
 
   const currentYear = 2026; // Match mock and app default data year
   const currentMonthIndex = new Date().getMonth();
@@ -509,10 +610,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         finalAvatar = getOriginalAvatar(member.avatar);
       }
 
+      const oldOfficialName = member.username || member.name || '';
+      const newOfficialName = username.trim() || name.trim();
+      const isOfficialNameChanged = isFounder && (oldOfficialName !== newOfficialName);
+
       const updated: Member = {
         ...member,
-        name: username.trim() || name.trim(),
-        username: username.trim() || undefined,
+        name: isFounder ? (username.trim() || name.trim()) : (member.username || member.name),
+        username: isFounder ? (username.trim() || undefined) : member.username,
         display_name: displayName.trim() || undefined,
         phone,
         gender,
@@ -520,14 +625,31 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         dob,
         address,
         role: canChangeRole ? role : member.role,
-        status: isCurrentUserAdmin ? status : member.status,
+        status: isUserAdmin ? status : member.status,
         avatar: finalAvatar,
         email_notifications: emailNotifications,
         hide_notifications_ui: hideNotificationsUI,
-        bial: canEditBial ? (bial || undefined) : member.bial
+        bial: canEditBial ? (bial || undefined) : member.bial,
+        custom_title: isFounder ? (customTitle.trim() || undefined) : member.custom_title,
+        church_titles: isFounder ? churchTitles.join(',') : member.church_titles
       };
       await onUpdate(updated);
       setIsEditing(false);
+
+      if (isOfficialNameChanged && isUserAdmin) {
+        if (currentUser) {
+          addActivityLog(
+            currentUser.id,
+            currentUser.email,
+            currentUser.name || currentUser.email.split('@')[0],
+            "ADMIN_OFFICIAL_NAME_UPDATE",
+            `Admin ${currentUser.email} updated official name of ${member.email} from "${oldOfficialName}" to "${newOfficialName}"`,
+            member.id,
+            member.name
+          );
+        }
+        alert(`Success: Official Name updated from "${oldOfficialName}" to "${newOfficialName}". The change has been saved and documented in the system audit logs.`);
+      }
     } catch (err: any) {
       console.error('Failed to save profile changes inside modal:', err);
       alert(err.message || 'Failed to save profile changes. Please try again or contact support.');
@@ -535,6 +657,24 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       setIsSaving(false);
     }
   };
+
+  // Profile fields completion check
+  const profileFields = [
+    { label: 'Profile Photo', isFilled: !!avatar, key: 'avatar' },
+    { label: 'Display Name', isFilled: !!displayName?.trim(), key: 'display_name' },
+    { label: 'Phone Number', isFilled: !!phone?.trim(), key: 'phone' },
+    { label: 'Gender', isFilled: !!gender, key: 'gender' },
+    { label: 'Blood Group', isFilled: !!bloodGroup?.trim(), key: 'blood_group' },
+    { label: 'Date of Birth', isFilled: !!dob, key: 'dob' },
+    { label: 'Home Address', isFilled: !!address?.trim(), key: 'address' },
+    { label: 'Bial Division', isFilled: !!bial?.trim(), key: 'bial' },
+    { label: 'Ministry Hashtags', isFilled: churchTitles.length > 0, key: 'church_titles' },
+    { label: 'Custom Title', isFilled: !!customTitle?.trim(), key: 'custom_title' }
+  ];
+
+  const completedFieldsCount = profileFields.filter(f => f.isFilled).length;
+  const completionPercent = Math.round((completedFieldsCount / profileFields.length) * 100);
+  const incompleteFields = profileFields.filter(f => !f.isFilled);
 
   return (
     <motion.div 
@@ -957,24 +1097,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     placeholder="Profile Name"
                   />
                 </div>
-                <div>
-                  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1 flex items-center justify-between">
-                    <span>Username / Legal Name (Official)</span>
-                    {!isCurrentUserAdmin && (!!member.username && member.username !== member.email.split('@')[0]) && (
-                      <span className="text-[8px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-1 rounded font-bold uppercase">Locked</span>
-                    )}
-                  </label>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
-                    disabled={!isCurrentUserAdmin && (!!member.username && member.username !== member.email.split('@')[0])}
-                    className={`text-sm font-bold text-stone-900 dark:text-white bg-stone-50 dark:bg-stone-850 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-850 text-center w-full focus:ring-2 focus:ring-emerald-500/20 ${
-                      (!isCurrentUserAdmin && (!!member.username && member.username !== member.email.split('@')[0])) ? 'opacity-65 cursor-not-allowed bg-stone-100 dark:bg-stone-900' : ''
-                    }`}
-                    placeholder="Username / Legal Name"
-                  />
-                </div>
+                {isFounder && (
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1 flex items-center justify-between">
+                      <span>Username / Legal Name (Official)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e => setUsername(e.target.value)}
+                      className="text-sm font-bold text-stone-900 dark:text-white bg-stone-50 dark:bg-stone-850 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-850 text-center w-full focus:ring-2 focus:ring-emerald-500/20"
+                      placeholder="Username / Legal Name"
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-1 text-center">
@@ -990,8 +1126,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </div>
             )}
 
-            <div className="mt-1.5 flex flex-wrap gap-1.5 justify-center">
-              <RoleBadge role={isEditing && isCurrentUserAdmin ? role : member.role} />
+            <div className="mt-1.5 flex flex-wrap gap-1.5 justify-center items-center">
+              <RoleBadge role={isEditing && isUserAdmin ? role : member.role} />
+              {customTitle && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-100 dark:border-amber-900/30 uppercase tracking-wider flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-amber-600 shrink-0" />
+                  <span>{customTitle}</span>
+                </span>
+              )}
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
                 member.status === 'approved'
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
@@ -1002,7 +1144,76 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 Status: {member.status}
               </span>
             </div>
-                {/* Tabs Navigation */}
+
+            {/* Ministry Hashtags in header */}
+            {churchTitles.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap gap-1 justify-center max-w-sm mx-auto">
+                {churchTitles.map((title, idx) => (
+                  <span
+                    key={idx}
+                    className="px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-50/70 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 tracking-tight transition-all shadow-2xs hover:scale-105"
+                  >
+                    {title.startsWith('#') ? title : `#${title}`}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Profile Completion Progress Card */}
+            <div className="mt-4 p-3.5 bg-stone-50/50 dark:bg-stone-950/40 border border-stone-200/60 dark:border-stone-800/60 rounded-xl space-y-2.5 max-w-xs w-full mx-auto shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                  Profile Strength
+                </span>
+                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
+                  completionPercent === 100
+                    ? 'bg-emerald-100 text-emerald-850 dark:bg-emerald-950/40 dark:text-emerald-400'
+                    : completionPercent >= 70
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400 font-extrabold'
+                    : completionPercent >= 40
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400 font-extrabold'
+                    : 'bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400 font-extrabold'
+                }`}>
+                  {completionPercent}%
+                </span>
+              </div>
+
+              {/* Progress Bar Container */}
+              <div className="w-full h-2 bg-stone-200 dark:bg-stone-800 rounded-full overflow-hidden relative shadow-inner">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${completionPercent}%` }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    completionPercent === 100
+                      ? 'bg-emerald-600 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+                      : completionPercent >= 70
+                      ? 'bg-emerald-500'
+                      : completionPercent >= 40
+                      ? 'bg-amber-500'
+                      : 'bg-rose-500'
+                  }`}
+                />
+              </div>
+
+              {/* Helpful Hint or Encouragement */}
+              <div className="text-[10px] text-stone-500 dark:text-stone-400 text-center leading-tight">
+                {completionPercent === 100 ? (
+                  <div className="flex items-center justify-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold">
+                    <Check className="w-3.5 h-3.5" /> Awesome! Your profile is 100% complete.
+                  </div>
+                ) : (
+                  <p className="leading-normal">
+                    <span className="font-semibold text-stone-600 dark:text-stone-300">💡 Hint: </span>
+                    Add your <span className="font-extrabold text-emerald-700 dark:text-emerald-400">{incompleteFields.map(f => f.label).slice(0, 2).join(', ')}</span>
+                    {incompleteFields.length > 2 && ` and ${incompleteFields.length - 2} other details`} to reach 100%.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Tabs Navigation */}
           <div className="flex border-b border-stone-100 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-950 p-1 rounded-xl">
             <button
               type="button"
@@ -1278,8 +1489,183 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 </div>
               </div>
 
+              {/* Church/Department Title */}
+              <div className="space-y-1.5">
+                <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 animate-pulse" /> Church / Department Title (Double Role)
+                </h5>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    {isEditing && isFounder ? (
+                      <div className="flex flex-col gap-1">
+                        <input
+                          type="text"
+                          value={customTitle}
+                          disabled={!isFounder}
+                          onChange={e => setCustomTitle(e.target.value)}
+                          placeholder="e.g. Youth Pastor, Deacon, Assistant Pastor"
+                          className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-750 bg-stone-50 dark:bg-stone-850 text-stone-800 dark:text-stone-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                        />
+                        <p className="text-[10px] mt-0.5 font-medium">
+                          <span className="text-stone-450">
+                            Allow OB members to hold two roles by adding a church or department title. Managed only by Founder (tkpaite2016@gmail.com).
+                          </span>
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] text-stone-400 uppercase tracking-wide">Secondary Title</p>
+                            <p className="font-bold text-stone-800 dark:text-stone-200 text-sm">
+                              {customTitle || 'No secondary title assigned'}
+                            </p>
+                          </div>
+                          {customTitle && (
+                            <span className="text-xs px-2 py-1 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-extrabold">
+                              Double Role
+                            </span>
+                          )}
+                        </div>
+                        {isEditing && !isFounder && (
+                          <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                            <span>🔒 Church/Department title is locked. Contact tkpaite2016@gmail.com to update.</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Church Titles & Ministry Roles (Hashtags) */}
+              <div className="space-y-1.5 pt-1">
+                <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" /> Ministry Hashtags & Church Titles
+                </h5>
+                <div className="p-4 bg-stone-50 dark:bg-stone-950/20 border border-stone-150 dark:border-stone-850 rounded-xl space-y-3">
+                  <p className="text-[10px] text-stone-500 dark:text-stone-400 leading-normal">
+                    Add specific hashtags representing your active roles and department assignments (e.g., Youth Pastor, Media Team, Sound In-charge, Conductor). These will appear on your profile card for scheduling and visitor viewing.
+                  </p>
+
+                  {isEditing && isFounder ? (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={churchTitlesInput}
+                          onChange={e => setChurchTitlesInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = churchTitlesInput.trim();
+                              if (trimmed) {
+                                const val = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+                                if (!churchTitles.includes(val)) {
+                                  setChurchTitles([...churchTitles, val]);
+                                  setChurchTitlesInput('');
+                                }
+                              }
+                            }
+                          }}
+                          placeholder="Type title (e.g. Media Team) and press Enter"
+                          className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-750 bg-white dark:bg-stone-850 text-stone-800 dark:text-stone-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = churchTitlesInput.trim();
+                            if (trimmed) {
+                              const val = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+                              if (!churchTitles.includes(val)) {
+                                setChurchTitles([...churchTitles, val]);
+                                setChurchTitlesInput('');
+                              }
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                        >
+                          Add
+                        </button>
+                      </div>
+
+                      {/* Quick Suggestions */}
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-bold text-stone-450 uppercase tracking-wider">Quick Suggestions:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {['Youth Pastor', 'Media Team', 'Sound In-charge', 'Conductor', 'Worship Leader', 'Pianist', 'Usher', 'Sunday School Teacher'].map((sug) => {
+                            const formattedSug = sug.startsWith('#') ? sug : `#${sug}`;
+                            const alreadyAdded = churchTitles.includes(formattedSug);
+                            return (
+                              <button
+                                key={sug}
+                                type="button"
+                                disabled={alreadyAdded}
+                                onClick={() => setChurchTitles([...churchTitles, formattedSug])}
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border transition-all cursor-pointer ${
+                                  alreadyAdded 
+                                    ? 'bg-stone-100 border-stone-200 text-stone-300 dark:bg-stone-900 dark:border-stone-800 dark:text-stone-600 cursor-not-allowed' 
+                                    : 'bg-white border-stone-200 text-stone-600 hover:border-emerald-300 hover:text-emerald-700 dark:bg-stone-850 dark:border-stone-750 dark:text-stone-300 dark:hover:border-emerald-55 dark:hover:text-emerald-400'
+                                }`}
+                              >
+                                + {sug}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-stone-200/50 dark:border-stone-800/50">
+                        {churchTitles.length > 0 ? (
+                          churchTitles.map((title, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1 pl-2 pr-1.5 py-1 text-[11px] font-extrabold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/50"
+                            >
+                              <span>{title}</span>
+                              <button
+                                type="button"
+                                onClick={() => setChurchTitles(churchTitles.filter(t => t !== title))}
+                                className="text-stone-400 hover:text-rose-600 focus:outline-hidden transition-colors rounded-full p-0.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-stone-400 italic">No ministry hashtags added yet.</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        {churchTitles.length > 0 ? (
+                          churchTitles.map((title, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center px-2.5 py-1 text-[11px] font-black rounded-lg bg-indigo-50/70 text-indigo-700 border border-indigo-100/50 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-900/50 hover:bg-indigo-100/50 transition-colors cursor-pointer"
+                              title="Ministry tag for scheduling"
+                            >
+                              {title}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[11px] text-stone-450 italic">No ministry hashtags assigned. Click edit below to add your roles!</span>
+                        )}
+                      </div>
+                      {isEditing && (
+                        <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                          <span>🔒 Ministry hashtags are locked. Contact tkpaite2016@gmail.com to update.</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Admin Override controls */}
-              {isEditing && isCurrentUserAdmin && (
+              {isEditing && isUserAdmin && (
                 <div className="p-4 bg-stone-50 dark:bg-stone-950/20 border border-stone-150 dark:border-stone-800 rounded-xl space-y-3">
                   <h5 className="font-bold text-stone-900 dark:text-white flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-emerald-600" /> Administrative Access overrides
@@ -1561,7 +1947,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               ) : (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="px-3.5 py-1.5 bg-emerald-55 text-white hover:bg-emerald-600 font-bold text-[11px] rounded-lg shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-[11px] rounded-lg shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer"
                 >
                   <Edit3 className="w-3.5 h-3.5" /> Edit Profile Details
                 </button>

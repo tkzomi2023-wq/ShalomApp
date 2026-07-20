@@ -439,10 +439,27 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
                         {formatMemberName(member.display_name || member.name, member.gender)}
                       </h3>
                       
-                      <div className="mt-1 flex justify-center">
+                      <div className="mt-1 flex flex-col items-center gap-1 justify-center">
                         <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${isOB ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-100'}`}>
                           {member.role === 'standard' ? 'Youth Member' : member.role}
                         </span>
+                        {member.custom_title && (
+                          <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 mt-0.5">
+                            {member.custom_title}
+                          </span>
+                        )}
+                        {member.church_titles && (
+                          <div className="flex flex-wrap gap-1 justify-center max-w-[240px] mt-1.5">
+                            {member.church_titles.split(',').map(t => t.trim()).filter(Boolean).map((tag, idx) => (
+                              <span
+                                key={idx}
+                                className="px-1.5 py-0.5 rounded bg-indigo-50/80 text-indigo-700 border border-indigo-100/30 text-[7px] font-black tracking-tight"
+                              >
+                                {tag.startsWith('#') ? tag : `#${tag}`}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

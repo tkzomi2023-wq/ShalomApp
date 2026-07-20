@@ -310,25 +310,25 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
           }
           // Cache locally
           localStorage.setItem('sy_local_smtp_config', JSON.stringify(data));
+        } else {
+          // If no active configuration, clear the form fields and cache
+          setSmtpHost('');
+          setSmtpPort('587');
+          setSmtpUser('');
+          setSmtpFrom('');
+          setSmtpPass('');
+          localStorage.removeItem('sy_local_smtp_config');
         }
       } else {
         throw new Error('Non-ok response');
       }
     } catch (err) {
-      console.warn('Failed to fetch SMTP config from server, loading from local cache:', err);
-      try {
-        const cachedSmtp = localStorage.getItem('sy_local_smtp_config');
-        if (cachedSmtp) {
-          const data = JSON.parse(cachedSmtp);
-          setSmtpHost(data.host || '');
-          setSmtpPort(data.port || '587');
-          setSmtpUser(data.user || '');
-          setSmtpFrom(data.from || '');
-          setSmtpPass(data.pass || '••••••••••••');
-        }
-      } catch (e) {
-        console.error('Failed to parse cached SMTP config:', e);
-      }
+      console.warn('Failed to fetch SMTP config from server. Leaving fields empty as database connection is not active:', err);
+      setSmtpHost('');
+      setSmtpPort('587');
+      setSmtpUser('');
+      setSmtpFrom('');
+      setSmtpPass('');
     }
   };
 

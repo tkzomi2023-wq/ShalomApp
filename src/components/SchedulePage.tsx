@@ -27,7 +27,12 @@ import {
   Sparkles,
   RefreshCw,
   Download,
-  Share2
+  Share2,
+  Heart,
+  Users,
+  Megaphone,
+  Music,
+  Mic
 } from 'lucide-react';
 
 const PRESET_COVERS = [
@@ -81,68 +86,86 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
   const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
   const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState<number>(0);
   const [isExporting, setIsExporting] = useState<string | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+
+  useEffect(() => {
+    const loadMembers = async () => {
+      try {
+        const data = await db.getMembers();
+        setMembers(data);
+      } catch (err) {
+        console.error('Error loading members for roles on SchedulePage:', err);
+      }
+    };
+    loadMembers();
+  }, []);
+
+  const getCreatorRole = (createdByEmail: string, fallbackName: string) => {
+    const member = members.find(m => m.email?.toLowerCase() === createdByEmail.toLowerCase());
+    if (member && member.role) {
+      if (member.role === 'standard') {
+        return 'Youth Member';
+      }
+      return member.role;
+    }
+    if (createdByEmail.toLowerCase() === 'tkpaite2016@gmail.com') {
+      return 'Founder';
+    }
+    return 'OB Member';
+  };
+
+  const formatFullDate = (dateStr: string) => {
+    try {
+      const options: Intl.DateTimeFormatOptions = { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' };
+      const dateObj = new Date(dateStr);
+      return dateObj.toLocaleDateString('en-US', options);
+    } catch (err) {
+      return dateStr;
+    }
+  };
 
   const captureCardAsBlob = async (itemId: string): Promise<{ blob: Blob | null, dataUrl: string | null }> => {
-    const cardEl = document.getElementById(`schedule-card-${itemId}`);
-    if (!cardEl) return { blob: null, dataUrl: null };
-
-    const isAlreadyExpanded = expandedRecordId === itemId;
-    
-    if (!isAlreadyExpanded) {
-      setExpandedRecordId(itemId);
-      // Wait for React to render and expand the card
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-
     try {
-      const targetEl = document.getElementById(`schedule-card-${itemId}`);
-      if (!targetEl) return { blob: null, dataUrl: null };
-
-      // html-to-image filter function to ignore interactive buttons/edit controls
-      const filterFn = (node: Node) => {
-        if (node instanceof HTMLElement) {
-          if (node.getAttribute('data-html2canvas-ignore') === 'true') {
-            return false;
-          }
-        }
-        return true;
-      };
+      const targetEl = document.getElementById(`schedule-poster-${itemId}`);
+      if (!targetEl) {
+        console.warn(`[Poster Engine] Target poster-element schedule-poster-${itemId} not found, falling back to card.`);
+        const cardEl = document.getElementById(`schedule-card-${itemId}`);
+        if (!cardEl) return { blob: null, dataUrl: null };
+        const dataUrl = await toPng(cardEl, { pixelRatio: 2 });
+        const blob = await toBlob(cardEl, { pixelRatio: 2 });
+        return { blob, dataUrl };
+      }
 
       const options = {
-        filter: filterFn,
-        backgroundColor: '#ffffff',
-        style: {
-          boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
-          borderRadius: '24px',
-          transform: 'scale(1)',
-        },
-        pixelRatio: 2.5, // High definition capture
+        backgroundColor: '#0c0a09', // Deep dark slate background
+        pixelRatio: 3, // Premium high-resolution Retina quality suitable for status/sharing/print
       };
 
       const dataUrl = await toPng(targetEl, options);
       const blob = await toBlob(targetEl, options);
 
-      if (!isAlreadyExpanded) {
-        setExpandedRecordId(null);
-      }
-
       return { blob, dataUrl };
     } catch (error) {
-      console.error('Error capturing card:', error);
-      if (!isAlreadyExpanded) {
-        setExpandedRecordId(null);
-      }
+      console.error('Error capturing poster:', error);
       return { blob: null, dataUrl: null };
     }
   };
 
   const handleExportPNG = async (itemId: string, title: string) => {
+    const item = schedules.find(s => s.id === itemId);
+    if (!item) return;
     setIsExporting(itemId);
     try {
       const { dataUrl } = await captureCardAsBlob(itemId);
       if (dataUrl) {
+        const cleanTitle = (title || "CA_HUN_GEELNA")
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '');
+        const filename = `${cleanTitle}_${item.date}.png`;
+
         const link = document.createElement('a');
-        link.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-schedule.png`;
+        link.download = filename;
         link.href = dataUrl;
         link.click();
       }
@@ -158,13 +181,19 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
     try {
       const { blob, dataUrl } = await captureCardAsBlob(item.id);
       
+      const cleanTitle = (item.title || "CA_HUN_GEELNA")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      const filename = `${cleanTitle}_${item.date}.png`;
+
       if (navigator.share && blob) {
         try {
-          const file = new File([blob], `${item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`, { type: 'image/png' });
+          const file = new File([blob], filename, { type: 'image/png' });
           if (navigator.canShare && navigator.canShare({ files: [file] })) {
             await navigator.share({
               title: item.title,
-              text: `📅 *${item.title}*\n🗓️ Date: ${item.date}\n⏰ Time: ${item.time}\n🎤 Speaker: ${item.speaker}\n📍 Venue: ${item.venue}\n\nHere is our service schedule details:`,
+              text: `📅 *${item.title}*\n🗓️ Date: ${item.date}\n⏰ Time: ${item.time}\n🎤 Speaker: ${item.speaker}\n📍 Venue: ${item.venue || 'Shalom Sanctuary'}\n\nHere is our service schedule details:`,
               files: [file]
             });
             setIsExporting(null);
@@ -177,25 +206,50 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
       if (dataUrl) {
         const link = document.createElement('a');
-        link.download = `${item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-schedule.png`;
+        link.download = filename;
         link.href = dataUrl;
         link.click();
       }
 
-      let shareText = `*📅 ${item.title.toUpperCase()}*\n`;
-      shareText += `*🗓️ Date:* ${item.date}\n`;
-      shareText += `*⏰ Time:* ${item.time}\n`;
-      shareText += `*🎤 Speaker/Sermon:* ${item.speaker}\n`;
-      shareText += `*👤 Chairman:* ${item.leader}\n\n`;
+      const formattedDate = formatFullDate(item.date);
+      const currentUrl = window.location.origin + window.location.pathname + '#schedule';
+
+      let shareText = `🕊 *SHALOM YOUTH*\n\n`;
+      shareText += `📖 *${item.title.toUpperCase()}*\n\n`;
+      shareText += `📅 *${formattedDate}*\n\n`;
+      shareText += `⏰ *${item.time}*\n\n`;
+      shareText += `━━━━━━━━━━━━━━\n\n`;
+      shareText += `🎤 *Speaker*\n${item.speaker}\n\n`;
+      shareText += `👤 *Chairman*\n${item.leader}\n\n`;
+      shareText += `━━━━━━━━━━━━━━\n\n`;
+      shareText += `📖 *SERVICE PROGRAMME*\n\n`;
       
-      if (item.lst_simna_quiz) shareText += `*📖 Bible/Quiz:* ${item.lst_simna_quiz}\n`;
-      if (item.solo) shareText += `*🎵 Lasakna:* ${item.solo}\n`;
-      if (item.sumpi_aapna) shareText += `*🙏 Sumpi Aap:* ${item.sumpi_aapna}\n`;
-      if (item.sumpi_khon_ding) shareText += `*🤝 Sumpi khon Ding:* ${item.sumpi_khon_ding}\n`;
-      if (item.venue) shareText += `*📍 Venue:* ${item.venue}\n`;
-      if (item.notes) shareText += `\n*Announcements:* ${item.notes}\n`;
+      if (item.lst_simna_quiz) {
+        shareText += `📖 *Bible Reading*\n${item.lst_simna_quiz}\n\n`;
+      }
+      if (item.solo) {
+        shareText += `🎶 *Lasakna*\n${item.solo}\n\n`;
+      }
+      if (item.sumpi_aapna) {
+        shareText += `🙏 *Sumpi Aap*\n${item.sumpi_aapna}\n\n`;
+      }
+      if (item.sumpi_khon_ding) {
+        shareText += `📜 *Sumpi Hnuh Ding*\n${item.sumpi_khon_ding}\n\n`;
+      }
+      if (item.venue) {
+        shareText += `🏛 *Venue*\n${item.venue}\n\n`;
+      }
       
-      shareText += `\n_(The service schedule flyer image has been downloaded. Please attach the image when sharing.)_`;
+      shareText += `━━━━━━━━━━━━━━\n\n`;
+      
+      if (item.notes) {
+        shareText += `📢 *Announcement*\n\n${item.notes}\n\n`;
+        shareText += `━━━━━━━━━━━━━━\n\n`;
+      }
+      
+      shareText += `🔗 *View Full Programme*\n\n${currentUrl}\n\n`;
+      shareText += `━━━━━━━━━━━━━━\n\n`;
+      shareText += `Generated via\nShalom Youth Management System`;
 
       const encodedText = encodeURIComponent(shareText);
       window.open(`https://api.whatsapp.com/send?text=${encodedText}`, '_blank');
@@ -578,270 +632,442 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {paginatedSchedules.map((item) => {
             const isItemExp = expandedRecordId === item.id;
             const flagUpcoming = isUpcoming(item.date);
 
             return (
-              <div 
-                key={item.id}
-                id={`schedule-card-${item.id}`}
-                className={`group bg-white rounded-3xl border transition-all duration-300 overflow-hidden shadow-2xs hover:shadow-xs flex flex-col justify-between ${
-                  flagUpcoming 
-                    ? 'border-emerald-100 ring-2 ring-emerald-600/5' 
-                    : 'border-stone-200 opacity-90'
-                }`}
-              >
-                {/* Visual Thumbnail Cover Banner */}
-                {item.thumbnail ? (
-                  <div className="w-full h-40 relative overflow-hidden bg-stone-100 shrink-0">
-                    <img 
-                      src={item.thumbnail} 
-                      alt={item.title} 
-                      className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500" 
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-stone-950/80 via-stone-950/20 to-transparent"></div>
-                    <div className="absolute top-4 right-4 flex items-center gap-2">
-                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-widest shadow-sm ${
-                        flagUpcoming 
-                          ? 'bg-emerald-600 text-white' 
-                          : 'bg-stone-800 text-stone-300'
-                      }`}>
-                        {flagUpcoming ? 'Upcoming' : 'Concluded'}
+              <React.Fragment key={item.id}>
+                {/* Visual Card Layout */}
+                <div 
+                  id={`schedule-card-${item.id}`}
+                  className={`group bg-white dark:bg-stone-900 rounded-3xl border transition-all duration-300 overflow-hidden shadow-xs hover:shadow-md flex flex-col justify-between ${
+                    flagUpcoming 
+                      ? 'border-emerald-200 dark:border-emerald-900/40 ring-1 ring-emerald-600/5' 
+                      : 'border-stone-150 dark:border-stone-800'
+                  }`}
+                >
+                  {/* Modern Full Hero Section */}
+                  <div className="relative w-full min-h-[220px] p-6 flex flex-col justify-between overflow-hidden shrink-0">
+                    {/* Background Image / Gradient */}
+                    <div className="absolute inset-0">
+                      <img 
+                        src={item.thumbnail || "https://images.unsplash.com/photo-1515162305285-0293e4767cc2?q=80&w=600&auto=format&fit=crop"} 
+                        alt={item.title} 
+                        className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-700 ease-out" 
+                        referrerPolicy="no-referrer"
+                      />
+                      {/* Subtle dark overlay 35-50% */}
+                      <div className="absolute inset-0 bg-stone-950/45 dark:bg-stone-950/50" />
+                      {/* Smooth gradient fade into the white/dark content area */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-white dark:from-stone-900 via-transparent to-black/25" />
+                    </div>
+
+                    {/* Floating Upcoming Badge at the top-right */}
+                    <div className="relative z-10 flex justify-between items-center w-full">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-white/85 bg-black/20 backdrop-blur-md px-2.5 py-0.5 rounded-full border border-white/10">
+                        Shalom Youth
                       </span>
-                    </div>
-                    
-                    {/* Floating Date/Time on Image */}
-                    <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-2 flex-wrap">
-                      <div className="flex items-center gap-1.5 bg-black/45 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-mono text-stone-200 font-bold border border-white/15">
-                        <Calendar className="w-3 h-3 text-emerald-400" />
-                        <span>{item.date}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 bg-black/45 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-mono text-stone-200 font-bold border border-white/15">
-                        <Clock className="w-3 h-3 text-emerald-400" />
-                        <span>{item.time}</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-full h-28 bg-gradient-to-br from-emerald-800/90 to-emerald-950 relative overflow-hidden shrink-0 flex flex-col justify-between p-4">
-                    {/* Decorative abstract elements */}
-                    <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-white/5 rounded-full blur-xl pointer-events-none"></div>
-                    <div className="absolute -left-10 -top-10 w-24 h-24 bg-emerald-500/10 rounded-full blur-lg pointer-events-none"></div>
-                    
-                    <div className="flex items-center justify-between w-full relative z-10">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-300">Shalom Youth</span>
-                      </div>
-                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-widest shadow-sm ${
+                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-widest shadow-sm border relative z-20 ${
                         flagUpcoming 
-                          ? 'bg-emerald-600 text-white' 
-                          : 'bg-stone-800 text-stone-300'
+                          ? 'bg-emerald-600 text-white border-emerald-500' 
+                          : 'bg-stone-800 text-stone-300 border-stone-700'
                       }`}>
                         {flagUpcoming ? 'Upcoming' : 'Concluded'}
                       </span>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 flex-wrap relative z-10 mt-auto">
-                      <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-mono text-white font-bold border border-white/5">
-                        <Calendar className="w-3 h-3 text-emerald-300" />
-                        <span>{item.date}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-mono text-white font-bold border border-white/5">
-                        <Clock className="w-3 h-3 text-emerald-300" />
-                        <span>{item.time}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Card Main Body */}
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                  {/* Title and Topic */}
-                  <div className="space-y-2">
-                    <h4 className="text-base font-black text-stone-900 leading-relaxed tracking-tight hover:text-emerald-700 transition-colors cursor-pointer" onClick={() => toggleExpand(item.id)}>
-                      {item.title}
-                    </h4>
-                    {item.topic && (
-                      <p className="text-xs text-stone-500 italic font-medium bg-stone-50 py-1.5 px-3 rounded-lg border border-stone-100 inline-block leading-relaxed">
-                        Topic: "{item.topic}"
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Core details grid: Speaker & Chairman */}
-                  <div className="grid grid-cols-2 gap-3.5 pt-3.5 border-t border-stone-100">
-                    <div className="bg-stone-50/50 p-3 rounded-2xl border border-stone-100/80 hover:bg-stone-50 transition-colors">
-                      <p className="text-[9px] text-stone-400 font-extrabold uppercase tracking-wider mb-1 leading-relaxed">Speaker/Sermon</p>
-                      <div className="flex items-center gap-2 text-stone-850 font-bold text-xs leading-relaxed">
-                        <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
-                          <User className="w-3.5 h-3.5 text-emerald-700" />
+                    {/* Title, Date, and Time on top of the Hero image */}
+                    <div className="relative z-10 mt-6 space-y-3">
+                      {/* Date & Time Row */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-1.5 bg-white/15 dark:bg-white/10 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-white font-bold border border-white/10 shadow-xs">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{item.date}</span>
                         </div>
-                        <span className="truncate">{item.speaker}</span>
-                      </div>
-                    </div>
-                    <div className="bg-stone-50/50 p-3 rounded-2xl border border-stone-100/80 hover:bg-stone-50 transition-colors">
-                      <p className="text-[9px] text-stone-400 font-extrabold uppercase tracking-wider mb-1 leading-relaxed">Chairman</p>
-                      <div className="flex items-center gap-2 text-stone-850 font-bold text-xs leading-relaxed">
-                        <div className="w-6 h-6 rounded-lg bg-stone-200/80 flex items-center justify-center shrink-0">
-                          <User className="w-3.5 h-3.5 text-stone-600" />
+                        <div className="flex items-center gap-1.5 bg-white/15 dark:bg-white/10 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-white font-bold border border-white/10 shadow-xs">
+                          <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{item.time}</span>
                         </div>
-                        <span className="truncate">{item.leader}</span>
+                      </div>
+
+                      {/* Programme Title */}
+                      <div className="space-y-1">
+                        <h4 
+                          className="text-lg md:text-xl font-black text-white leading-tight tracking-tight drop-shadow-sm hover:text-emerald-300 transition-colors cursor-pointer select-none"
+                          onClick={() => toggleExpand(item.id)}
+                        >
+                          {item.title}
+                        </h4>
+                        {item.topic && (
+                          <p className="text-xs text-white/95 font-medium italic drop-shadow-xs line-clamp-1">
+                            Topic: "{item.topic}"
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Expanded Order of Service (Only shown when expanded) */}
-                  {isItemExp && (
-                    <div className="space-y-3.5 pt-3.5 border-t border-stone-100 animate-fadeIn">
-                      {/* Unified Church Bulletin Sheet */}
-                      <div className="bg-stone-50/60 rounded-2xl border border-stone-150 p-4 space-y-3">
-                        <div className="flex items-center justify-between border-b border-stone-200/80 pb-2.5 mb-1.5">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-stone-550 flex items-center gap-1.5 leading-relaxed">
-                            <BookOpen className="w-3.5 h-3.5 text-emerald-600" /> Service Details
-                          </span>
-                          <span className="text-[9px] px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-extrabold uppercase tracking-wider leading-relaxed">
-                            Bulletin
-                          </span>
+                  {/* Card Content Area */}
+                  <div className="p-6 flex-1 flex flex-col justify-between space-y-5 bg-white dark:bg-stone-900">
+                    
+                    {/* Redesigned Info Cards Layout (Speaker, Chairman, Venue, Theme) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Speaker Card */}
+                      <div className="bg-stone-50 dark:bg-stone-950/20 p-3.5 rounded-2xl border border-stone-150/60 dark:border-stone-800/80 flex items-center gap-3 transition-all hover:bg-stone-100/50 dark:hover:bg-stone-850/50">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
+                          <User className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
                         </div>
-
-                        <div className="divide-y divide-stone-150/60 text-xs leading-relaxed">
-                          {item.lst_simna_quiz && (
-                            <div className="flex items-center justify-between py-2">
-                              <span className="font-bold text-[10px] text-stone-400 uppercase tracking-wider leading-relaxed">Bible / Quiz</span>
-                              <span className="font-extrabold text-stone-850 text-right max-w-[70%] truncate leading-relaxed" title={item.lst_simna_quiz}>{item.lst_simna_quiz}</span>
-                            </div>
-                          )}
-                          
-                          {item.solo && (
-                            <div className="flex items-center justify-between py-2">
-                              <span className="font-bold text-[10px] text-stone-400 uppercase tracking-wider leading-relaxed">Lasakna</span>
-                              <span className="font-extrabold text-stone-850 text-right max-w-[70%] truncate leading-relaxed" title={item.solo}>{item.solo}</span>
-                            </div>
-                          )}
-                          
-                          {item.sumpi_aapna && (
-                            <div className="flex items-center justify-between py-2">
-                              <span className="font-bold text-[10px] text-stone-400 uppercase tracking-wider leading-relaxed">Sumpi Aap</span>
-                              <span className="font-extrabold text-stone-850 text-right max-w-[70%] truncate leading-relaxed" title={item.sumpi_aapna}>{item.sumpi_aapna}</span>
-                            </div>
-                          )}
-                          
-                          {item.sumpi_khon_ding && (
-                            <div className="flex items-center justify-between py-2">
-                              <span className="font-bold text-[10px] text-stone-400 uppercase tracking-wider leading-relaxed">Sumpi khon Ding</span>
-                              <span className="font-extrabold text-stone-850 text-right max-w-[70%] truncate leading-relaxed" title={item.sumpi_khon_ding}>{item.sumpi_khon_ding}</span>
-                            </div>
-                          )}
-
-                          {item.venue && (
-                            <div className="flex items-center justify-between py-2">
-                              <span className="font-bold text-[10px] text-stone-400 uppercase tracking-wider leading-relaxed">Venue</span>
-                              <span className="font-extrabold text-emerald-800 text-right max-w-[70%] truncate leading-relaxed" title={item.venue}>{item.venue}</span>
-                            </div>
-                          )}
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-wider">Speaker / Sermon</p>
+                          <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.speaker}</p>
                         </div>
                       </div>
 
-                      {/* Notes Section */}
-                      {item.notes && (
-                        <div className="space-y-1.5">
-                          <p className="text-[9px] text-stone-400 font-extrabold uppercase tracking-wider leading-relaxed">Service Announcements</p>
-                          <div className="text-stone-600 bg-emerald-50/25 border-l-2 border-emerald-500 p-3 rounded-r-xl text-xs leading-relaxed font-medium">
-                            {item.notes}
+                      {/* Chairman Card */}
+                      <div className="bg-stone-50 dark:bg-stone-950/20 p-3.5 rounded-2xl border border-stone-150/60 dark:border-stone-800/80 flex items-center gap-3 transition-all hover:bg-stone-100/50 dark:hover:bg-stone-850/50">
+                        <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center shrink-0">
+                          <User className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-wider">Chairman</p>
+                          <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.leader}</p>
+                        </div>
+                      </div>
+
+                      {/* Venue Card */}
+                      <div className="bg-stone-50 dark:bg-stone-950/20 p-3.5 rounded-2xl border border-stone-150/60 dark:border-stone-800/80 flex items-center gap-3 transition-all hover:bg-stone-100/50 dark:hover:bg-stone-850/50 sm:col-span-2">
+                        <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-950/40 flex items-center justify-center shrink-0">
+                          <MapPin className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-wider">Venue</p>
+                          <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.venue || 'Shalom Sanctuary'}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded Order of Service / Program Items (Shown only when expanded) */}
+                    {isItemExp && (
+                      <div className="space-y-4 pt-4 border-t border-stone-100 dark:border-stone-800 animate-fadeIn">
+                        {/* Service Program Table Redesign */}
+                        <div className="bg-stone-50/50 dark:bg-stone-950/10 rounded-2xl border border-stone-150/80 dark:border-stone-800/80 p-4 space-y-3">
+                          <div className="flex items-center justify-between border-b border-stone-200/80 dark:border-stone-800/80 pb-2.5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
+                              <BookOpen className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Order of Service
+                            </span>
+                            <span className="text-[9px] px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-md font-extrabold uppercase tracking-wider">
+                              Schedule
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2.5">
+                            {/* LST Simna & Quiz */}
+                            {item.lst_simna_quiz && (
+                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
+                                  <BookOpen className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">📖 LST Simna & Quiz</p>
+                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.lst_simna_quiz}</p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Lasakna / Solo */}
+                            {item.solo && (
+                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
+                                  <Music className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">🎶 Lasakna (Solo)</p>
+                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.solo}</p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Sumpi Aap */}
+                            {item.sumpi_aapna && (
+                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
+                                  <Heart className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">🙏 Sumpi Aap</p>
+                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.sumpi_aapna}</p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Sumpi Khon Ding */}
+                            {item.sumpi_khon_ding && (
+                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
+                                  <Users className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">🤝 Sumpi khon Ding</p>
+                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.sumpi_khon_ding}</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      )}
-                    </div>
-                  )}
 
-                  {/* Interactive Controls (Hidden in PNG captures) */}
-                  <div className="space-y-2 mt-2" data-html2canvas-ignore="true">
-                    {/* Toggle Button */}
-                    <button 
-                      onClick={() => toggleExpand(item.id)}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-stone-55 hover:bg-stone-100 text-stone-600 hover:text-stone-850 rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-stone-150 shadow-3xs"
-                    >
-                      <span>{isItemExp ? 'Hide Service Program' : 'Toggle Service Program & Details'}</span>
-                      {isItemExp ? <ChevronUp className="w-3.5 h-3.5 text-stone-500" /> : <ChevronDown className="w-3.5 h-3.5 text-stone-500" />}
-                    </button>
+                        {/* Highlighted Service Announcement Card */}
+                        {item.notes && (
+                          <div className="bg-amber-50/40 dark:bg-amber-950/10 border border-amber-100/80 dark:border-amber-900/20 p-4 rounded-2xl shadow-3xs flex items-start gap-3">
+                            <div className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 p-2 rounded-xl shrink-0">
+                              <Megaphone className="w-4 h-4" />
+                            </div>
+                            <div className="space-y-1.5 flex-1">
+                              <p className="text-[10px] text-amber-800 dark:text-amber-300 font-extrabold uppercase tracking-widest leading-relaxed">
+                                📢 Service Announcements
+                              </p>
+                              <div className="text-stone-700 dark:text-stone-300 text-xs leading-relaxed font-semibold space-y-1">
+                                {item.notes.split('\n').filter(line => line.trim() !== '').map((line, index) => (
+                                  <p key={index} className="flex items-start gap-1.5">
+                                    <span className="text-amber-500">•</span>
+                                    <span>{line}</span>
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                    {/* Export & WhatsApp Row */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => handleExportPNG(item.id, item.title)}
-                        disabled={isExporting !== null}
-                        className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-white hover:bg-stone-50 text-stone-700 hover:text-stone-900 rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-stone-200 shadow-3xs disabled:opacity-50"
-                        title="Save whole card as PNG image"
+                    {/* Interactive Controls (Hidden in PNG captures) */}
+                    <div className="space-y-2 mt-2" data-html2canvas-ignore="true">
+                      {/* Toggle Button */}
+                      <button 
+                        onClick={() => toggleExpand(item.id)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 bg-stone-50 hover:bg-stone-100 dark:bg-stone-800/40 dark:hover:bg-stone-800 text-stone-600 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-stone-150 dark:border-stone-800 shadow-3xs"
                       >
-                        <Download className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>{isExporting === item.id ? 'Saving...' : 'Save PNG'}</span>
+                        <span>{isItemExp ? 'Hide Service Program' : 'Toggle Service Program & Details'}</span>
+                        {isItemExp ? <ChevronUp className="w-3.5 h-3.5 text-stone-500" /> : <ChevronDown className="w-3.5 h-3.5 text-stone-500" />}
                       </button>
-                      <button
-                        onClick={() => handleShareWhatsApp(item)}
-                        disabled={isExporting !== null}
-                        className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-emerald-750 shadow-3xs disabled:opacity-50"
-                        title="Share schedule to WhatsApp"
-                      >
-                        <Share2 className="w-3.5 h-3.5 shrink-0" />
-                        <span>{isExporting === item.id ? 'Sharing...' : 'WhatsApp'}</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Card Unified Footer */}
-                <div className="bg-stone-50 px-5 py-3 border-t border-stone-100 flex items-center justify-between text-xs text-stone-400">
-                  <div className="truncate max-w-[180px] sm:max-w-[200px]" title={`Creator: ${item.created_by_email}`}>
-                    Logged by <span className="font-bold text-stone-600">{item.created_by_name}</span>
-                  </div>
-
-                  {canManageSchedules && (
-                    <div className="flex items-center gap-2 shrink-0" data-html2canvas-ignore="true">
-                      <button
-                        onClick={() => handleOpenForm(item)}
-                        className="inline-flex items-center gap-1 text-stone-600 hover:text-stone-900 hover:bg-stone-150 active:bg-stone-200 text-[11px] font-bold py-1 px-2.5 rounded-lg transition-all cursor-pointer"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Edit</span>
-                      </button>
-                      {deleteConfirmId === item.id ? (
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            onClick={() => {
-                              handleDeleteSchedule(item.id);
-                              setDeleteConfirmId(null);
-                            }}
-                            className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-[10px] py-1 px-2.5 rounded-lg transition-all cursor-pointer shadow-xs"
-                            title="Confirm Deletion"
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirmId(null)}
-                            className="bg-stone-200 hover:bg-stone-300 text-stone-600 font-bold text-[10px] py-1 px-2 rounded-lg transition-all cursor-pointer"
-                            title="Cancel Deletion"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
+                      {/* Export & WhatsApp Row */}
+                      <div className="grid grid-cols-2 gap-2">
                         <button
-                          onClick={() => setDeleteConfirmId(item.id)}
-                          className="inline-flex items-center gap-1 text-rose-600 hover:text-rose-900 hover:bg-rose-50 active:bg-rose-100 text-[11px] font-bold py-1 px-2.5 rounded-lg transition-all cursor-pointer"
-                          title="Remove Schedule"
+                          onClick={() => handleExportPNG(item.id, item.title)}
+                          disabled={isExporting !== null}
+                          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-stone-50 dark:bg-stone-900 dark:hover:bg-stone-850 text-stone-700 hover:text-stone-900 dark:text-stone-300 dark:hover:text-stone-100 rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-stone-200 dark:border-stone-800 shadow-3xs disabled:opacity-50"
+                          title="Save whole card as PNG image"
                         >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Delete</span>
+                          <Download className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{isExporting === item.id ? 'Saving...' : 'Save PNG'}</span>
                         </button>
+                        <button
+                          onClick={() => handleShareWhatsApp(item)}
+                          disabled={isExporting !== null}
+                          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-emerald-750 shadow-3xs disabled:opacity-50"
+                          title="Share schedule to WhatsApp"
+                        >
+                          <Share2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>{isExporting === item.id ? 'Sharing...' : 'WhatsApp'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Unified Footer */}
+                  <div className="bg-stone-50 dark:bg-stone-950/20 px-6 py-3.5 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between text-xs text-stone-400 dark:text-stone-505">
+                    <div className="truncate max-w-[180px] sm:max-w-[200px]" title={`Creator: ${item.created_by_email}`}>
+                      Logged by <span className="font-bold text-stone-700 dark:text-stone-300">{getCreatorRole(item.created_by_email, item.created_by_name)}</span>
+                    </div>
+
+                    {canManageSchedules && (
+                      <div className="flex items-center gap-2 shrink-0" data-html2canvas-ignore="true">
+                        <button
+                          onClick={() => handleOpenForm(item)}
+                          className="inline-flex items-center gap-1 text-stone-600 dark:text-stone-400 hover:text-stone-950 dark:hover:text-stone-100 hover:bg-stone-150/50 dark:hover:bg-stone-800/50 text-[11px] font-bold py-1 px-2.5 rounded-lg transition-all cursor-pointer"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
+                        {deleteConfirmId === item.id ? (
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                handleDeleteSchedule(item.id);
+                                setDeleteConfirmId(null);
+                              }}
+                              className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-[10px] py-1 px-2.5 rounded-lg transition-all cursor-pointer shadow-xs"
+                              title="Confirm Deletion"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-400 font-bold text-[10px] py-1 px-2 rounded-lg transition-all cursor-pointer"
+                              title="Cancel Deletion"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteConfirmId(item.id)}
+                            className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-450 hover:text-rose-900 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/15 active:bg-rose-100 text-[11px] font-bold py-1 px-2.5 rounded-lg transition-all cursor-pointer"
+                            title="Remove Schedule"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Delete</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dedicated Off-Screen Poster Template for High-Fidelity PNG Export */}
+                <div 
+                  id={`schedule-poster-${item.id}`}
+                  className="absolute pointer-events-none opacity-0 select-none bg-stone-950 text-white"
+                  style={{ left: '-9999px', top: '-9999px', width: '720px', minHeight: '1080px', padding: '48px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontFamily: 'system-ui, -apple-system, sans-serif' }}
+                >
+                  <div className="absolute inset-0">
+                    <img 
+                      src={item.thumbnail || "https://images.unsplash.com/photo-1515162305285-0293e4767cc2?q=80&w=600&auto=format&fit=crop"} 
+                      alt="" 
+                      className="w-full h-full object-cover opacity-25 filter blur-[1px]"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-b from-stone-950 via-stone-900/90 to-stone-950" />
+                    <div className="absolute inset-4 border border-emerald-500/25 rounded-2xl pointer-events-none" />
+                  </div>
+
+                  <div className="relative z-10 flex-1 flex flex-col justify-between space-y-6">
+                    {/* Header & Logo */}
+                    <div className="flex flex-col items-center text-center space-y-2">
+                      <div className="w-12 h-12 rounded-full bg-emerald-600/25 border border-emerald-500 flex items-center justify-center text-emerald-400">
+                        <Sparkles className="w-6 h-6" />
+                      </div>
+                      <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-400">SHALOM YOUTH</p>
+                      <div className="w-16 h-[2px] bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
+                    </div>
+
+                    {/* Programme Title & Theme */}
+                    <div className="text-center space-y-3">
+                      <h1 className="text-3xl font-black text-white tracking-tight uppercase leading-snug drop-shadow-md">
+                        {item.title}
+                      </h1>
+                      {item.topic && (
+                        <div className="inline-block px-4 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-xs font-semibold italic text-emerald-300">
+                          Theme: "{item.topic}"
+                        </div>
                       )}
                     </div>
-                  )}
+
+                    {/* Quick Details Cards (Date, Time, Venue) */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                        <Calendar className="w-4 h-4 text-emerald-400 mx-auto mb-1.5" />
+                        <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider">Date</p>
+                        <p className="text-xs font-black text-white mt-0.5">{item.date}</p>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                        <Clock className="w-4 h-4 text-emerald-400 mx-auto mb-1.5" />
+                        <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider">Time</p>
+                        <p className="text-xs font-black text-white mt-0.5">{item.time}</p>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center col-span-1">
+                        <MapPin className="w-4 h-4 text-emerald-400 mx-auto mb-1.5" />
+                        <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider">Venue</p>
+                        <p className="text-xs font-black text-white mt-0.5 truncate">{item.venue || 'Shalom Sanctuary'}</p>
+                      </div>
+                    </div>
+
+                    {/* Speaker & Chairman Block */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-emerald-950/35 border border-emerald-500/20 rounded-xl p-4 flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-emerald-600/25 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                          <User className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-emerald-400 uppercase font-bold tracking-wide">Speaker / Sermon</p>
+                          <p className="text-sm font-black text-white truncate">{item.speaker}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-950/35 border border-emerald-500/20 rounded-xl p-4 flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-emerald-600/25 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                          <User className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-emerald-400 uppercase font-bold tracking-wide">Chairman</p>
+                          <p className="text-sm font-black text-white truncate">{item.leader}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Complete Programme Schedule */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center gap-2 border-b border-white/10 pb-1.5">
+                        <BookOpen className="w-4 h-4 text-emerald-400" />
+                        <h3 className="text-xs font-black uppercase tracking-wider text-emerald-400">Order of Service</h3>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2">
+                        {item.lst_simna_quiz && (
+                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
+                            <span className="text-xs text-stone-300 font-bold">📖 Bible / Quiz</span>
+                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.lst_simna_quiz}</span>
+                          </div>
+                        )}
+                        {item.solo && (
+                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
+                            <span className="text-xs text-stone-300 font-bold">🎶 Lasakna (Solo)</span>
+                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.solo}</span>
+                          </div>
+                        )}
+                        {item.sumpi_aapna && (
+                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
+                            <span className="text-xs text-stone-300 font-bold">🙏 Sumpi Aap</span>
+                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.sumpi_aapna}</span>
+                          </div>
+                        )}
+                        {item.sumpi_khon_ding && (
+                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
+                            <span className="text-xs text-stone-300 font-bold">🤝 Sumpi khon Ding</span>
+                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.sumpi_khon_ding}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Announcements Card */}
+                    {item.notes && (
+                      <div className="bg-amber-950/20 border border-amber-500/20 p-4 rounded-xl flex items-start gap-3">
+                        <Megaphone className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-amber-400 font-extrabold uppercase tracking-widest">📢 Service Announcements</p>
+                          <div className="text-stone-300 text-xs font-semibold leading-relaxed space-y-1">
+                            {item.notes.split('\n').filter(line => line.trim() !== '').map((line, index) => (
+                              <p key={index} className="flex items-start gap-1">
+                                <span>•</span>
+                                <span>{line}</span>
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Footer Logo and Credit */}
+                    <div className="flex items-center justify-between border-t border-white/10 pt-4 text-[10px] text-stone-400 uppercase font-bold tracking-wider">
+                      <span>Logged by: {getCreatorRole(item.created_by_email, item.created_by_name)}</span>
+                      <span className="text-emerald-400 font-extrabold">Generated by Shalom Youth</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </React.Fragment>
             );
           })}
         </div>

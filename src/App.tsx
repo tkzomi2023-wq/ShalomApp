@@ -85,7 +85,8 @@ import {
   Pin,
   PinOff,
   ChevronsDown,
-  Trophy
+  Trophy,
+  RefreshCw
 } from 'lucide-react';
 
 const isBirthdayToday = (dobString?: string, todayDate: Date = new Date()): boolean => {
@@ -179,55 +180,15 @@ const getChatDateHeader = (dateString: string): string => {
 
 
 function AppContent() {
-  const { user, loading, signOut, refreshProfile } = useAuth();
+  const { user, loading, loadingStatus, retryInit, signOut, refreshProfile } = useAuth();
   const isCurrentUserAdmin = user ? (user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(user.role)) : false;
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return localStorage.getItem('sy_theme') === 'dark' ? 'dark' : 'light';
-  });
+  const theme = 'light';
 
-  const [lastSyncedUserId, setLastSyncedUserId] = useState<string | null>(null);
-
-  // Sync theme from database profile when user loads/changes
+  // Force light mode exclusively and strip any trace of dark theme from root element
   useEffect(() => {
-    if (user && user.theme && user.id !== lastSyncedUserId) {
-      setTheme(user.theme);
-      setLastSyncedUserId(user.id);
-    } else if (!user) {
-      setLastSyncedUserId(null);
-    }
-  }, [user, lastSyncedUserId]);
-
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('sy_theme', theme);
-  }, [theme]);
-
-  const handleThemeToggle = async () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    
-    if (user) {
-      try {
-        // Optimistically update local user object so it doesn't trigger the database sync effect again
-        user.theme = nextTheme;
-        
-        // Save to Supabase using db.createOrUpdateMember
-        await db.createOrUpdateMember({
-          ...user,
-          theme: nextTheme
-        });
-        
-        // Refresh local user profile
-        refreshProfile();
-      } catch (err) {
-        console.error('Failed to sync theme preference to database:', err);
-      }
-    }
-  };
+    document.documentElement.classList.remove('dark');
+    localStorage.setItem('sy_theme', 'light');
+  }, []);
 
   useEffect(() => {
     // Dynamic website meta & SEO configurations loader
@@ -346,6 +307,10 @@ function AppContent() {
       return hash as any;
     }
     return 'directory';
+  });
+
+  const [isFootballEnabled, setIsFootballEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('sy_enable_football_predictions') !== 'false';
   });
 
   useEffect(() => {
@@ -1600,7 +1565,7 @@ function AppContent() {
       return;
     }
     if (!newMemberName.trim()) {
-      setAdminFormError('Full Name is required.');
+      setAdminFormError('Username (Legal Name) is required.');
       return;
     }
 
@@ -1753,9 +1718,69 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center p-6 text-stone-500">
-        <div className="w-12 h-12 rounded-full border-4 border-emerald-250 border-t-emerald-600 animate-spin mb-4"></div>
-        <p className="text-xs font-bold uppercase tracking-wider">Accessing Shalom Youth Database...</p>
+      <div className="min-h-screen bg-linear-to-b from-stone-50 to-stone-100 dark:from-stone-900 dark:to-stone-950 flex flex-col items-center justify-center p-6 transition-colors duration-250">
+        <div className="w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-2xl p-8 text-center space-y-6 relative overflow-hidden">
+          {/* Subtle Accent Line */}
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-500"></div>
+
+          {loadingStatus === 'error' ? (
+            <div className="space-y-5 py-2">
+              <div className="w-14 h-14 mx-auto rounded-full bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 flex items-center justify-center text-red-500">
+                <AlertCircle className="w-7 h-7" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-stone-950 dark:text-white">Connection Taking Longer Than Expected</h3>
+                <p className="text-xs text-stone-500 dark:text-stone-400 leading-relaxed font-semibold">
+                  We had trouble establishing a secure database connection. This can happen due to poor network conditions or temporary backend latency.
+                </p>
+              </div>
+              <button
+                onClick={() => retryInit?.()}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
+                Retry Connection Now
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-5 py-4">
+              {/* Spinner container */}
+              <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full border-4 border-emerald-100 dark:border-emerald-950/30"></div>
+                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-600 dark:border-t-emerald-400 animate-spin"></div>
+                <Database className="w-6 h-6 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                  {loadingStatus === 'connecting' && "Connecting"}
+                  {loadingStatus === 'slow' && "Preparing Workspace"}
+                  {loadingStatus === 'retrying' && "Reconnecting"}
+                </p>
+                <h3 className="text-sm font-bold text-stone-800 dark:text-stone-200">
+                  {loadingStatus === 'connecting' && "Accessing Shalom Youth Database..."}
+                  {loadingStatus === 'slow' && "We're preparing your workspace. Please wait a moment..."}
+                  {loadingStatus === 'retrying' && "Connection taking longer than expected. Retrying automatically..."}
+                </h3>
+                <p className="text-[11px] text-stone-400 dark:text-stone-500 font-semibold leading-normal">
+                  {loadingStatus === 'connecting' && "Verifying security credentials and syncing current session details..."}
+                  {loadingStatus === 'slow' && "Resolving temporary latency. If it takes too long, you can manually trigger a retry."}
+                  {loadingStatus === 'retrying' && "Starting fallback connection sequence. Please do not refresh the page."}
+                </p>
+              </div>
+
+              {loadingStatus === 'slow' && (
+                <button
+                  onClick={() => retryInit?.()}
+                  className="w-full py-2 px-4 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer border border-stone-200 dark:border-stone-750"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Retry Connection
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -1763,23 +1788,7 @@ function AppContent() {
   // --- UNAUTHENTICATED SCREEN (Welcome Portal) ---
   if (!user) {
     return (
-      <div className="min-h-screen bg-linear-to-b from-stone-50 to-stone-100 dark:from-stone-900 dark:to-stone-950 flex flex-col justify-between relative transition-colors duration-200" id="app_root">
-        {/* Floating Global Theme Toggle */}
-        <div className="absolute top-4 right-4 z-50">
-          <button
-            type="button"
-            onClick={handleThemeToggle}
-            className="p-2.5 bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-750 text-stone-700 dark:text-stone-200 rounded-full border border-stone-200 dark:border-stone-700 shadow-md cursor-pointer transition-all active:scale-95 flex items-center justify-center hover:shadow-lg"
-            title={theme === 'dark' ? 'Switch to Light Mode ☀️' : 'Switch to Dark Mode 🌙'}
-          >
-            {theme === 'dark' ? (
-              <Sun className="w-4 h-4 text-amber-500" />
-            ) : (
-              <Moon className="w-4 h-4 text-violet-600" />
-            )}
-          </button>
-        </div>
-
+      <div className="min-h-screen bg-linear-to-b from-stone-50 to-stone-100 flex flex-col justify-between relative transition-colors duration-200" id="app_root">
         {/* Decorative Top Accent */}
         <div className="h-2 bg-emerald-700 w-full"></div>
 
@@ -1872,22 +1881,22 @@ function AppContent() {
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-between transition-colors duration-200" id="dashboard_root">
       
       {/* Universal Sticky Header Grid */}
-      <header className="bg-emerald-900 text-white px-4 py-4 sticky top-0 z-40 shadow-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      <header className="bg-emerald-900 text-white px-3 py-2.5 sm:px-4 sm:py-4 sticky top-0 z-40 shadow-md">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
           
           {/* Logo */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold text-lg text-emerald-300">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold text-sm sm:text-lg text-emerald-300 shrink-0">
               SY
             </div>
-            <div>
-              <h1 className="text-base font-extrabold tracking-tight leading-none">Shalom Youth</h1>
-              <span className="text-[10px] text-emerald-250 font-bold uppercase tracking-wider">Members Console</span>
+            <div className="shrink-0">
+              <h1 className="text-sm sm:text-base font-extrabold tracking-tight leading-none">Shalom Youth</h1>
+              <span className="text-[9px] sm:text-[10px] text-emerald-250 font-bold uppercase tracking-wider">Members Console</span>
             </div>
           </div>
 
           {/* Quick connection / diagnostics indicator */}
-          <div className="hidden lg:flex items-center gap-2 text-xs bg-white/5 px-3 py-1.5 rounded-xl border border-white/10">
+          <div className="hidden lg:flex items-center gap-2 text-xs bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 shrink-0">
             <span className={`w-2 h-2 rounded-full ${dbConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}></span>
             <span className="text-white/80">
               Database: {dbConnected ? 'Supabase Synchronized' : 'High-Fidelity Offline Sync'}
@@ -1895,7 +1904,7 @@ function AppContent() {
           </div>
 
           {/* Right Section / Profile avatar / Logout */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {user && !user.hide_notifications_ui && (
               <NotificationBell 
                 currentUser={user} 
@@ -1908,19 +1917,7 @@ function AppContent() {
               />
             )}
 
-            <button
-              onClick={handleThemeToggle}
-              className="p-2 bg-emerald-950/40 hover:bg-emerald-800/80 rounded-xl text-emerald-250 hover:text-white transition-all cursor-pointer shrink-0 border border-emerald-800/60 flex items-center justify-center"
-              title={theme === 'dark' ? 'Switch to Light Mode ☀️' : 'Switch to Dark Mode 🌙'}
-            >
-              {theme === 'dark' ? (
-                <Sun className="w-4 h-4 text-amber-400" />
-              ) : (
-                <Moon className="w-4 h-4 text-emerald-300" />
-              )}
-            </button>
-
-            <div className="text-right hidden sm:block">
+            <div className="text-right hidden sm:block shrink-0">
               <span className="block text-xs font-bold text-white leading-none">{formatMemberName(user.display_name || user.name, user.gender)}</span>
               <span className="inline-flex items-center mt-1">
                 <RoleBadge role={user.role} className="scale-85 origin-right py-0 px-1.5" />
@@ -1933,7 +1930,7 @@ function AppContent() {
                 setProfileEditMode(false);
                 setSelectedProfileMember(user);
               }}
-              className="w-9 h-9 rounded-full overflow-hidden bg-emerald-80 text-emerald-200 hover:text-white font-black flex items-center justify-center text-xs border-2 border-emerald-700/50 cursor-pointer shrink-0"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden bg-emerald-80 text-emerald-200 hover:text-white font-black flex items-center justify-center text-xs border-2 border-emerald-700/50 cursor-pointer shrink-0"
               title="My Account Details"
             >
               {getCleanAvatar(user.avatar) || getDefaultAvatar(user.gender) ? (
@@ -1949,7 +1946,7 @@ function AppContent() {
                 setProfileEditMode(true);
                 setSelectedProfileMember(user);
               }}
-              className="inline-flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 bg-emerald-950/40 hover:bg-emerald-800/80 text-emerald-100 hover:text-white rounded-xl text-xs font-bold border border-emerald-800/60 cursor-pointer transition-all shadow-xs"
+              className="inline-flex items-center gap-1 px-1.5 py-1.5 sm:gap-1.5 sm:px-3 sm:py-2 bg-emerald-950/40 hover:bg-emerald-800/80 text-emerald-100 hover:text-white rounded-xl text-[10px] sm:text-xs font-bold border border-emerald-800/60 cursor-pointer transition-all shadow-xs shrink-0"
               title="Edit My Profile Details"
             >
               <UserCog className="w-3.5 h-3.5" />
@@ -1959,19 +1956,19 @@ function AppContent() {
             {user.role === 'standard' && (
               <button
                 onClick={() => setShowOnboardingTour(true)}
-                className="p-2 bg-emerald-950 hover:bg-emerald-999 rounded-xl text-emerald-250 hover:text-white transition-colors cursor-pointer shrink-0"
+                className="p-1.5 sm:p-2 bg-emerald-950 hover:bg-emerald-999 rounded-xl text-emerald-250 hover:text-white transition-colors cursor-pointer shrink-0"
                 title="Take Onboarding Tour 🌟"
               >
-                <HelpCircle className="w-4 h-4 text-emerald-250" />
+                <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-250" />
               </button>
             )}
 
             <button
               onClick={() => signOut()}
-              className="p-2 bg-emerald-950 hover:bg-emerald-999 rounded-xl text-emerald-250 hover:text-white transition-colors cursor-pointer shrink-0"
+              className="p-1.5 sm:p-2 bg-emerald-950 hover:bg-emerald-999 rounded-xl text-emerald-250 hover:text-white transition-colors cursor-pointer shrink-0 flex items-center justify-center"
               title="Logout Profile"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
 
@@ -2363,13 +2360,15 @@ function AppContent() {
                     <span>Meta Settings</span>
                   </button>
                 )}
-                <button
-                  onClick={() => setCurrentTab('football')}
-                  className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
-                >
-                  <Trophy className="w-3.5 h-3.5 shrink-0" />
-                  <span>Football Predictions</span>
-                </button>
+                {(isFootballEnabled || isCurrentUserAdmin) && (
+                  <button
+                    onClick={() => setCurrentTab('football')}
+                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                  >
+                    <Trophy className="w-3.5 h-3.5 shrink-0" />
+                    <span>Football Predictions</span>
+                  </button>
+                )}
               </div>
 
               {/* Preferences Toggle / Layout Customize Menu */}
@@ -2436,7 +2435,31 @@ function AppContent() {
             </div>
 
             {currentTab === 'football' ? (
-              <FootballModule currentUser={user} />
+              (!isFootballEnabled && !isCurrentUserAdmin) ? (
+                <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-8 md:p-12 text-center max-w-lg mx-auto shadow-sm my-8">
+                  <div className="w-16 h-16 bg-amber-50 dark:bg-amber-950/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-amber-200/50">
+                    <Trophy className="w-8 h-8 text-amber-600 dark:text-amber-500" />
+                  </div>
+                  <h3 className="text-xl font-extrabold text-stone-900 dark:text-white mb-3">
+                    Predictions Module Inactive
+                  </h3>
+                  <p className="text-stone-500 dark:text-stone-400 text-sm mb-6 leading-relaxed">
+                    The Football Predictions module is currently disabled by administrators. Please check back later or contact your system administrator.
+                  </p>
+                  <button
+                    onClick={() => setCurrentTab('directory')}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-6 rounded-xl transition-all cursor-pointer shadow-xs"
+                  >
+                    Go Back to Directory
+                  </button>
+                </div>
+              ) : (
+                <FootballModule 
+                  currentUser={user} 
+                  isFootballEnabled={isFootballEnabled}
+                  onToggleFootballEnabled={setIsFootballEnabled}
+                />
+              )
             ) : currentTab === 'financials' && (isOBUser(user.role) || user.role === 'ECM') ? (
               <FinancialRecordsPage 
                 currentUser={user} 
@@ -2616,7 +2639,7 @@ function AppContent() {
                 )}
 
                 {/* Right side: Developer Tools & Custom Action box */}
-                {isCurrentUserAdmin && (
+                {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
                   <div className={`${showRoleDistribution ? 'lg:col-span-4' : 'lg:col-span-12'} bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4`}>
                     <div className="border-b pb-3 border-stone-100">
                       <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Administrative Quick Panel</h4>
@@ -2655,6 +2678,26 @@ function AppContent() {
                         <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
                         Bial Assignment Diagnostic Tool
                       </button>
+
+                      <div className="pt-3 border-t border-stone-100 flex items-center justify-between">
+                        <div className="flex flex-col text-left">
+                          <span className="text-[10px] font-extrabold text-stone-700 uppercase tracking-wider">Football Predictions Module</span>
+                          <span className="text-[9px] text-stone-400">Toggle public access for standard members</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isFootballEnabled}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setIsFootballEnabled(newValue);
+                              localStorage.setItem('sy_enable_football_predictions', newValue ? 'true' : 'false');
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-stone-200 dark:bg-stone-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-stone-600 peer-checked:bg-emerald-600"></div>
+                        </label>
+                      </div>
                     </div>
 
                     <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100/30 text-[11px] leading-normal text-emerald-900 space-y-1">
@@ -2811,7 +2854,7 @@ function AppContent() {
 
                 <form onSubmit={handleAdminAddMember} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-stone-600">
                   <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1">Full Member Name</label>
+                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1">Username (Legal Name)</label>
                     <input
                       type="text"
                       required
@@ -2939,7 +2982,10 @@ function AppContent() {
                 onBatchApproveMembers={handleBatchApproveMembers}
                 onBatchDeleteMembers={handleBatchDeleteMembers}
                 onBulkAssignBial={handleBulkAssignBial}
-                onOpenProfile={(member) => setSelectedProfileMember(member)}
+                onOpenProfile={(member, editMode) => {
+                  setSelectedProfileMember(member);
+                  setProfileEditMode(!!editMode);
+                }}
                 isCurrentUserAdmin={isCurrentUserAdmin}
                 onlineUserIds={onlineUserIds}
               />

@@ -193,25 +193,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onToggleRegister, onSucces
         </button>
       </form>
 
-      {/* Google Login option */}
-      <div className="relative py-1">
-        <div className="absolute inset-0 flex items-center" aria-hidden="true">
-          <div className="w-full border-t border-stone-100 dark:border-stone-800"></div>
-        </div>
-        <div className="relative flex justify-center text-xs">
-          <span className="bg-white px-3 text-stone-400">Or use OAuth</span>
-        </div>
-      </div>
-
-      <button
-        onClick={handleGoogleLogin}
-        disabled={isLoading}
-        className="w-full bg-white dark:bg-stone-900 hover:bg-stone-50 text-stone-700 dark:text-stone-300 font-semibold py-2.5 px-4 rounded-xl border border-stone-200 dark:border-stone-800 shadow-xs hover:shadow-xs hover:translate-y-[-1px] active:translate-y-0 transition-all text-xs flex items-center justify-center gap-2 cursor-pointer"
-      >
-        <Chrome className="w-4 h-4 text-red-500" />
-        Continue with Google Sync
-      </button>
-
       <div className="text-center text-xs text-stone-500 pt-2">
         Don't have an account?{' '}
         <button

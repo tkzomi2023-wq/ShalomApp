@@ -35,6 +35,8 @@ export interface Member {
   hide_notifications_ui?: boolean;
   bial?: string;
   theme?: 'light' | 'dark';
+  custom_title?: string;
+  church_titles?: string;
 }
 
 export interface ActivityLog {

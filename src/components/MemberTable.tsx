@@ -24,7 +24,8 @@ import {
   X,
   AlertTriangle,
   ShieldCheck,
-  IdCard
+  IdCard,
+  Sparkles
 } from 'lucide-react';
 import { financialsDb, BialConfig } from '../lib/financials';
 import { useAuth } from '../lib/auth';
@@ -37,7 +38,7 @@ interface MemberTableProps {
   onBatchApproveMembers?: (ids: string[]) => void;
   onBatchDeleteMembers?: (ids: string[]) => void;
   onBulkAssignBial?: (ids: string[], bial: string) => Promise<void>;
-  onOpenProfile: (member: Member) => void;
+  onOpenProfile: (member: Member, editMode?: boolean) => void;
   isCurrentUserAdmin: boolean;
   onlineUserIds?: string[];
 }
@@ -815,7 +816,15 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             ))}
                           </select>
                         ) : (
-                          <RoleBadge role={member.role} />
+                          <div className="flex flex-col gap-1 items-start">
+                            <RoleBadge role={member.role} />
+                            {member.custom_title && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.25 rounded-md text-[9px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-100 dark:border-amber-900/30 uppercase tracking-wide">
+                                <Sparkles className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+                                <span>{member.custom_title}</span>
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
 
@@ -855,7 +864,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
                           {currentUser && (isCurrentUserAdmin || currentUser.id === member.id || currentUser.email.toLowerCase() === member.email.toLowerCase()) && (
                             <button
-                              onClick={() => onOpenProfile(member)}
+                              onClick={() => onOpenProfile(member, true)}
                               className="p-1 sm:p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
                               title="Detailed Member profile card"
                             >
@@ -987,9 +996,20 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
                 {/* Badging indicator */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-stone-300 uppercase">Role:</span>
-                    <RoleBadge role={member.role} />
+                  <div className="flex flex-col gap-1 items-start">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-stone-300 uppercase">Role:</span>
+                      <RoleBadge role={member.role} />
+                    </div>
+                    {member.custom_title && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] font-bold text-stone-300 uppercase">Title:</span>
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.25 rounded-md text-[9px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-100 dark:border-amber-900/30 uppercase tracking-wide">
+                          <Sparkles className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+                          <span>{member.custom_title}</span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-bold text-stone-300 uppercase">Status:</span>
