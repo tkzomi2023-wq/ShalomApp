@@ -2407,7 +2407,7 @@ function AppContent() {
                     <span>Meta Settings</span>
                   </button>
                 )}
-                {(isFootballEnabled || isCurrentUserAdmin) && (
+                {(isFootballEnabled || user?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()) && (
                   <button
                     onClick={() => setCurrentTab('football')}
                     className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
@@ -2482,7 +2482,7 @@ function AppContent() {
             </div>
 
             {currentTab === 'football' ? (
-              (!isFootballEnabled && !isCurrentUserAdmin) ? (
+              (!isFootballEnabled && user?.email?.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) ? (
                 <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-8 md:p-12 text-center max-w-lg mx-auto shadow-sm my-8">
                   <div className="w-16 h-16 bg-amber-50 dark:bg-amber-950/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-amber-200/50">
                     <Trophy className="w-8 h-8 text-amber-600 dark:text-amber-500" />
