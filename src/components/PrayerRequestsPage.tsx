@@ -21,10 +21,13 @@ import {
   EyeOff,
   Eye,
   Check,
-  Edit3
+  Edit3,
+  Database
 } from 'lucide-react';
 import { Member, PrayerRequest, PrayerCategory, isOBUser, DEFAULT_ADMIN_EMAIL } from '../types';
 import { prayerService } from '../lib/prayers';
+import { supabase } from '../lib/supabase';
+import { SQLSetupModal } from './SQLSetupModal';
 
 interface PrayerRequestsPageProps {
   currentUser: Member;
@@ -77,10 +80,29 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
   const [deletingRequest, setDeletingRequest] = useState<PrayerRequest | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
+  // SQL Setup Modal
+  const [isSqlModalOpen, setIsSqlModalOpen] = useState<boolean>(false);
+
   const isOB = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(currentUser.role);
 
   useEffect(() => {
     loadPrayerRequests();
+
+    // Subscribe to realtime database changes for prayer_requests
+    const channel = supabase
+      .channel('public:prayer_requests_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'prayer_requests' },
+        () => {
+          loadPrayerRequests();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [currentUser]);
 
   const loadPrayerRequests = async () => {
@@ -263,7 +285,16 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSqlModalOpen(true)}
+              className="px-4 py-3 bg-stone-800/80 hover:bg-stone-800 text-stone-200 font-bold text-xs sm:text-sm rounded-xl border border-stone-700/60 transition-all cursor-pointer flex items-center gap-2 shrink-0 shadow-sm"
+              title="View / Copy SQL Script for Supabase Table Setup"
+            >
+              <Database className="w-4 h-4 text-emerald-400" />
+              <span>Supabase SQL Setup</span>
+            </button>
             <button
               onClick={() => {
                 setFormError(null);
@@ -1015,6 +1046,12 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
           </div>
         )}
       </AnimatePresence>
+
+      {/* --- MODAL: SQL Setup Modal --- */}
+      <SQLSetupModal
+        isOpen={isSqlModalOpen}
+        onClose={() => setIsSqlModalOpen(false)}
+      />
     </div>
   );
 };

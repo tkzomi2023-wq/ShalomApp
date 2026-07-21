@@ -3,39 +3,27 @@ import { Member, PrayerRequest, isOBUser, DEFAULT_ADMIN_EMAIL } from '../types';
 
 const LOCAL_STORAGE_KEY = 'sy_local_prayer_requests';
 
-// Initial mock data if empty (for seamless offline preview)
-const MOCK_PRAYER_REQUESTS: PrayerRequest[] = [
-  {
-    id: 'pr-mock-001',
-    user_id: 'mock-user-123',
-    user_name: 'Anonymous Member',
-    user_email: 'member1@shalomyouth.org',
-    title: 'Prayer for Healing and Recovery',
-    category: 'Health & Healing',
-    details: 'Please pray for my mother who is undergoing surgery this coming Thursday. Pray for successful procedure and fast recovery.',
-    is_anonymous: true,
-    status: 'pending',
-    created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
-  },
-  {
-    id: 'pr-mock-002',
-    user_id: 'mock-user-456',
-    user_name: 'Anonymous Member',
-    user_email: 'member2@shalomyouth.org',
-    title: 'Guidance for Youth Career & Exams',
-    category: 'Youth & Studies',
-    details: 'Seeking prayer support for our youth preparing for competitive examinations next month. Pray for clarity of mind and peace.',
-    is_anonymous: true,
-    status: 'prayed',
-    prayed_by_id: 'admin-uuid-001',
-    prayed_by_name: 'T.K. Paite (Founder)',
-    prayed_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    ob_note: 'The OB Committee has prayed over your exams and career path during our youth intercession service. Be strong and courageous!',
-    created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
-  }
-];
-
 export class PrayerService {
+  /**
+   * Helper to check if a prayer request belongs to a specific user
+   */
+  private matchesUser(req: PrayerRequest, user: Member): boolean {
+    if (!user) return false;
+
+    const rUserId = (req.user_id || '').trim().toLowerCase();
+    const rUserEmail = (req.user_email || '').trim().toLowerCase();
+
+    const uId = (user.id || '').trim().toLowerCase();
+    const uUserId = (user.user_id || '').trim().toLowerCase();
+    const uEmail = (user.email || '').trim().toLowerCase();
+
+    if (uId && rUserId === uId) return true;
+    if (uUserId && rUserId === uUserId) return true;
+    if (uEmail && rUserEmail && rUserEmail === uEmail) return true;
+
+    return false;
+  }
+
   /**
    * Fetch prayer requests.
    * - Authorized OB Committee members can view ALL requests.
@@ -46,14 +34,16 @@ export class PrayerService {
 
     const isOB = currentUser.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(currentUser.role);
 
+    let remoteData: PrayerRequest[] = [];
     try {
       let query = supabase.from('prayer_requests').select('*').order('created_at', { ascending: false });
-      
+
       // If NOT an OB, restrict query to only requests created by this user
       if (!isOB) {
         const filters: string[] = [];
         if (currentUser.id) filters.push(`user_id.eq.${currentUser.id}`);
-        if (currentUser.email) filters.push(`user_email.ilike.${currentUser.email}`);
+        if (currentUser.user_id && currentUser.user_id !== currentUser.id) filters.push(`user_id.eq.${currentUser.user_id}`);
+        if (currentUser.email) filters.push(`user_email.ilike.${currentUser.email.trim()}`);
         if (filters.length > 0) {
           query = query.or(filters.join(','));
         }
@@ -61,42 +51,33 @@ export class PrayerService {
 
       const { data, error } = await query;
 
-      if (error) {
-        console.warn('Supabase fetch prayer_requests error, utilizing local cache:', error.message);
+      if (!error && data) {
+        remoteData = data as PrayerRequest[];
+      } else if (error) {
+        console.warn('[PrayerService] Supabase getPrayerRequests notice:', error.message);
       }
-
-      const remoteData = (data || []) as PrayerRequest[];
-      const existingLocal = this.getLocalRequests();
-      const merged = this.mergeRequests(remoteData, existingLocal);
-
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
-      } catch (_) {}
-
-      if (!isOB) {
-        return merged.filter(r => 
-          r.user_id === currentUser.id || 
-          (r.user_email && currentUser.email && r.user_email.toLowerCase() === currentUser.email.toLowerCase())
-        );
-      }
-
-      return merged;
     } catch (err) {
-      console.warn('Prayer requests fallback to local cache:', err);
-      const local = this.getLocalRequests();
-      if (!isOB) {
-        return local.filter(r => 
-          r.user_id === currentUser.id || 
-          (r.user_email && currentUser.email && r.user_email.toLowerCase() === currentUser.email.toLowerCase())
-        );
-      }
-      return local;
+      console.warn('[PrayerService] Exception during getPrayerRequests:', err);
     }
+
+    const existingLocal = this.getLocalRequests();
+    const merged = this.mergeRequests(remoteData, existingLocal);
+
+    // Persist merged cache locally for instant future load
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
+    } catch (_) {}
+
+    if (!isOB) {
+      return merged.filter(r => this.matchesUser(r, currentUser));
+    }
+
+    return merged;
   }
 
   /**
    * Create a new prayer request.
-   * Enforces user linkage (`user_id = auth.uid() / currentUser.id`).
+   * Enforces user linkage and inserts into Supabase prayer_requests table.
    */
   async createPrayerRequest(
     request: {
@@ -109,11 +90,14 @@ export class PrayerService {
   ): Promise<PrayerRequest> {
     if (!currentUser) throw new Error('You must be logged in to post a prayer request.');
 
+    const userId = currentUser.id || currentUser.user_id || currentUser.email || 'user-anon';
+    const userEmail = currentUser.email ? currentUser.email.trim() : '';
+
     const newRequest: PrayerRequest = {
-      id: `pr-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      user_id: currentUser.id,
-      user_name: request.is_anonymous ? 'Anonymous Member' : (currentUser.display_name || currentUser.name),
-      user_email: currentUser.email,
+      id: `pr-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+      user_id: userId,
+      user_name: request.is_anonymous ? 'Anonymous Member' : (currentUser.display_name || currentUser.name || 'Member'),
+      user_email: userEmail,
       title: request.title.trim(),
       category: request.category || 'General',
       details: request.details.trim(),
@@ -125,7 +109,7 @@ export class PrayerService {
     // 1. Always save to local cache first to guarantee instant UI availability
     this.saveToLocalCache(newRequest);
 
-    // 2. Save to Supabase (with the same ID)
+    // 2. Save directly to Supabase table `prayer_requests`
     try {
       const { data, error } = await supabase
         .from('prayer_requests')
@@ -145,13 +129,14 @@ export class PrayerService {
         .single();
 
       if (error) {
-        console.warn('Supabase insert prayer request notice:', error.message);
+        console.error('[PrayerService] Supabase insert prayer_requests error:', error.message, error.details);
       } else if (data) {
-        this.saveToLocalCache(data as PrayerRequest);
-        return data as PrayerRequest;
+        const persisted = data as PrayerRequest;
+        this.saveToLocalCache(persisted);
+        return persisted;
       }
-    } catch (err) {
-      console.warn('Failed to insert prayer request into Supabase, utilizing cached version:', err);
+    } catch (err: any) {
+      console.error('[PrayerService] Exception saving prayer request to Supabase:', err?.message || err);
     }
 
     return newRequest;
@@ -314,10 +299,10 @@ export class PrayerService {
       const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (_) {}
-    return MOCK_PRAYER_REQUESTS;
+    return [];
   }
 
   private saveToLocalCache(req: PrayerRequest) {
