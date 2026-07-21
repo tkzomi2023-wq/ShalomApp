@@ -8,11 +8,12 @@ import { motion } from 'motion/react';
 import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar, DEFAULT_ADMIN_EMAIL, getCleanAvatar, isOBUser } from '../types';
 import { useAuth } from '../lib/auth';
 import { supabase, db } from '../lib/supabase';
-import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard } from 'lucide-react';
+import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2 } from 'lucide-react';
 import { RoleBadge } from './RoleBadge';
 import { FinancialRecord, financialsDb, MONTHS, BIAL_IDS } from '../lib/financials';
 import { getActivityLogs, addActivityLog } from '../lib/activity';
 import { MemberIDCardModal } from './MemberIDCardModal';
+import { convertToAnimeCharacter } from '../utils/cartoonFilter';
 
 interface UserProfileModalProps {
   member: Member;
@@ -65,6 +66,146 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [originalUploadedUrl, setOriginalUploadedUrl] = useState<string>('');
   const [transparentUploadedUrl, setTransparentUploadedUrl] = useState<string>('');
   const [isTransparentApplied, setIsTransparentApplied] = useState<boolean>(false);
+
+  // Cute Cartoon Avatar AI states
+  const [cartoonifyToggle, setCartoonifyToggle] = useState<boolean>(false);
+  const [isProcessingCartoon, setIsProcessingCartoon] = useState<boolean>(false);
+  const [cartoonifyProgress, setCartoonifyProgress] = useState<string>('');
+  const [cartoonifyError, setCartoonifyError] = useState<string | null>(null);
+  const [cartoonPreviewUrl, setCartoonPreviewUrl] = useState<string>('');
+  const [cartoonUploadedUrl, setCartoonUploadedUrl] = useState<string>('');
+  const [isCartoonApplied, setIsCartoonApplied] = useState<boolean>(false);
+
+  const runCartoonifyTransformation = async (fileOrUrl: File | string) => {
+    const isSelf = currentUser?.id === member.id || currentUser?.email?.toLowerCase() === member.email?.toLowerCase();
+    const canEditSelf = isSelf || (isCurrentUserAdmin && (member.role === 'standard' || canChangeRole));
+    
+    if (!canEditSelf) {
+      setCartoonifyError("You can only update your own profile.");
+      return;
+    }
+
+    setIsProcessingCartoon(true);
+    setCartoonifyError(null);
+    setCartoonifyProgress('Converting profile photo to anime character style while preserving face structure...');
+    setIsCartoonApplied(false);
+
+    try {
+      let base64Data = '';
+      let fileObj: File | null = null;
+
+      if (typeof fileOrUrl === 'string') {
+        const res = await fetch(fileOrUrl);
+        const blob = await res.blob();
+        fileObj = new File([blob], `avatar_input.${blob.type.split('/')[1] || 'jpeg'}`, { type: blob.type || 'image/jpeg' });
+        const reader = new FileReader();
+        base64Data = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        fileObj = fileOrUrl;
+        const reader = new FileReader();
+        base64Data = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(fileOrUrl);
+        });
+      }
+
+      let generatedDataUrl = '';
+
+      // Try Gemini AI Anime Endpoint first
+      try {
+        setCartoonifyProgress('Contacting AI service for authentic anime character rendering...');
+        const apiRes = await fetch('/api/convert-anime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64Data })
+        });
+
+        if (apiRes.ok) {
+          const data = await apiRes.json();
+          if (data.success && (data.animeImage || data.cartoonImage)) {
+            generatedDataUrl = data.animeImage || data.cartoonImage;
+          }
+        }
+      } catch (err) {
+        console.warn('Gemini anime API attempt warning:', err);
+      }
+
+      // Fallback: Canvas-based Anime Filter (Preserves 100% Face Structure)
+      if (!generatedDataUrl) {
+        setCartoonifyProgress('Applying high-precision anime filter with face structure preservation...');
+        generatedDataUrl = await convertToAnimeCharacter(fileObj || base64Data);
+      }
+
+      setCartoonifyProgress('Saving anime avatar to cloud storage...');
+      setCartoonPreviewUrl(generatedDataUrl);
+
+      // Convert dataUrl to Blob & upload to storage
+      const fetchBlob = await fetch(generatedDataUrl).then(r => r.blob());
+      const ext = 'png';
+      const filePath = `${member.id}/avatar_anime_${Date.now()}.${ext}`;
+      const imageUrl = await db.uploadToStorage('avatars', filePath, new File([fetchBlob], `avatar_anime.${ext}`, { type: 'image/png' }));
+
+      setCartoonUploadedUrl(imageUrl);
+      setAvatar(imageUrl);
+      setIsCartoonApplied(true);
+
+      if (!isEditing && (originalUploadedUrl || imageUrl)) {
+        const origUrl = originalUploadedUrl || imageUrl;
+        const compoundUrl = `${imageUrl}|||${origUrl}`;
+        const updated: Member = {
+          ...member,
+          avatar: compoundUrl
+        };
+        onUpdate(updated);
+      }
+    } catch (err: any) {
+      console.error('Anime transformation error:', err);
+      setCartoonifyError(err.message || 'Failed to generate anime character avatar. Please try another image.');
+      setCartoonifyToggle(false);
+    } finally {
+      setIsProcessingCartoon(false);
+      setCartoonifyProgress('');
+    }
+  };
+
+  const handleCartoonToggleChange = async (checked: boolean) => {
+    const isSelf = currentUser?.id === member.id || currentUser?.email?.toLowerCase() === member.email?.toLowerCase();
+    const canEditSelf = isSelf || (isCurrentUserAdmin && (member.role === 'standard' || canChangeRole));
+    
+    if (!canEditSelf) {
+      alert("You can only update your own profile.");
+      return;
+    }
+
+    setCartoonifyToggle(checked);
+    if (checked) {
+      if (removeBgToggle) {
+        setRemoveBgToggle(false);
+      }
+      if (cartoonUploadedUrl) {
+        setAvatar(cartoonUploadedUrl);
+        setIsCartoonApplied(true);
+      } else if (selectedFile) {
+        await runCartoonifyTransformation(selectedFile);
+      } else if (avatar) {
+        await runCartoonifyTransformation(avatar);
+      } else {
+        setCartoonifyError("No profile picture found to convert. Please upload a photo first.");
+      }
+    } else {
+      if (originalUploadedUrl) {
+        setAvatar(originalUploadedUrl);
+      } else {
+        setAvatar(getOriginalAvatar(member.avatar));
+      }
+      setIsCartoonApplied(false);
+    }
+  };
 
   const runBackgroundRemoval = async (fileToProcess: File, attempt = 1) => {
     const withTimeoutHelper = <T,>(promise: Promise<T>, timeoutMs: number, errorMessage = "Timeout"): Promise<T> => {
@@ -311,6 +452,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [displayName, setDisplayName] = useState(member.display_name || member.name || '');
   const [phone, setPhone] = useState(member.phone || '');
   const [gender, setGender] = useState<'Male' | 'Female' | undefined>(member.gender);
+  const [maritalStatus, setMaritalStatus] = useState<string>(member.marital_status || 'Single');
   const [bloodGroup, setBloodGroup] = useState(member.blood_group || '');
   const [dob, setDob] = useState(member.dob || '');
   const [address, setAddress] = useState(member.address || '');
@@ -378,6 +520,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     setDisplayName(member.display_name || member.name || '');
     setPhone(member.phone || '');
     setGender(member.gender);
+    setMaritalStatus(member.marital_status || 'Single');
     setBloodGroup(member.blood_group || '');
     setDob(member.dob || '');
     setAddress(member.address || '');
@@ -387,6 +530,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     const cleanAvatar = getCleanAvatar(rawAvatar);
     const originalAvatar = getOriginalAvatar(rawAvatar);
     const hasTransparentAvatar = rawAvatar.includes('|||') || rawAvatar.includes('_transparent_');
+    const hasCartoonAvatar = rawAvatar.includes('_cartoon_');
 
     setAvatar(cleanAvatar);
     setEmailNotifications(member.email_notifications !== false);
@@ -404,16 +548,26 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     );
     setChurchTitlesInput('');
     
-    // Reset or initialize background removal states based on current database state
+    // Reset or initialize background removal & cartoon states based on current database state
     setRemoveBgToggle(hasTransparentAvatar);
     setIsTransparentApplied(hasTransparentAvatar);
+    setCartoonifyToggle(hasCartoonAvatar);
+    setIsCartoonApplied(hasCartoonAvatar);
     setSelectedFile(null);
     setBgRemovalProgress('');
     setBgRemovalError(null);
     setIsProcessingBg(false);
+    setCartoonifyProgress('');
+    setCartoonifyError(null);
+    setIsProcessingCartoon(false);
     setTransparentBlob(null);
 
-    if (hasTransparentAvatar) {
+    if (hasCartoonAvatar) {
+      setCartoonUploadedUrl(cleanAvatar);
+      setCartoonPreviewUrl(cleanAvatar);
+      setOriginalUploadedUrl(originalAvatar);
+      setOriginalPreviewUrl(originalAvatar);
+    } else if (hasTransparentAvatar) {
       setTransparentUploadedUrl(cleanAvatar);
       setTransparentPreviewUrl(cleanAvatar);
       setOriginalUploadedUrl(originalAvatar);
@@ -421,6 +575,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     } else {
       setTransparentUploadedUrl('');
       setTransparentPreviewUrl('');
+      setCartoonUploadedUrl('');
+      setCartoonPreviewUrl('');
       setOriginalUploadedUrl(cleanAvatar);
       setOriginalPreviewUrl(cleanAvatar);
     }
@@ -440,7 +596,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           const filtered = recs.filter(rec => {
             const rName = rec.name.trim().toLowerCase();
             const mName = member.name.trim().toLowerCase();
-            const fmName = formatMemberName(member.name, member.gender).trim().toLowerCase();
+            const fmName = formatMemberName(member.name, member.gender, member.marital_status).trim().toLowerCase();
             
             const stripPrefix = (s: string) => {
               return s
@@ -551,7 +707,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       setAvatarUploadProgress(100);
       setOriginalUploadedUrl(imageUrl);
       
-      if (removeBgToggle) {
+      if (cartoonifyToggle) {
+        setAvatar(imageUrl);
+        await runCartoonifyTransformation(fileToUpload);
+      } else if (removeBgToggle) {
         setAvatar(imageUrl);
         await runBackgroundRemoval(fileToUpload);
       } else {
@@ -576,13 +735,28 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   const handleSave = async () => {
+    if (cartoonifyToggle && cartoonifyError) {
+      alert('Anime transformation failed. Please turn off "Convert to Anime Character Avatar" or retry before saving.');
+      return;
+    }
+
     if (removeBgToggle && bgRemovalError) {
       alert('Background removal failed. Please turn off "Remove Background" or retry with a different image before saving.');
       return;
     }
 
+    if (cartoonifyToggle && cartoonPreviewUrl && !isCartoonApplied) {
+      alert('You generated an anime character avatar but have not set it as your active profile picture yet. Please click "Set Anime Character as Profile Picture" first.');
+      return;
+    }
+
     if (removeBgToggle && transparentPreviewUrl && !isTransparentApplied) {
       alert('You have successfully removed the background but have not set it as your active profile picture yet. Please click the "Set Background Removed Image as Profile Picture" button first to apply it, and then save changes.');
+      return;
+    }
+
+    if (isProcessingCartoon) {
+      alert('Anime character avatar creation is still processing. Please wait for it to complete.');
       return;
     }
 
@@ -601,12 +775,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       let finalAvatar = avatar;
       if (avatar === '') {
         finalAvatar = '';
+      } else if (cartoonifyToggle && cartoonUploadedUrl) {
+        const origUrl = originalUploadedUrl || getOriginalAvatar(member.avatar) || avatar;
+        finalAvatar = `${cartoonUploadedUrl}|||${origUrl}`;
       } else if (removeBgToggle && transparentUploadedUrl) {
         const origUrl = originalUploadedUrl || getOriginalAvatar(member.avatar) || avatar;
         finalAvatar = `${transparentUploadedUrl}|||${origUrl}`;
-      } else if (!removeBgToggle && originalUploadedUrl) {
+      } else if (!removeBgToggle && !cartoonifyToggle && originalUploadedUrl) {
         finalAvatar = originalUploadedUrl;
-      } else if (!removeBgToggle) {
+      } else if (!removeBgToggle && !cartoonifyToggle) {
         finalAvatar = getOriginalAvatar(member.avatar);
       }
 
@@ -621,6 +798,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         display_name: displayName.trim() || undefined,
         phone,
         gender,
+        marital_status: maritalStatus,
         blood_group: bloodGroup,
         dob,
         address,
@@ -1078,6 +1256,143 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                         )}
                       </div>
                     )}
+
+                    {/* Anime Character Avatar Toggle */}
+                    <div className="pt-2 border-t border-stone-100 dark:border-stone-850 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={cartoonifyToggle}
+                            onChange={(e) => handleCartoonToggleChange(e.target.checked)}
+                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-stone-300 cursor-pointer"
+                          />
+                          <span className="text-[11px] font-bold text-stone-700 dark:text-stone-300 flex items-center gap-1">
+                            <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            Convert to Anime Character Avatar (AI)
+                          </span>
+                        </label>
+                        <span className="text-[9px] text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 px-1.5 py-0.5 rounded font-mono font-bold">
+                          Anime Style
+                        </span>
+                      </div>
+
+                      {/* Processing State for Anime Avatar */}
+                      {isProcessingCartoon && (
+                        <div className="p-3 bg-indigo-500/5 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 rounded-xl text-[10px] leading-relaxed border border-indigo-500/25 space-y-2 animate-pulse">
+                          <div className="flex items-center justify-between font-bold uppercase tracking-wider text-[9px]">
+                            <div className="flex items-center gap-2">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                              </span>
+                              <span>Generating Anime Character Avatar...</span>
+                            </div>
+                            <span className="text-stone-500 dark:text-stone-400 font-mono lowercase tracking-normal font-medium">{cartoonifyProgress}</span>
+                          </div>
+                          <p className="text-[9px] text-center text-stone-500 dark:text-stone-400 font-mono">
+                            Preserving exact face structure & expressions into anime art. Please wait...
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Anime Error */}
+                      {cartoonifyError && (
+                        <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 rounded-lg text-[10px] leading-relaxed border border-rose-100 dark:border-rose-900/30">
+                          <p className="font-bold flex items-center gap-1 uppercase tracking-wider text-[9px]">
+                            ⚠️ Anime Avatar Transformation Warning
+                          </p>
+                          <p>{cartoonifyError}</p>
+                        </div>
+                      )}
+
+                      {/* Side-by-side previews when anime active */}
+                      {cartoonifyToggle && (originalPreviewUrl || cartoonPreviewUrl) && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-3 mt-2">
+                            {/* Original Image Card */}
+                            <div className="border border-stone-150 dark:border-stone-850 rounded-xl p-2 bg-stone-50/50 dark:bg-stone-950/40 flex flex-col items-center">
+                              <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">Original</span>
+                              <div className="h-20 w-20 rounded-lg border border-stone-150 dark:border-stone-800 overflow-hidden bg-stone-100">
+                                <img 
+                                  src={originalPreviewUrl || avatar} 
+                                  alt="Original" 
+                                  className="h-full w-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Anime Preview Card */}
+                            <div className="border border-indigo-200/60 dark:border-indigo-900/40 rounded-xl p-2 bg-indigo-50/20 dark:bg-indigo-950/20 flex flex-col items-center relative overflow-hidden">
+                              <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                                <Sparkles className="w-2.5 h-2.5 text-amber-500 animate-pulse" />
+                                Anime Character
+                              </span>
+                              <div className="h-20 w-20 rounded-lg border border-indigo-200 dark:border-indigo-800 overflow-hidden bg-indigo-100/50 dark:bg-indigo-900/30 flex items-center justify-center">
+                                {cartoonPreviewUrl ? (
+                                  <img 
+                                    src={cartoonPreviewUrl} 
+                                    alt="Anime Avatar Preview" 
+                                    className="h-full w-full object-cover"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div className="text-center p-1 text-stone-400 text-[8px] leading-tight">
+                                    {isProcessingCartoon ? 'Creating anime character...' : 'No preview'}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Set profile picture and Download buttons */}
+                          {cartoonPreviewUrl && (
+                            <div className="space-y-2">
+                              {isCartoonApplied ? (
+                                <div className="flex items-center gap-2 justify-center bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 p-2.5 rounded-lg text-[10px] font-bold border border-indigo-200/50">
+                                  <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                  <span>Anime character avatar set as active profile picture! Click "Save Changes" below to finalize.</span>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (cartoonUploadedUrl) {
+                                      setAvatar(cartoonUploadedUrl);
+                                      setIsCartoonApplied(true);
+                                    } else {
+                                      alert('Anime avatar image is ready locally, but cloud upload is completing. Please wait a moment and try again.');
+                                    }
+                                  }}
+                                  className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-xs hover:shadow-md cursor-pointer uppercase tracking-wider animate-pulse"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                                  Set Anime Character as Profile Picture
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!cartoonPreviewUrl) return;
+                                  const link = document.createElement('a');
+                                  link.href = cartoonPreviewUrl;
+                                  link.download = `anime_${selectedFile?.name || 'profile'}.png`;
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                }}
+                                className="w-full py-1.5 px-3 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-[10px] rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-stone-200 dark:border-stone-800"
+                              >
+                                <Download className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                                Download Anime Portrait PNG
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1115,7 +1430,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             ) : (
               <div className="space-y-1 text-center">
                 <h4 className="text-lg font-extrabold text-stone-900 dark:text-white flex items-center gap-1.5 justify-center">
-                  {formatMemberName(displayName || name, gender)}
+                  {formatMemberName(displayName || name, gender, maritalStatus)}
                   {member.status === 'approved' && (
                     <UserCheck className="w-4 h-4 text-emerald-600 bg-emerald-50 p-0.5 rounded-full" />
                   )}
@@ -1344,6 +1659,53 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       ) : (
                         <p className="font-semibold text-stone-900 dark:text-white">
                           {gender || 'Unspecified'} {bloodGroup ? `(${bloodGroup})` : ''}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <Heart className="w-4 h-4 text-pink-500 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[10px] text-stone-400 uppercase tracking-wide flex items-center justify-between">
+                        <span>Marital Status</span>
+                        {gender === 'Male' && (
+                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold lowercase">
+                            {maritalStatus === 'Married' ? 'Title: Pa' : 'Title: Tg.'}
+                          </span>
+                        )}
+                      </p>
+                      {isEditing ? (
+                        <div className="space-y-1 mt-0.5">
+                          <select
+                            value={maritalStatus || 'Single'}
+                            onChange={e => setMaritalStatus(e.target.value)}
+                            className="text-xs bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 px-2 py-1 rounded-md w-full focus:ring-1 focus:ring-emerald-500 font-medium"
+                          >
+                            <option value="Single">Single</option>
+                            <option value="Married">Married</option>
+                            <option value="Widowed">Widowed</option>
+                            <option value="Divorced">Divorced</option>
+                          </select>
+                          {gender === 'Male' && maritalStatus === 'Married' && (
+                            <p className="text-[10px] text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 p-1.5 rounded-md border border-amber-200/50 dark:border-amber-900/50">
+                              <span>✓ Married Male: Salutation prefix replaces "Tg." with "Pa"</span>
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="font-semibold text-stone-900 dark:text-white flex items-center gap-2">
+                          <span>{maritalStatus || 'Single'}</span>
+                          {gender === 'Male' && maritalStatus === 'Married' && (
+                            <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-300 dark:border-amber-800">
+                              Salutation: Pa
+                            </span>
+                          )}
+                          {gender === 'Male' && (maritalStatus === 'Single' || !maritalStatus) && (
+                            <span className="bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-200 text-[10px] px-2 py-0.5 rounded-full font-bold border border-sky-300 dark:border-sky-800">
+                              Salutation: Tg.
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>

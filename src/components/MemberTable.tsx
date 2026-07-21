@@ -41,6 +41,7 @@ interface MemberTableProps {
   onOpenProfile: (member: Member, editMode?: boolean) => void;
   isCurrentUserAdmin: boolean;
   onlineUserIds?: string[];
+  initialStatusFilter?: 'All' | 'pending' | 'approved' | 'rejected';
 }
 
 const containerVariants = {
@@ -76,12 +77,19 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   onBulkAssignBial,
   onOpenProfile,
   isCurrentUserAdmin,
-  onlineUserIds = []
+  onlineUserIds = [],
+  initialStatusFilter
 }) => {
   const { user: currentUser } = useAuth();
   const canChangeRole = currentUser?.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'pending' | 'approved' | 'rejected'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'pending' | 'approved' | 'rejected'>(initialStatusFilter || 'All');
+
+  useEffect(() => {
+    if (initialStatusFilter) {
+      setStatusFilter(initialStatusFilter);
+    }
+  }, [initialStatusFilter]);
   const [roleGroupFilter, setRoleGroupFilter] = useState<'All' | 'standard' | 'ECM' | 'OB'>('All');
   const [sortBy, setSortBy] = useState<'name' | 'created_at'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -277,7 +285,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
         const row = [(idx + 1).toString()];
         AVAILABLE_COLUMNS.forEach(col => {
           if (selectedColumns.includes(col.id)) {
-            if (col.id === 'name') row.push(formatMemberName(m.display_name || m.name, m.gender));
+            if (col.id === 'name') row.push(formatMemberName(m.display_name || m.name, m.gender, m.marital_status));
             else if (col.id === 'email') row.push(m.email);
             else if (col.id === 'phone') row.push(m.phone || 'N/A');
             else if (col.id === 'bial') row.push(bial);
@@ -751,7 +759,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                 onClick={() => onOpenProfile(member)}
                                 className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left text-[11px] sm:text-xs truncate max-w-[100px] sm:max-w-none"
                               >
-                                {formatMemberName(member.display_name || member.name, member.gender)}
+                                {formatMemberName(member.display_name || member.name, member.gender, member.marital_status)}
                               </button>
                               <span 
                                 className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shrink-0 ${
@@ -978,7 +986,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                         onClick={() => onOpenProfile(member)}
                         className="font-extrabold text-stone-900 dark:text-white hover:text-emerald-600 text-sm truncate text-left block"
                       >
-                        {formatMemberName(member.display_name || member.name, member.gender)}
+                        {formatMemberName(member.display_name || member.name, member.gender, member.marital_status)}
                       </button>
                       <span 
                         className={`w-2 h-2 rounded-full shrink-0 ${

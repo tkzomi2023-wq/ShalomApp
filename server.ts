@@ -1088,6 +1088,183 @@ app.post("/api/birthday-email/send-wish", async (req, res) => {
   }
 });
 
+// REST API endpoint to notify OB users of a new pending registration
+app.post("/api/notify-pending-registration", async (req, res) => {
+  try {
+    const { member } = req.body;
+    if (!member || !member.name || !member.email) {
+      return res.status(400).json({ error: "Invalid member details provided." });
+    }
+
+    console.log(`[Pending Registration Alert] Processing notification for new member: ${member.name} (${member.email})`);
+
+    // 1. Fetch OB user emails from Supabase profiles
+    let obEmails: string[] = ["tkpaite2016@gmail.com"];
+
+    try {
+      const { data: obProfiles, error } = await supabase
+        .from("profiles")
+        .select("email, role")
+        .in("role", [
+          "Founder",
+          "Chairman",
+          "Vice Chairman",
+          "Secretary",
+          "Assistant Secretary",
+          "Treasurer",
+          "Financial Secretary",
+          "Admin"
+        ]);
+
+      if (!error && obProfiles) {
+        obProfiles.forEach(p => {
+          if (p.email && p.email.trim()) {
+            obEmails.push(p.email.trim().toLowerCase());
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("[Pending Registration Alert] Could not fetch OB profiles from Supabase:", e);
+    }
+
+    // Deduplicate emails
+    obEmails = Array.from(new Set(obEmails.map(e => e.toLowerCase())));
+
+    // 2. Check SMTP configuration
+    const smtpConfig = await getSmtpConfig();
+    let emailSent = false;
+    let emailStatusMessage = "SMTP not configured. System alert generated locally.";
+
+    if (smtpConfig && smtpConfig.host && smtpConfig.port && smtpConfig.user && smtpConfig.pass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpConfig.host,
+          port: parseInt(smtpConfig.port || "587"),
+          secure: smtpConfig.port === "465",
+          auth: {
+            user: smtpConfig.user,
+            pass: smtpConfig.pass,
+          },
+        });
+
+        const fromAddress = smtpConfig.from || `"Shalom Youth Fellowship" <${smtpConfig.user}>`;
+        const appUrl = process.env.APP_URL || "https://ais-dev-23ekmc3qdgukfctporfp4h-994951620836.asia-southeast1.run.app";
+
+        const subject = `🚨 Action Required: New Registration Awaiting Review - ${member.name}`;
+
+        const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f5f4; margin: 0; padding: 24px; color: #1c1917;">
+            <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); border: 1px solid #e7e5e4;">
+              <!-- Header -->
+              <tr>
+                <td style="background: linear-gradient(135deg, #7c3aed, #4c1d95); padding: 32px 28px; text-align: center;">
+                  <div style="display: inline-block; background-color: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 20px; color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">
+                    Shalom Youth Fellowship
+                  </div>
+                  <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">New Member Registration Alert</h1>
+                  <p style="color: #ddd6fe; margin: 8px 0 0 0; font-size: 14px; font-weight: 500;">Action Required: Pending OB Approval</p>
+                </td>
+              </tr>
+              <!-- Body -->
+              <tr>
+                <td style="padding: 32px 28px;">
+                  <p style="margin: 0 0 16px 0; font-size: 15px; color: #292524; line-height: 1.6;">
+                    Dear Office Bearer / Committee Member,
+                  </p>
+                  <p style="margin: 0 0 24px 0; font-size: 14px; color: #44403c; line-height: 1.6;">
+                    A new registration has been submitted and is currently <strong>awaiting approval</strong>. Faster approval turnaround ensures new members gain immediate access to schedules, community chat, and fellowship events.
+                  </p>
+
+                  <!-- Member Card -->
+                  <div style="background-color: #faf5ff; border: 1.5px solid #e9d5ff; border-radius: 16px; padding: 20px; margin-bottom: 28px;">
+                    <h3 style="margin: 0 0 12px 0; color: #6b21a8; font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #f3e8ff; padding-bottom: 8px;">
+                      Registrant Profile Details
+                    </h3>
+                    <table width="100%" cellpadding="6" cellspacing="0" style="font-size: 13px; color: #3b0764;">
+                      <tr>
+                        <td width="35%" style="font-weight: 700; color: #7e22ce;">Full Name:</td>
+                        <td style="font-weight: 800; color: #1e1b4b;">${member.name}</td>
+                      </tr>
+                      <tr>
+                        <td style="font-weight: 700; color: #7e22ce;">Email Address:</td>
+                        <td><a href="mailto:${member.email}" style="color: #7c3aed; text-decoration: none; font-weight: 600;">${member.email}</a></td>
+                      </tr>
+                      <tr>
+                        <td style="font-weight: 700; color: #7e22ce;">Phone Number:</td>
+                        <td>${member.phone || 'Not provided'}</td>
+                      </tr>
+                      <tr>
+                        <td style="font-weight: 700; color: #7e22ce;">Status:</td>
+                        <td><span style="background-color: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 6px; font-weight: 800; font-size: 11px; text-transform: uppercase;">PENDING REVIEW</span></td>
+                      </tr>
+                      <tr>
+                        <td style="font-weight: 700; color: #7e22ce;">Submission Time:</td>
+                        <td style="color: #6b21a8;">${new Date().toLocaleString()}</td>
+                      </tr>
+                    </table>
+                  </div>
+
+                  <!-- Action Button -->
+                  <div style="text-align: center; margin: 32px 0;">
+                    <a href="${appUrl}" style="background-color: #7c3aed; color: #ffffff; text-decoration: none; font-weight: 800; font-size: 14px; padding: 14px 32px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);">
+                      Open App & Review Registration →
+                    </a>
+                  </div>
+
+                  <p style="margin: 0; font-size: 12px; color: #78716c; text-align: center; line-height: 1.5;">
+                    This automated alert was sent to all active Office Bearers and Administrators.
+                  </p>
+                </td>
+              </tr>
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #fafaf9; padding: 20px 28px; text-align: center; border-top: 1px solid #f5f5f4; color: #78716c; font-size: 12px;">
+                  <p style="margin: 0 0 4px 0; font-weight: 800; color: #44403c;">Shalom Youth Fellowship</p>
+                  <p style="margin: 0;">Automated System Alert for Office Bearers</p>
+                </td>
+              </tr>
+            </table>
+          </body>
+          </html>
+        `;
+
+        for (const recipient of obEmails) {
+          await transporter.sendMail({
+            from: fromAddress,
+            to: recipient,
+            subject,
+            html: htmlContent
+          });
+          console.log(`[Pending Registration Alert] Email alert sent to OB: ${recipient}`);
+        }
+
+        emailSent = true;
+        emailStatusMessage = `Sent automated email alerts to ${obEmails.length} OB user(s).`;
+      } catch (mailErr: any) {
+        console.error("[Pending Registration Alert] Mail dispatch error:", mailErr);
+        emailStatusMessage = `Mail dispatch error: ${mailErr.message || mailErr}`;
+      }
+    }
+
+    res.json({
+      success: true,
+      notifiedObCount: obEmails.length,
+      obEmails,
+      emailSent,
+      message: emailStatusMessage
+    });
+  } catch (err: any) {
+    console.error("[Pending Registration Alert] API Endpoint Error:", err);
+    res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
+
 // REST API endpoint to manually trigger birthday check & mail dispatch
 app.post("/api/birthday-email/trigger", async (req, res) => {
   try {
@@ -1522,6 +1699,93 @@ Return the bounding box coordinates normalized as float values between 0.0 and 1
     });
   }
 });
+
+// Anime / Cartoonify AI Endpoint using Gemini
+const handleAnimeTransformation = async (req: express.Request, res: express.Response) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "No image data provided" });
+    }
+
+    let base64Data = image;
+    let mimeType = "image/jpeg";
+
+    if (image.startsWith("data:")) {
+      const parts = image.split(";base64,");
+      if (parts.length === 2) {
+        mimeType = parts[0].substring(5);
+        base64Data = parts[1];
+      }
+    }
+
+    const imagePart = {
+      inlineData: {
+        mimeType,
+        data: base64Data,
+      },
+    };
+
+    const promptText = `
+Transform this person's portrait into a vibrant, high-quality, authentic Japanese anime character avatar portrait (in the style of modern high-budget anime movies like Makoto Shinkai, Studio Ghibli, or Kyoto Animation digital anime art).
+CRITICAL REQUIREMENT: Strictly preserve the exact face structure, jawline, eye shape and color, hairstyle and hair color, skin tone, facial features, gender, glasses/facial hair (if present), and recognizable identity of the person in the photo.
+The resulting image MUST be a stunning, clean anime character illustration of the EXACT same recognizable person.
+`;
+
+    const modelsToTry = [
+      "gemini-3.1-flash-image",
+      "gemini-3.1-flash-lite-image"
+    ];
+
+    let generatedImage = null;
+    let lastError = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`[AnimeAvatar] Attempting anime transformation with model: ${modelName}`);
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              imagePart,
+              { text: promptText }
+            ]
+          }
+        });
+
+        if (response?.candidates?.[0]?.content?.parts) {
+          for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData && part.inlineData.data) {
+              const mime = part.inlineData.mimeType || "image/png";
+              generatedImage = `data:${mime};base64,${part.inlineData.data}`;
+              break;
+            }
+          }
+        }
+        if (generatedImage) break;
+      } catch (err: any) {
+        console.warn(`[AnimeAvatar] Model ${modelName} notice:`, err?.status || err?.message || err);
+        lastError = err;
+      }
+    }
+
+    if (generatedImage) {
+      return res.json({ success: true, cartoonImage: generatedImage, animeImage: generatedImage });
+    }
+
+    return res.json({
+      success: false,
+      error: lastError?.message || "AI image model unavailable",
+      fallbackAvailable: true
+    });
+  } catch (err: any) {
+    console.error("[AnimeAvatar] Fatal error in anime avatar endpoint:", err);
+    res.status(500).json({ error: err.message || "Failed to process anime transformation" });
+  }
+};
+
+app.post("/api/convert-cartoon", handleAnimeTransformation);
+app.post("/api/convert-anime", handleAnimeTransformation);
 
 // Explicit API Route Handlers for 404 and 500 Errors (ensures strict JSON responses)
 app.use("/api/*", (req: express.Request, res: express.Response) => {

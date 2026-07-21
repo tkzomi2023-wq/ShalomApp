@@ -4,7 +4,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { toPng, toBlob } from 'html-to-image';
+import { jsPDF } from 'jspdf';
 import { ServiceSchedule, schedulesDb } from '../lib/schedule';
 import { Member } from '../types';
 import { db } from '../lib/supabase';
@@ -32,7 +34,11 @@ import {
   Users,
   Megaphone,
   Music,
-  Mic
+  Mic,
+  GripVertical,
+  Link,
+  Check,
+  Copy
 } from 'lucide-react';
 
 const PRESET_COVERS = [
@@ -41,6 +47,208 @@ const PRESET_COVERS = [
   { id: 'fellowship', name: 'Youth Fellowship', url: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?q=80&w=600&auto=format&fit=crop' },
   { id: 'study', name: 'Acoustic Prayer', url: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?q=80&w=600&auto=format&fit=crop' }
 ];
+
+export interface SegmentItem {
+  key: string;
+  label: string;
+  shortLabel: string;
+  icon: any;
+  value?: string;
+  posterBg: string;
+  posterText: string;
+  posterBorder: string;
+  cardBg: string;
+  cardIconBg: string;
+  cardIconColor: string;
+}
+
+export function getSegmentsForItem(item: ServiceSchedule): SegmentItem[] {
+  const map: Record<string, SegmentItem> = {
+    lst_simna_quiz: {
+      key: 'lst_simna_quiz',
+      label: '📖 LST Simna & Quiz',
+      shortLabel: 'Bible & Quiz',
+      icon: BookOpen,
+      value: item.lst_simna_quiz,
+      posterBg: 'bg-stone-900/80',
+      posterText: 'text-indigo-300',
+      posterBorder: 'border-indigo-500/30',
+      cardBg: 'bg-white dark:bg-stone-900',
+      cardIconBg: 'bg-indigo-50 dark:bg-indigo-950/40',
+      cardIconColor: 'text-indigo-600 dark:text-indigo-400'
+    },
+    solo: {
+      key: 'solo',
+      label: '🎶 Lasakna (Solo)',
+      shortLabel: 'Lasakna / Solo',
+      icon: Music,
+      value: item.solo,
+      posterBg: 'bg-stone-900/80',
+      posterText: 'text-purple-300',
+      posterBorder: 'border-purple-500/30',
+      cardBg: 'bg-white dark:bg-stone-900',
+      cardIconBg: 'bg-purple-50 dark:bg-purple-950/40',
+      cardIconColor: 'text-purple-600 dark:text-purple-400'
+    },
+    sumpi_aapna: {
+      key: 'sumpi_aapna',
+      label: '🙏 Sumpi Aap',
+      shortLabel: 'Sumpi Aap',
+      icon: Heart,
+      value: item.sumpi_aapna,
+      posterBg: 'bg-stone-900/80',
+      posterText: 'text-amber-300',
+      posterBorder: 'border-amber-500/30',
+      cardBg: 'bg-white dark:bg-stone-900',
+      cardIconBg: 'bg-amber-50 dark:bg-amber-950/40',
+      cardIconColor: 'text-amber-600 dark:text-amber-400'
+    },
+    sumpi_khon_ding: {
+      key: 'sumpi_khon_ding',
+      label: '🤝 Sumpi khon Ding',
+      shortLabel: 'Sumpi khon Ding',
+      icon: Users,
+      value: item.sumpi_khon_ding,
+      posterBg: 'bg-stone-900/80',
+      posterText: 'text-teal-300',
+      posterBorder: 'border-teal-500/30',
+      cardBg: 'bg-white dark:bg-stone-900',
+      cardIconBg: 'bg-teal-50 dark:bg-teal-950/40',
+      cardIconColor: 'text-teal-600 dark:text-teal-400'
+    }
+  };
+
+  const defaultKeys = ['lst_simna_quiz', 'solo', 'sumpi_aapna', 'sumpi_khon_ding'];
+  const userOrder = item.segment_order && item.segment_order.length > 0 ? item.segment_order : defaultKeys;
+
+  const result: SegmentItem[] = [];
+  userOrder.forEach(k => {
+    if (map[k] && map[k].value) {
+      result.push(map[k]);
+    }
+  });
+
+  defaultKeys.forEach(k => {
+    if (map[k] && map[k].value && !result.some(r => r.key === k)) {
+      result.push(map[k]);
+    }
+  });
+
+  return result;
+}
+
+function NextServiceCountdown({ schedule }: { schedule: ServiceSchedule }) {
+  const [timeLeft, setTimeLeft] = useState<{
+    days: number;
+    hours: number;
+    minutes: number;
+    seconds: number;
+    isPast: boolean;
+  }>({ days: 0, hours: 0, minutes: 0, seconds: 0, isPast: false });
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      if (!schedule || !schedule.date) return;
+      const parts = schedule.date.split('-').map(Number);
+      let hour = 16;
+      let minute = 30;
+      if (schedule.time) {
+        const match = schedule.time.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (match) {
+          hour = parseInt(match[1], 10);
+          minute = parseInt(match[2], 10);
+          const ampm = match[3] ? match[3].toUpperCase() : null;
+          if (ampm === 'PM' && hour < 12) hour += 12;
+          if (ampm === 'AM' && hour === 12) hour = 0;
+        }
+      }
+      const targetDate = new Date(parts[0], parts[1] - 1, parts[2], hour, minute, 0);
+      const now = new Date();
+      const diff = targetDate.getTime() - now.getTime();
+
+      if (diff <= 0) {
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0, isPast: true });
+        return;
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      setTimeLeft({ days, hours, minutes, seconds, isPast: false });
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [schedule.date, schedule.time]);
+
+  return (
+    <div className="bg-stone-850/90 border border-emerald-500/35 p-5 rounded-2xl shadow-xl space-y-3.5 backdrop-blur-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-700/60 pb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-xs">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                COUNTDOWN TO NEXT FELLOWSHIP
+              </span>
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            </div>
+            <h3 className="text-sm font-black text-white tracking-tight">{schedule.title}</h3>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 text-xs text-stone-300 bg-stone-900/60 px-3 py-1.5 rounded-xl border border-stone-700/50">
+          <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-emerald-400" /> {schedule.date} • {schedule.time}</span>
+          <span>•</span>
+          <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-emerald-400" /> {schedule.venue || 'Shalom Sanctuary'}</span>
+        </div>
+      </div>
+
+      {timeLeft.isPast ? (
+        <div className="text-center py-2.5 bg-emerald-950/50 border border-emerald-500/40 rounded-xl text-xs font-bold text-emerald-300 animate-pulse">
+          🎉 Youth Fellowship Service is in session now! Welcome all!
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-2 sm:gap-3 text-center">
+          <div className="bg-stone-900/95 border border-stone-700/80 rounded-xl p-2.5 shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-white font-mono block tracking-tight">
+              {String(timeLeft.days).padStart(2, '0')}
+            </span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Days</span>
+          </div>
+          <div className="bg-stone-900/95 border border-stone-700/80 rounded-xl p-2.5 shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono block tracking-tight">
+              {String(timeLeft.hours).padStart(2, '0')}
+            </span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Hours</span>
+          </div>
+          <div className="bg-stone-900/95 border border-stone-700/80 rounded-xl p-2.5 shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono block tracking-tight">
+              {String(timeLeft.minutes).padStart(2, '0')}
+            </span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Mins</span>
+          </div>
+          <div className="bg-stone-900/95 border border-emerald-500/40 rounded-xl p-2.5 shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono block tracking-tight animate-pulse">
+              {String(timeLeft.seconds).padStart(2, '0')}
+            </span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Secs</span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between text-[11px] text-stone-400 pt-1.5 border-t border-stone-750">
+        <span><strong className="text-white">Sermon / Speaker:</strong> {schedule.speaker}</span>
+        <span><strong className="text-white">Service Chairman:</strong> {schedule.leader}</span>
+      </div>
+    </div>
+  );
+}
 
 interface SchedulePageProps {
   currentUser: Member;
@@ -53,6 +261,32 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'upcoming' | 'past'>('upcoming');
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
+
+  // Drag and drop state for service segment reordering
+  const [draggedSegment, setDraggedSegment] = useState<{ scheduleId: string; segmentKey: string } | null>(null);
+
+  const handleReorderSegment = async (scheduleId: string, fromIndex: number, toIndex: number) => {
+    const schedule = schedules.find(s => s.id === scheduleId);
+    if (!schedule) return;
+
+    const activeSegments = getSegmentsForItem(schedule);
+    if (fromIndex < 0 || fromIndex >= activeSegments.length || toIndex < 0 || toIndex >= activeSegments.length) return;
+
+    const currentKeys = activeSegments.map(s => s.key);
+    const [movedKey] = currentKeys.splice(fromIndex, 1);
+    currentKeys.splice(toIndex, 0, movedKey);
+
+    setSchedules(prev => prev.map(s => s.id === scheduleId ? { ...s, segment_order: currentKeys } : s));
+
+    try {
+      await schedulesDb.updateSchedule(scheduleId, { segment_order: currentKeys });
+      setSuccessMessage('Order of service segments reordered successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+      onAddLog('Reorder Service Segments', `Reordered order of service segments for "${schedule.title}"`);
+    } catch (err) {
+      console.error('Failed to update segment reorder:', err);
+    }
+  };
 
   // Form states for Create / Edit
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -86,7 +320,68 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
   const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
   const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState<number>(0);
   const [isExporting, setIsExporting] = useState<string | null>(null);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [highlightedScheduleId, setHighlightedScheduleId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
+
+  const handleCopyShareLink = async (item: ServiceSchedule) => {
+    const url = `${window.location.origin}${window.location.pathname}?scheduleId=${item.id}`;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedLinkId(item.id);
+      setSuccessMessage(`Shareable link for "${item.title}" copied to clipboard!`);
+      setTimeout(() => {
+        setCopiedLinkId(null);
+        setSuccessMessage(null);
+      }, 3000);
+      onAddLog('Share Link Copied', `Copied shareable link for schedule "${item.title}"`);
+    } catch (err) {
+      console.error('Failed to copy share link:', err);
+      setFormError('Failed to copy share link to clipboard.');
+      setTimeout(() => setFormError(null), 3000);
+    }
+  };
+
+  // Deep-linking: handle URL query param ?scheduleId=...
+  useEffect(() => {
+    if (schedules.length === 0) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get('scheduleId') || params.get('id');
+
+    if (targetId) {
+      const found = schedules.find(s => s.id === targetId);
+      if (found) {
+        setExpandedRecordId(targetId);
+        setHighlightedScheduleId(targetId);
+
+        const isPast = new Date(found.date) < new Date(new Date().setHours(0, 0, 0, 0));
+        if (isPast && filterType === 'upcoming') {
+          setFilterType('all');
+        }
+
+        setTimeout(() => {
+          const el = document.getElementById(`schedule-card-${targetId}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 350);
+
+        setTimeout(() => {
+          setHighlightedScheduleId(null);
+        }, 7000);
+      }
+    }
+  }, [schedules]);
 
   useEffect(() => {
     const loadMembers = async () => {
@@ -136,9 +431,20 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
         return { blob, dataUrl };
       }
 
+      // Forcing opacity: '1' and visibility: 'visible' during cloning so that html-to-image
+      // captures the offscreen template flawlessly with complete color opacity.
       const options = {
-        backgroundColor: '#0c0a09', // Deep dark slate background
-        pixelRatio: 3, // Premium high-resolution Retina quality suitable for status/sharing/print
+        backgroundColor: '#0c0a09', // Premium deep dark theme slate
+        pixelRatio: 2, // Retina-ready 2x density is highly compatible, lightweight, and sharp
+        cacheBust: true,
+        style: {
+          opacity: '1',
+          visibility: 'visible',
+          transform: 'none',
+          left: '0',
+          top: '0',
+          position: 'relative',
+        }
       };
 
       const dataUrl = await toPng(targetEl, options);
@@ -168,9 +474,246 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
         link.download = filename;
         link.href = dataUrl;
         link.click();
+        
+        setSuccessMessage("Successfully generated and downloaded the high-fidelity programme image!");
+        setTimeout(() => setSuccessMessage(null), 4000);
+      } else {
+        setFormError("Failed to render the programme image. Please try again.");
+        setTimeout(() => setFormError(null), 4000);
       }
     } catch (err) {
       console.error('Export failed:', err);
+      setFormError("Error generating programme image.");
+      setTimeout(() => setFormError(null), 4000);
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
+  const handleExportPDF = async (item: ServiceSchedule) => {
+    setIsExporting(item.id);
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
+      const pageHeight = doc.internal.pageSize.getHeight(); // 297mm
+      
+      // Theme colors
+      const primaryColor = [5, 150, 105]; // Emerald
+      const darkColor = [28, 25, 23]; // Deep stone
+      const accentColor = [245, 158, 11]; // Amber
+      const lightBg = [250, 250, 249]; // Light stone/cream
+      
+      // --- Top Colored Banner ---
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, pageWidth, 38, 'F');
+      
+      // Banner text
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.text('SHALOM YOUTH FELLOWSHIP', pageWidth / 2, 16, { align: 'center' });
+      
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text('OFFICIAL WEEKLY SERVICE PROGRAMME SCHEDULE', pageWidth / 2, 23, { align: 'center' });
+      
+      // Accent line in banner
+      doc.setFillColor(accentColor[0], accentColor[1], accentColor[2]);
+      doc.rect(pageWidth / 2 - 25, 27, 50, 1.2, 'F');
+      
+      let y = 52;
+      
+      // --- Title ---
+      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(20);
+      const titleLines = doc.splitTextToSize(item.title.toUpperCase(), pageWidth - 40);
+      doc.text(titleLines, pageWidth / 2, y, { align: 'center' });
+      y += (titleLines.length * 8) + 2;
+      
+      // Topic/Theme
+      if (item.topic) {
+        doc.setFont('Helvetica', 'oblique');
+        doc.setFontSize(11);
+        doc.setTextColor(100, 116, 139); // Slate grey
+        doc.text(`Theme: "${item.topic}"`, pageWidth / 2, y, { align: 'center' });
+        y += 10;
+      } else {
+        y += 4;
+      }
+      
+      // Decorative Divider
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(20, y, pageWidth - 20, y);
+      y += 10;
+      
+      // --- Info Summary Cards (Rounded Box Grid) ---
+      doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
+      doc.setDrawColor(217, 217, 217);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(20, y, pageWidth - 40, 36, 4, 4, 'FD');
+      
+      // Headers
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.text('DATE', 26, y + 8);
+      doc.text('TIME', 86, y + 8);
+      doc.text('VENUE', 142, y + 8);
+      
+      // Values
+      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.text(formatFullDate(item.date), 26, y + 14);
+      doc.text(item.time, 86, y + 14);
+      
+      const venueLines = doc.splitTextToSize(item.venue || 'Shalom Sanctuary', 45);
+      doc.text(venueLines, 142, y + 14);
+      
+      // Separator inside info block
+      doc.setDrawColor(241, 245, 249);
+      doc.line(25, y + 20, pageWidth - 25, y + 20);
+      
+      // Speaker & Chairman
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.text('SPEAKER / SERMON', 26, y + 26);
+      doc.text('CHAIRMAN / LEADER', 106, y + 26);
+      
+      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(10.5);
+      doc.text(item.speaker, 26, y + 32);
+      doc.text(item.leader, 106, y + 32);
+      
+      y += 48;
+      
+      // --- Order of Service / Programme Details ---
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('ORDER OF SERVICE PROGRAMME', 20, y);
+      
+      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setLineWidth(0.8);
+      doc.line(20, y + 2, 45, y + 2);
+      
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(45, y + 2, pageWidth - 20, y + 2);
+      y += 9;
+      
+      // Table rows
+      const itemsList = getSegmentsForItem(item).map(seg => ({
+        label: seg.shortLabel,
+        value: seg.value
+      }));
+      
+      if (itemsList.length === 0) {
+        doc.setTextColor(148, 163, 184);
+        doc.setFont('Helvetica', 'italic');
+        doc.setFontSize(10);
+        doc.text('No active programme details recorded.', 25, y);
+        y += 10;
+      } else {
+        itemsList.forEach(prog => {
+          // Row container
+          doc.setFillColor(255, 255, 255);
+          doc.setDrawColor(241, 245, 249);
+          doc.setLineWidth(0.4);
+          
+          const valLines = doc.splitTextToSize(prog.value || '', pageWidth - 55);
+          const rowHeight = Math.max(14, (valLines.length * 5) + 7);
+          
+          doc.roundedRect(20, y, pageWidth - 40, rowHeight, 1.5, 1.5, 'FD');
+          
+          // Green left status line
+          doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+          doc.rect(20, y, 2, rowHeight, 'F');
+          
+          // Row Label
+          doc.setTextColor(100, 116, 139);
+          doc.setFont('Helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.text(prog.label.toUpperCase(), 25, y + 5);
+          
+          // Row Value
+          doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+          doc.setFont('Helvetica', 'bold');
+          doc.setFontSize(9.5);
+          doc.text(valLines, 25, y + 10);
+          
+          y += rowHeight + 4;
+        });
+      }
+      
+      // --- Announcements ---
+      if (item.notes) {
+        y += 2;
+        doc.setFillColor(254, 252, 243); // Creamy warm yellow
+        doc.setDrawColor(245, 158, 11); // Amber
+        doc.setLineWidth(0.4);
+        
+        const noteLines = doc.splitTextToSize(item.notes, pageWidth - 52);
+        const noteBoxHeight = (noteLines.length * 5) + 14;
+        
+        doc.roundedRect(20, y, pageWidth - 40, noteBoxHeight, 2.5, 2.5, 'FD');
+        
+        // Left accent bar
+        doc.setFillColor(245, 158, 11);
+        doc.rect(20, y, 2.5, noteBoxHeight, 'F');
+        
+        doc.setTextColor(180, 83, 9); // Dark amber title
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('📢 ANNOUNCEMENTS & MEMORANDA', 26, y + 6);
+        
+        doc.setTextColor(68, 64, 60); // Neutral dark
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(9);
+        
+        let lineY = y + 12;
+        noteLines.forEach((line: string) => {
+          doc.text(`• ${line.trim()}`, 26, lineY);
+          lineY += 5;
+        });
+        
+        y += noteBoxHeight + 8;
+      }
+      
+      // --- Footer ---
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.4);
+      doc.line(20, pageHeight - 20, pageWidth - 20, pageHeight - 20);
+      
+      doc.setTextColor(148, 163, 184);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`Logged by: ${item.created_by_name} (${item.created_by_email})`, 20, pageHeight - 14);
+      doc.text('Shalom Youth Fellowship Management', pageWidth - 20, pageHeight - 14, { align: 'right' });
+      
+      const cleanTitle = (item.title || "CA_HUN_GEELNA")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      const filename = `${cleanTitle}_${item.date}_PROGRAMME.pdf`;
+      
+      doc.save(filename);
+      
+      setSuccessMessage("PDF printable schedule successfully generated and downloaded!");
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+      setFormError("Failed to generate PDF schedule.");
+      setTimeout(() => setFormError(null), 4000);
     } finally {
       setIsExporting(null);
     }
@@ -179,6 +722,8 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
   const handleShareWhatsApp = async (item: ServiceSchedule) => {
     setIsExporting(item.id);
     try {
+      // 1. Generate and download the high-quality PNG card automatically
+      // so the user has the image ready in their gallery/downloads to share.
       const { blob, dataUrl } = await captureCardAsBlob(item.id);
       
       const cleanTitle = (item.title || "CA_HUN_GEELNA")
@@ -187,23 +732,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
         .replace(/^_+|_+$/g, '');
       const filename = `${cleanTitle}_${item.date}.png`;
 
-      if (navigator.share && blob) {
-        try {
-          const file = new File([blob], filename, { type: 'image/png' });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: item.title,
-              text: `📅 *${item.title}*\n🗓️ Date: ${item.date}\n⏰ Time: ${item.time}\n🎤 Speaker: ${item.speaker}\n📍 Venue: ${item.venue || 'Shalom Sanctuary'}\n\nHere is our service schedule details:`,
-              files: [file]
-            });
-            setIsExporting(null);
-            return;
-          }
-        } catch (shareErr) {
-          console.warn('Native share failed or cancelled, falling back to direct link:', shareErr);
-        }
-      }
-
+      // Download fallback
       if (dataUrl) {
         const link = document.createElement('a');
         link.download = filename;
@@ -211,51 +740,81 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
         link.click();
       }
 
+      // 2. Draft the highly professional, beautifully formatted, community-optimized text.
       const formattedDate = formatFullDate(item.date);
-      const currentUrl = window.location.origin + window.location.pathname + '#schedule';
+      const currentUrl = `${window.location.origin}${window.location.pathname}?scheduleId=${item.id}`;
 
-      let shareText = `🕊 *SHALOM YOUTH*\n\n`;
-      shareText += `📖 *${item.title.toUpperCase()}*\n\n`;
-      shareText += `📅 *${formattedDate}*\n\n`;
-      shareText += `⏰ *${item.time}*\n\n`;
-      shareText += `━━━━━━━━━━━━━━\n\n`;
-      shareText += `🎤 *Speaker*\n${item.speaker}\n\n`;
-      shareText += `👤 *Chairman*\n${item.leader}\n\n`;
-      shareText += `━━━━━━━━━━━━━━\n\n`;
-      shareText += `📖 *SERVICE PROGRAMME*\n\n`;
+      let shareText = `✨ *SHALOM YOUTH FELLOWSHIP* ✨\n`;
+      shareText += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      shareText += `📖 *PROGRAMME:* ${item.title.toUpperCase()}\n`;
+      if (item.topic) {
+        shareText += `🎯 *THEME:* "${item.topic}"\n`;
+      }
+      shareText += `🗓️ *DATE:* ${formattedDate}\n`;
+      shareText += `⏰ *TIME:* ${item.time}\n`;
+      shareText += `📍 *VENUE:* ${item.venue || 'Shalom Sanctuary'}\n\n`;
+      shareText += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      shareText += `🎤 *SPEAKER / SERMON:*\n  └─ ${item.speaker}\n\n`;
+      shareText += `👤 *CHAIRMAN / LEADER:*\n  └─ ${item.leader}\n\n`;
+      shareText += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      shareText += `📋 *ORDER OF SERVICE:*\n\n`;
       
       if (item.lst_simna_quiz) {
-        shareText += `📖 *Bible Reading*\n${item.lst_simna_quiz}\n\n`;
+        shareText += `📖 *Bible Reading / Quiz*\n  └─ ${item.lst_simna_quiz}\n\n`;
       }
       if (item.solo) {
-        shareText += `🎶 *Lasakna*\n${item.solo}\n\n`;
+        shareText += `🎶 *Lasakna (Solo)*\n  └─ ${item.solo}\n\n`;
       }
       if (item.sumpi_aapna) {
-        shareText += `🙏 *Sumpi Aap*\n${item.sumpi_aapna}\n\n`;
+        shareText += `🙏 *Sumpi Aap (Dedicated Offering)*\n  └─ ${item.sumpi_aapna}\n\n`;
       }
       if (item.sumpi_khon_ding) {
-        shareText += `📜 *Sumpi Hnuh Ding*\n${item.sumpi_khon_ding}\n\n`;
-      }
-      if (item.venue) {
-        shareText += `🏛 *Venue*\n${item.venue}\n\n`;
+        shareText += `🤝 *Sumpi khon Ding (Collectors)*\n  └─ ${item.sumpi_khon_ding}\n\n`;
       }
       
-      shareText += `━━━━━━━━━━━━━━\n\n`;
+      shareText += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
       
       if (item.notes) {
-        shareText += `📢 *Announcement*\n\n${item.notes}\n\n`;
-        shareText += `━━━━━━━━━━━━━━\n\n`;
+        shareText += `📢 *ANNOUNCEMENTS:*\n`;
+        const noteLines = item.notes.split('\n').filter(line => line.trim() !== '');
+        noteLines.forEach(line => {
+          shareText += ` • ${line.trim()}\n`;
+        });
+        shareText += `\n━━━━━━━━━━━━━━━━━━━━━━\n\n`;
       }
       
-      shareText += `🔗 *View Full Programme*\n\n${currentUrl}\n\n`;
-      shareText += `━━━━━━━━━━━━━━\n\n`;
-      shareText += `Generated via\nShalom Youth Management System`;
+      shareText += `🔗 *View Full Details & Live Updates:*\n👉 ${currentUrl}\n\n`;
+      shareText += `💫 _Join us in fellowship and prayer!_\n`;
+      shareText += `_Generated via Shalom Youth Admin_`;
 
+      // 3. Try utilizing the Native Web Share API (which lets users share the actual file + text in WhatsApp)
+      if (navigator.share && blob) {
+        try {
+          const file = new File([blob], filename, { type: 'image/png' });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: item.title,
+              text: shareText,
+              files: [file]
+            });
+            setIsExporting(null);
+            return;
+          }
+        } catch (shareErr) {
+          console.warn('Native share failed or cancelled, falling back to direct web link:', shareErr);
+        }
+      }
+
+      // 4. Fallback: Open WhatsApp API with the beautifully encoded text
       const encodedText = encodeURIComponent(shareText);
       window.open(`https://api.whatsapp.com/send?text=${encodedText}`, '_blank');
       
+      setSuccessMessage("Card image downloaded & WhatsApp message drafted successfully!");
+      setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
       console.error('WhatsApp share failed:', err);
+      setFormError("Error sharing to WhatsApp.");
+      setTimeout(() => setFormError(null), 4000);
     } finally {
       setIsExporting(null);
     }
@@ -529,28 +1088,9 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
             )}
           </div>
 
-          {/* Quick next meeting countdown widget */}
+          {/* Next Service Live Countdown Timer Component */}
           {nextUpcomingService && (
-            <div className="bg-stone-800/80 border border-stone-700/60 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-emerald-600/20 text-emerald-450 rounded-xl">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-[10px] text-emerald-450 uppercase font-extrabold tracking-wider">Next Service Venue</p>
-                  <h3 className="text-xs font-bold text-stone-100">{nextUpcomingService.title}</h3>
-                  <div className="flex items-center gap-3 mt-1 text-[11px] text-stone-400">
-                    <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-stone-500" /> {nextUpcomingService.date} • {nextUpcomingService.time}</span>
-                    <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-stone-500" /> {nextUpcomingService.venue}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="text-left md:text-right border-t md:border-t-0 border-stone-750 pt-2 md:pt-0">
-                <p className="text-[10px] text-stone-450 uppercase font-black">Speaker</p>
-                <p className="text-xs font-bold text-white mt-0.5">{nextUpcomingService.speaker}</p>
-                <p className="text-[10px] text-stone-400">Leader: {nextUpcomingService.leader}</p>
-              </div>
-            </div>
+            <NextServiceCountdown schedule={nextUpcomingService} />
           )}
         </div>
       </header>
@@ -633,19 +1173,24 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {paginatedSchedules.map((item) => {
+          {paginatedSchedules.map((item, index) => {
             const isItemExp = expandedRecordId === item.id;
             const flagUpcoming = isUpcoming(item.date);
 
             return (
               <React.Fragment key={item.id}>
                 {/* Visual Card Layout */}
-                <div 
+                <motion.div 
                   id={`schedule-card-${item.id}`}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, delay: index * 0.06, ease: "easeOut" }}
                   className={`group bg-white dark:bg-stone-900 rounded-3xl border transition-all duration-300 overflow-hidden shadow-xs hover:shadow-md flex flex-col justify-between ${
-                    flagUpcoming 
-                      ? 'border-emerald-200 dark:border-emerald-900/40 ring-1 ring-emerald-600/5' 
-                      : 'border-stone-150 dark:border-stone-800'
+                    highlightedScheduleId === item.id
+                      ? 'border-emerald-500 ring-2 ring-emerald-500/80 shadow-xl scale-[1.01]'
+                      : flagUpcoming 
+                        ? 'border-emerald-200 dark:border-emerald-900/40 ring-1 ring-emerald-600/5' 
+                        : 'border-stone-150 dark:border-stone-800'
                   }`}
                 >
                   {/* Modern Full Hero Section */}
@@ -757,63 +1302,86 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                             <span className="text-[10px] font-black uppercase tracking-widest text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
                               <BookOpen className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Order of Service
                             </span>
-                            <span className="text-[9px] px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-md font-extrabold uppercase tracking-wider">
-                              Schedule
-                            </span>
+                            {canManageSchedules && (
+                              <span className="text-[9px] px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-md font-extrabold uppercase tracking-wider flex items-center gap-1">
+                                <GripVertical className="w-3 h-3" /> Drag to Reorder
+                              </span>
+                            )}
                           </div>
 
                           <div className="grid grid-cols-1 gap-2.5">
-                            {/* LST Simna & Quiz */}
-                            {item.lst_simna_quiz && (
-                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
-                                  <BookOpen className="w-4 h-4" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">📖 LST Simna & Quiz</p>
-                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.lst_simna_quiz}</p>
-                                </div>
-                              </div>
-                            )}
+                            {getSegmentsForItem(item).map((seg, idx, array) => {
+                              const IconComp = seg.icon;
+                              const isDragging = draggedSegment?.scheduleId === item.id && draggedSegment?.segmentKey === seg.key;
 
-                            {/* Lasakna / Solo */}
-                            {item.solo && (
-                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
-                                  <Music className="w-4 h-4" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">🎶 Lasakna (Solo)</p>
-                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.solo}</p>
-                                </div>
-                              </div>
-                            )}
+                              return (
+                                <div
+                                  key={seg.key}
+                                  draggable={canManageSchedules}
+                                  onDragStart={(e) => {
+                                    setDraggedSegment({ scheduleId: item.id, segmentKey: seg.key });
+                                    e.dataTransfer.effectAllowed = 'move';
+                                  }}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = 'move';
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    if (draggedSegment && draggedSegment.scheduleId === item.id) {
+                                      const fromIdx = array.findIndex(s => s.key === draggedSegment.segmentKey);
+                                      if (fromIdx !== -1 && fromIdx !== idx) {
+                                        handleReorderSegment(item.id, fromIdx, idx);
+                                      }
+                                    }
+                                    setDraggedSegment(null);
+                                  }}
+                                  className={`group/seg flex items-center gap-3 p-3 rounded-2xl border transition-all duration-200 ${seg.cardBg} ${
+                                    isDragging 
+                                      ? 'opacity-40 border-dashed border-emerald-500 scale-[0.98]' 
+                                      : 'border-stone-150 dark:border-stone-800 hover:border-emerald-500/40'
+                                  }`}
+                                >
+                                  {canManageSchedules && (
+                                    <div className="flex items-center justify-center p-1 text-stone-400 hover:text-emerald-500 cursor-grab active:cursor-grabbing shrink-0" title="Drag to reorder segment">
+                                      <GripVertical className="w-4 h-4" />
+                                    </div>
+                                  )}
 
-                            {/* Sumpi Aap */}
-                            {item.sumpi_aapna && (
-                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
-                                  <Heart className="w-4 h-4" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">🙏 Sumpi Aap</p>
-                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.sumpi_aapna}</p>
-                                </div>
-                              </div>
-                            )}
+                                  <div className={`w-8 h-8 rounded-xl ${seg.cardIconBg} ${seg.cardIconColor} flex items-center justify-center shrink-0 shadow-xs`}>
+                                    <IconComp className="w-4 h-4" />
+                                  </div>
 
-                            {/* Sumpi Khon Ding */}
-                            {item.sumpi_khon_ding && (
-                              <div className="flex items-center gap-3 p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-150 dark:border-stone-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:shadow-3xs transition-all duration-200">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
-                                  <Users className="w-4 h-4" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">{seg.label}</p>
+                                    <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{seg.value}</p>
+                                  </div>
+
+                                  {canManageSchedules && (
+                                    <div className="flex items-center gap-0.5 opacity-80 group-hover/seg:opacity-100 transition-opacity">
+                                      {idx > 0 && (
+                                        <button
+                                          onClick={() => handleReorderSegment(item.id, idx, idx - 1)}
+                                          title="Move Up"
+                                          className="p-1 text-stone-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
+                                        >
+                                          <ChevronUp className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                      {idx < array.length - 1 && (
+                                        <button
+                                          onClick={() => handleReorderSegment(item.id, idx, idx + 1)}
+                                          title="Move Down"
+                                          className="p-1 text-stone-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
+                                        >
+                                          <ChevronDown className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider font-extrabold">🤝 Sumpi khon Ding</p>
-                                  <p className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{item.sumpi_khon_ding}</p>
-                                </div>
-                              </div>
-                            )}
+                              );
+                            })}
                           </div>
                         </div>
 
@@ -852,25 +1420,53 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                         {isItemExp ? <ChevronUp className="w-3.5 h-3.5 text-stone-500" /> : <ChevronDown className="w-3.5 h-3.5 text-stone-500" />}
                       </button>
 
-                      {/* Export & WhatsApp Row */}
-                      <div className="grid grid-cols-2 gap-2">
+                      {/* Export, PDF, WhatsApp & Copy Link Row */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        <button
+                          onClick={() => handleCopyShareLink(item)}
+                          className={`flex items-center justify-center gap-1.5 py-2 px-1.5 rounded-xl text-[10px] font-bold transition-all cursor-pointer border shadow-3xs ${
+                            copiedLinkId === item.id
+                              ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20'
+                              : 'bg-white hover:bg-stone-50 dark:bg-stone-900 dark:hover:bg-stone-850 text-stone-700 hover:text-stone-900 dark:text-stone-300 dark:hover:text-stone-100 border-stone-200 dark:border-stone-800'
+                          }`}
+                          title="Copy direct shareable link to clipboard"
+                        >
+                          {copiedLinkId === item.id ? (
+                            <Check className="w-3.5 h-3.5 text-white shrink-0" />
+                          ) : (
+                            <Link className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          )}
+                          <span className="truncate">{copiedLinkId === item.id ? 'Copied Link' : 'Copy Link'}</span>
+                        </button>
+
                         <button
                           onClick={() => handleExportPNG(item.id, item.title)}
                           disabled={isExporting !== null}
-                          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-stone-50 dark:bg-stone-900 dark:hover:bg-stone-850 text-stone-700 hover:text-stone-900 dark:text-stone-300 dark:hover:text-stone-100 rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-stone-200 dark:border-stone-800 shadow-3xs disabled:opacity-50"
+                          className="flex items-center justify-center gap-1.5 py-2 px-1 bg-white hover:bg-stone-50 dark:bg-stone-900 dark:hover:bg-stone-850 text-stone-700 hover:text-stone-900 dark:text-stone-300 dark:hover:text-stone-100 rounded-xl text-[10px] font-bold transition-all cursor-pointer border border-stone-200 dark:border-stone-800 shadow-3xs disabled:opacity-50"
                           title="Save whole card as PNG image"
                         >
                           <Download className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>{isExporting === item.id ? 'Saving...' : 'Save PNG'}</span>
+                          <span className="truncate">{isExporting === item.id ? 'Saving...' : 'Save PNG'}</span>
                         </button>
+
+                        <button
+                          onClick={() => handleExportPDF(item)}
+                          disabled={isExporting !== null}
+                          className="flex items-center justify-center gap-1.5 py-2 px-1 bg-white hover:bg-stone-50 dark:bg-stone-900 dark:hover:bg-stone-850 text-stone-700 hover:text-stone-900 dark:text-stone-300 dark:hover:text-stone-100 rounded-xl text-[10px] font-bold transition-all cursor-pointer border border-stone-200 dark:border-stone-800 shadow-3xs disabled:opacity-50"
+                          title="Download high-quality printable PDF schedule"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">{isExporting === item.id ? 'PDF...' : 'Save PDF'}</span>
+                        </button>
+
                         <button
                           onClick={() => handleShareWhatsApp(item)}
                           disabled={isExporting !== null}
-                          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition-all cursor-pointer border border-emerald-750 shadow-3xs disabled:opacity-50"
+                          className="flex items-center justify-center gap-1.5 py-2 px-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold transition-all cursor-pointer border border-emerald-750 shadow-3xs disabled:opacity-50"
                           title="Share schedule to WhatsApp"
                         >
                           <Share2 className="w-3.5 h-3.5 shrink-0" />
-                          <span>{isExporting === item.id ? 'Sharing...' : 'WhatsApp'}</span>
+                          <span className="truncate">{isExporting === item.id ? 'Sharing...' : 'WhatsApp'}</span>
                         </button>
                       </div>
                     </div>
@@ -924,146 +1520,155 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                       </div>
                     )}
                   </div>
-                </div>
+                </motion.div>
 
                 {/* Dedicated Off-Screen Poster Template for High-Fidelity PNG Export */}
-                <div 
-                  id={`schedule-poster-${item.id}`}
-                  className="absolute pointer-events-none opacity-0 select-none bg-stone-950 text-white"
-                  style={{ left: '-9999px', top: '-9999px', width: '720px', minHeight: '1080px', padding: '48px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontFamily: 'system-ui, -apple-system, sans-serif' }}
-                >
-                  <div className="absolute inset-0">
-                    <img 
-                      src={item.thumbnail || "https://images.unsplash.com/photo-1515162305285-0293e4767cc2?q=80&w=600&auto=format&fit=crop"} 
-                      alt="" 
-                      className="w-full h-full object-cover opacity-25 filter blur-[1px]"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-b from-stone-950 via-stone-900/90 to-stone-950" />
-                    <div className="absolute inset-4 border border-emerald-500/25 rounded-2xl pointer-events-none" />
-                  </div>
-
-                  <div className="relative z-10 flex-1 flex flex-col justify-between space-y-6">
-                    {/* Header & Logo */}
-                    <div className="flex flex-col items-center text-center space-y-2">
-                      <div className="w-12 h-12 rounded-full bg-emerald-600/25 border border-emerald-500 flex items-center justify-center text-emerald-400">
-                        <Sparkles className="w-6 h-6" />
-                      </div>
-                      <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-400">SHALOM YOUTH</p>
-                      <div className="w-16 h-[2px] bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
+                <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', overflow: 'hidden', pointerEvents: 'none' }}>
+                  <div 
+                    id={`schedule-poster-${item.id}`}
+                    className="select-none text-white"
+                    style={{ 
+                      width: '720px', 
+                      minHeight: '1080px', 
+                      padding: '44px', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      justify: 'space-between', 
+                      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 
+                      position: 'relative',
+                      backgroundColor: '#0c0a09',
+                      color: '#ffffff'
+                    }}
+                  >
+                    {/* Background Artwork Layer */}
+                    <div className="absolute inset-0">
+                      <img 
+                        src={item.thumbnail || "https://images.unsplash.com/photo-1515162305285-0293e4767cc2?q=80&w=600&auto=format&fit=crop"} 
+                        alt="" 
+                        className="w-full h-full object-cover opacity-20 filter blur-[2px]"
+                        referrerPolicy="no-referrer"
+                        crossOrigin="anonymous"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-b from-stone-950/95 via-stone-950/90 to-stone-950" />
+                      <div className="absolute inset-5 border border-emerald-500/20 rounded-3xl pointer-events-none" />
                     </div>
 
-                    {/* Programme Title & Theme */}
-                    <div className="text-center space-y-3">
-                      <h1 className="text-3xl font-black text-white tracking-tight uppercase leading-snug drop-shadow-md">
-                        {item.title}
-                      </h1>
-                      {item.topic && (
-                        <div className="inline-block px-4 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-xs font-semibold italic text-emerald-300">
-                          Theme: "{item.topic}"
+                    <div className="relative z-10 flex-1 flex flex-col justify-between space-y-6">
+                      
+                      {/* Brand Header */}
+                      <div className="flex flex-col items-center text-center space-y-2.5">
+                        <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300">
+                          <Sparkles className="w-4 h-4 text-emerald-400" />
+                          <span className="text-[11px] font-black uppercase tracking-[0.3em]">SHALOM YOUTH FELLOWSHIP</span>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Quick Details Cards (Date, Time, Venue) */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                        <Calendar className="w-4 h-4 text-emerald-400 mx-auto mb-1.5" />
-                        <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider">Date</p>
-                        <p className="text-xs font-black text-white mt-0.5">{item.date}</p>
-                      </div>
-                      <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                        <Clock className="w-4 h-4 text-emerald-400 mx-auto mb-1.5" />
-                        <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider">Time</p>
-                        <p className="text-xs font-black text-white mt-0.5">{item.time}</p>
-                      </div>
-                      <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center col-span-1">
-                        <MapPin className="w-4 h-4 text-emerald-400 mx-auto mb-1.5" />
-                        <p className="text-[9px] text-stone-400 uppercase font-bold tracking-wider">Venue</p>
-                        <p className="text-xs font-black text-white mt-0.5 truncate">{item.venue || 'Shalom Sanctuary'}</p>
-                      </div>
-                    </div>
-
-                    {/* Speaker & Chairman Block */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-emerald-950/35 border border-emerald-500/20 rounded-xl p-4 flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-emerald-600/25 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                          <User className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[9px] text-emerald-400 uppercase font-bold tracking-wide">Speaker / Sermon</p>
-                          <p className="text-sm font-black text-white truncate">{item.speaker}</p>
-                        </div>
+                        <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Official Weekly Programme Schedule</p>
                       </div>
 
-                      <div className="bg-emerald-950/35 border border-emerald-500/20 rounded-xl p-4 flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-emerald-600/25 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                          <User className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[9px] text-emerald-400 uppercase font-bold tracking-wide">Chairman</p>
-                          <p className="text-sm font-black text-white truncate">{item.leader}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Complete Programme Schedule */}
-                    <div className="space-y-2.5">
-                      <div className="flex items-center gap-2 border-b border-white/10 pb-1.5">
-                        <BookOpen className="w-4 h-4 text-emerald-400" />
-                        <h3 className="text-xs font-black uppercase tracking-wider text-emerald-400">Order of Service</h3>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-2">
-                        {item.lst_simna_quiz && (
-                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
-                            <span className="text-xs text-stone-300 font-bold">📖 Bible / Quiz</span>
-                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.lst_simna_quiz}</span>
-                          </div>
-                        )}
-                        {item.solo && (
-                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
-                            <span className="text-xs text-stone-300 font-bold">🎶 Lasakna (Solo)</span>
-                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.solo}</span>
-                          </div>
-                        )}
-                        {item.sumpi_aapna && (
-                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
-                            <span className="text-xs text-stone-300 font-bold">🙏 Sumpi Aap</span>
-                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.sumpi_aapna}</span>
-                          </div>
-                        )}
-                        {item.sumpi_khon_ding && (
-                          <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
-                            <span className="text-xs text-stone-300 font-bold">🤝 Sumpi khon Ding</span>
-                            <span className="text-xs font-black text-white text-right max-w-[65%] truncate">{item.sumpi_khon_ding}</span>
+                      {/* Hero Programme Title & Theme Card */}
+                      <div className="bg-stone-900/80 border border-emerald-500/30 rounded-2xl p-6 text-center shadow-xl space-y-3">
+                        <h1 className="text-3xl font-black text-white tracking-tight uppercase leading-snug drop-shadow-md">
+                          {item.title}
+                        </h1>
+                        {item.topic && (
+                          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-xs font-semibold italic text-emerald-300">
+                            <span>Theme:</span>
+                            <span className="font-bold text-white">"{item.topic}"</span>
                           </div>
                         )}
                       </div>
-                    </div>
 
-                    {/* Announcements Card */}
-                    {item.notes && (
-                      <div className="bg-amber-950/20 border border-amber-500/20 p-4 rounded-xl flex items-start gap-3">
-                        <Megaphone className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="text-[10px] text-amber-400 font-extrabold uppercase tracking-widest">📢 Service Announcements</p>
-                          <div className="text-stone-300 text-xs font-semibold leading-relaxed space-y-1">
+                      {/* Quick Details Grid (Date, Time, Venue) */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-stone-900/90 border border-stone-800 rounded-2xl p-3.5 text-center shadow-sm">
+                          <Calendar className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
+                          <p className="text-[9px] text-stone-400 uppercase font-black tracking-wider">Date</p>
+                          <p className="text-xs font-black text-white mt-0.5">{item.date}</p>
+                        </div>
+                        <div className="bg-stone-900/90 border border-stone-800 rounded-2xl p-3.5 text-center shadow-sm">
+                          <Clock className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
+                          <p className="text-[9px] text-stone-400 uppercase font-black tracking-wider">Time</p>
+                          <p className="text-xs font-black text-white mt-0.5">{item.time}</p>
+                        </div>
+                        <div className="bg-stone-900/90 border border-stone-800 rounded-2xl p-3.5 text-center shadow-sm">
+                          <MapPin className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
+                          <p className="text-[9px] text-stone-400 uppercase font-black tracking-wider">Venue</p>
+                          <p className="text-xs font-black text-white mt-0.5 truncate">{item.venue || 'Shalom Sanctuary'}</p>
+                        </div>
+                      </div>
+
+                      {/* Leadership & Sermon Segment Cards */}
+                      <div className="grid grid-cols-2 gap-3.5">
+                        {/* Speaker / Sermon Segment */}
+                        <div className="bg-stone-900/90 border-l-4 border-l-emerald-500 border border-stone-800 rounded-2xl p-4 flex items-center gap-3.5 shadow-md">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400">
+                            <Mic className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[9px] text-emerald-400 uppercase font-black tracking-wider">Sermon / Speaker</p>
+                            <p className="text-sm font-black text-white truncate">{item.speaker}</p>
+                          </div>
+                        </div>
+
+                        {/* Chairman / Leader Segment */}
+                        <div className="bg-stone-900/90 border-l-4 border-l-amber-500 border border-stone-800 rounded-2xl p-4 flex items-center gap-3.5 shadow-md">
+                          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400">
+                            <User className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[9px] text-amber-400 uppercase font-black tracking-wider">Service Chairman</p>
+                            <p className="text-sm font-black text-white truncate">{item.leader}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Order of Service Segment Cards */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 border-b border-stone-800 pb-2">
+                          <BookOpen className="w-4 h-4 text-emerald-400" />
+                          <h3 className="text-xs font-black uppercase tracking-widest text-emerald-400">Order of Service Segments</h3>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-2.5">
+                          {getSegmentsForItem(item).map((seg) => {
+                            const IconComp = seg.icon;
+                            return (
+                              <div key={seg.key} className={`flex items-center justify-between p-3.5 ${seg.posterBg} border ${seg.posterBorder} rounded-2xl shadow-sm`}>
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                                    <IconComp className="w-3.5 h-3.5" />
+                                  </div>
+                                  <span className={`text-xs ${seg.posterText} font-extrabold uppercase tracking-wide`}>{seg.label}</span>
+                                </div>
+                                <span className="text-xs font-black text-white text-right max-w-[60%] truncate">{seg.value}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Service Announcements Segment Card */}
+                      {item.notes && (
+                        <div className="bg-amber-950/30 border border-amber-500/30 p-4 rounded-2xl space-y-2 shadow-md">
+                          <div className="flex items-center gap-2">
+                            <Megaphone className="w-4 h-4 text-amber-400 shrink-0" />
+                            <p className="text-[10px] text-amber-400 font-black uppercase tracking-widest">📢 Service Announcements</p>
+                          </div>
+                          <div className="text-stone-200 text-xs font-semibold leading-relaxed space-y-1 pl-1">
                             {item.notes.split('\n').filter(line => line.trim() !== '').map((line, index) => (
-                              <p key={index} className="flex items-start gap-1">
-                                <span>•</span>
+                              <p key={index} className="flex items-start gap-1.5">
+                                <span className="text-amber-400 font-bold">•</span>
                                 <span>{line}</span>
                               </p>
                             ))}
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Footer Logo and Credit */}
-                    <div className="flex items-center justify-between border-t border-white/10 pt-4 text-[10px] text-stone-400 uppercase font-bold tracking-wider">
-                      <span>Logged by: {getCreatorRole(item.created_by_email, item.created_by_name)}</span>
-                      <span className="text-emerald-400 font-extrabold">Generated by Shalom Youth</span>
+                      {/* Footer Logo & Creator Reference */}
+                      <div className="flex items-center justify-between border-t border-stone-800 pt-4 text-[10px] text-stone-400 uppercase font-mono tracking-wider">
+                        <span>Logged by: {getCreatorRole(item.created_by_email, item.created_by_name)}</span>
+                        <span className="text-emerald-400 font-extrabold">Shalom Youth Fellowship</span>
+                      </div>
                     </div>
                   </div>
                 </div>

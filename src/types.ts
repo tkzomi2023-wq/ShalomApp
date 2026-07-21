@@ -37,6 +37,7 @@ export interface Member {
   theme?: 'light' | 'dark';
   custom_title?: string;
   church_titles?: string;
+  marital_status?: 'Single' | 'Married' | 'Widowed' | 'Divorced' | string;
 }
 
 export interface ActivityLog {
@@ -102,18 +103,35 @@ export interface ChatMessage {
   is_pinned?: boolean;
 }
 
-export function formatMemberName(name: string, gender?: 'Male' | 'Female' | string): string {
+export function formatMemberName(
+  name: string,
+  gender?: 'Male' | 'Female' | string,
+  maritalStatus?: 'Single' | 'Married' | 'Widowed' | 'Divorced' | string
+): string {
   if (!name) return '';
   if (!gender) return name;
   const lowerGender = gender.toLowerCase();
   let cleanName = name.trim();
+  const isMarried = maritalStatus?.toLowerCase() === 'married';
   
   if (lowerGender === 'male') {
-    if (!cleanName.startsWith('Tg.')) {
-      cleanName = `Tg. ${cleanName}`;
+    if (isMarried) {
+      // Replace Tg. / Tg prefix with Pa if married
+      if (/^(Tg\.|Tg)\s+/i.test(cleanName)) {
+        cleanName = cleanName.replace(/^(Tg\.|Tg)\s+/i, 'Pa ');
+      } else if (!/^(Pa\.|Pa)\s+/i.test(cleanName)) {
+        cleanName = `Pa ${cleanName}`;
+      }
+    } else {
+      // Single male gets Tg.
+      if (/^(Pa\.|Pa)\s+/i.test(cleanName)) {
+        cleanName = cleanName.replace(/^(Pa\.|Pa)\s+/i, 'Tg. ');
+      } else if (!/^(Tg\.|Tg)\s+/i.test(cleanName)) {
+        cleanName = `Tg. ${cleanName}`;
+      }
     }
   } else if (lowerGender === 'female') {
-    if (!cleanName.startsWith('Lia')) {
+    if (!/^(Lia\.|Lia)\s+/i.test(cleanName)) {
       cleanName = `Lia ${cleanName}`;
     }
   }
@@ -138,6 +156,26 @@ export function getCleanAvatar(avatarUrl: string | undefined): string {
     return avatarUrl.split('|||')[0];
   }
   return avatarUrl;
+}
+
+export type PrayerCategory = 'Health & Healing' | 'Family & Relationships' | 'Spiritual Growth' | 'Financial & Career' | 'Youth & Studies' | 'General' | 'Urgent';
+
+export interface PrayerRequest {
+  id: string;
+  user_id: string;
+  user_name?: string;
+  user_email?: string;
+  title: string;
+  category: PrayerCategory | string;
+  details: string;
+  is_anonymous: boolean;
+  status: 'pending' | 'prayed';
+  prayed_by_id?: string;
+  prayed_by_name?: string;
+  prayed_at?: string;
+  ob_note?: string;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface BirthdayLog {

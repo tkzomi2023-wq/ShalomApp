@@ -26,6 +26,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
   // Optional Fields
   const [showOptional, setShowOptional] = useState(false);
   const [gender, setGender] = useState<'Male' | 'Female' | undefined>(undefined);
+  const [maritalStatus, setMaritalStatus] = useState<'Single' | 'Married' | 'Widowed' | 'Divorced'>('Single');
   const [bloodGroup, setBloodGroup] = useState('');
   const [dob, setDob] = useState('');
   const [address, setAddress] = useState('');
@@ -71,6 +72,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
     try {
       const extraDetails = {
         gender,
+        marital_status: maritalStatus,
         blood_group: bloodGroup || undefined,
         dob: dob || undefined,
         address: address || undefined,
@@ -192,8 +194,25 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onToggleLogi
               className="w-full px-3 py-2 text-xs bg-white dark:bg-stone-900 text-stone-900 dark:text-white rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
             >
               <option value="">Select Gender</option>
-              <option value="Male">Male (Tg.)</option>
+              <option value="Male">Male ({maritalStatus === 'Married' ? 'Pa' : 'Tg.'})</option>
               <option value="Female">Female (Lia)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+              <span>Marital Status</span>
+              <span className="text-[10px] text-stone-400 font-normal">Optional</span>
+            </label>
+            <select
+              value={maritalStatus}
+              onChange={e => setMaritalStatus(e.target.value as any)}
+              className="w-full px-3 py-2 text-xs bg-white dark:bg-stone-900 text-stone-900 dark:text-white rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+            >
+              <option value="Single">Single (Bachelor)</option>
+              <option value="Married">Married</option>
+              <option value="Widowed">Widowed</option>
+              <option value="Divorced">Divorced</option>
             </select>
           </div>
         </div>

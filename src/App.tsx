@@ -22,6 +22,7 @@ import BirthdayEmailSettingsPage from './components/BirthdayEmailSettingsPage';
 import { WebsiteMetaSettingsPage } from './components/WebsiteMetaSettingsPage';
 import { DatabaseHealthCheck } from './components/DatabaseHealthCheck';
 import { FootballModule } from './components/FootballModule';
+import { PrayerRequestsPage } from './components/PrayerRequestsPage';
 import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -46,6 +47,8 @@ import {
 import { 
   Users, 
   UserPlus, 
+  UserCheck,
+  ArrowRight,
   LogOut, 
   Database, 
   Sparkles, 
@@ -86,6 +89,7 @@ import {
   PinOff,
   ChevronsDown,
   Trophy,
+  Heart,
   RefreshCw
 } from 'lucide-react';
 
@@ -297,18 +301,20 @@ function AppContent() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectionSuccess, setConnectionSuccess] = useState<boolean | null>(null);
   const [connectionRetryCount, setConnectionRetryCount] = useState(0);
-  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football'>(() => {
+  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football' | 'prayer-requests'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football'].includes(tab)) {
+    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests'].includes(tab)) {
       return tab as any;
     }
     const hash = window.location.hash.replace('#', '');
-    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football'].includes(hash)) {
+    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests'].includes(hash)) {
       return hash as any;
     }
     return 'directory';
   });
+
+  const [directoryStatusFilter, setDirectoryStatusFilter] = useState<'All' | 'pending' | 'approved' | 'rejected'>('All');
 
   const [isFootballEnabled, setIsFootballEnabled] = useState<boolean>(() => {
     return localStorage.getItem('sy_enable_football_predictions') !== 'false';
@@ -1554,6 +1560,9 @@ function AppContent() {
         if (original.gender !== finalUpdated.gender) {
           changes.push(`gender changed from "${original.gender || 'None'}" to "${finalUpdated.gender || 'None'}"`);
         }
+        if (original.marital_status !== finalUpdated.marital_status) {
+          changes.push(`marital status changed from "${original.marital_status || 'Single'}" to "${finalUpdated.marital_status || 'Single'}"`);
+        }
         if (original.name !== finalUpdated.name) {
           changes.push(`name changed from "${original.name}" to "${finalUpdated.name}"`);
         }
@@ -1697,6 +1706,15 @@ function AppContent() {
   // Average age by gender
   const maleMembersWithDob = membersWithDob.filter(m => m.gender?.toLowerCase() === 'male');
   const femaleMembersWithDob = membersWithDob.filter(m => m.gender?.toLowerCase() === 'female');
+  
+  // Overall Male & Female counters (across all registered members)
+  const allMaleMembers = members.filter(m => m.gender?.toLowerCase() === 'male');
+  const allFemaleMembers = members.filter(m => m.gender?.toLowerCase() === 'female');
+  const totalMaleCount = allMaleMembers.length;
+  const totalFemaleCount = allFemaleMembers.length;
+  const totalUnspecifiedGenderCount = members.filter(m => !m.gender || (m.gender.toLowerCase() !== 'male' && m.gender.toLowerCase() !== 'female')).length;
+  const marriedMaleCount = allMaleMembers.filter(m => m.marital_status?.toLowerCase() === 'married').length;
+  const singleMaleCount = totalMaleCount - marriedMaleCount;
   
   const maleAvgAge = maleMembersWithDob.length > 0
     ? parseFloat((maleMembersWithDob.map(m => getAge(m.dob!)).reduce((sum, age) => sum + age, 0) / maleMembersWithDob.length).toFixed(1))
@@ -1965,7 +1983,7 @@ function AppContent() {
             )}
 
             <div className="text-right hidden sm:block shrink-0">
-              <span className="block text-xs font-bold text-white leading-none">{formatMemberName(user.display_name || user.name, user.gender)}</span>
+              <span className="block text-xs font-bold text-white leading-none">{formatMemberName(user.display_name || user.name, user.gender, user.marital_status)}</span>
               <span className="inline-flex items-center mt-1">
                 <RoleBadge role={user.role} className="scale-85 origin-right py-0 px-1.5" />
               </span>
@@ -2109,7 +2127,7 @@ function AppContent() {
             
             <div className="space-y-0.5 flex-grow text-center md:text-left relative z-10">
               <h3 className="text-sm sm:text-base md:text-lg font-black tracking-tight leading-tight text-white flex items-center justify-center md:justify-start gap-1.5 flex-wrap">
-                <span>Happy Birthday, {formatMemberName(user.display_name || user.name, user.gender)}!</span>
+                <span>Happy Birthday, {formatMemberName(user.display_name || user.name, user.gender, user.marital_status)}!</span>
                 <span className="animate-bounce text-sm sm:text-base">🎁</span>
               </h3>
               <p className="text-[10px] sm:text-[11px] md:text-xs text-pink-50 font-medium max-w-2xl leading-normal opacity-95">
@@ -2231,7 +2249,7 @@ function AppContent() {
                   <span className="text-rose-600 dark:text-rose-400 font-extrabold uppercase tracking-wide text-[10px] mr-1.5 px-2 py-0.5 bg-rose-50 dark:bg-rose-950/40 rounded-md border border-rose-100 dark:border-rose-900/30">Birthday Alert</span>
                   Today we are celebrating the birthday of:{' '}
                   <span className="text-stone-900 dark:text-white font-black underline decoration-wavy decoration-rose-400">
-                    {birthdayCelebrants.map(m => m.name).join(', ')}
+                    {birthdayCelebrants.map(m => formatMemberName(m.display_name || m.name, m.gender, m.marital_status)).join(', ')}
                   </span>
                   ! 🎂✨ Let's make their day special!
                 </div>
@@ -2363,6 +2381,40 @@ function AppContent() {
         {/* RESTRICTED CONTENT STATEMENT - Only Approved members see the dashboard */}
         {user.status === 'approved' ? (
           <>
+            {/* OB Action Alert Banner for Pending Registrations */}
+            {isCurrentUserAdmin && pendingCount > 0 && (
+              <div className="mb-6 p-4.5 bg-gradient-to-r from-amber-500/10 via-amber-500/15 to-amber-500/10 dark:from-amber-950/40 dark:to-amber-950/20 rounded-2xl border border-amber-300/80 dark:border-amber-700/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs shrink-0">
+                    <UserCheck className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-extrabold text-amber-950 dark:text-amber-200 text-sm">
+                        {pendingCount} New Pending Registration{pendingCount > 1 ? 's' : ''} Awaiting Review
+                      </span>
+                      <span className="bg-amber-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        Action Needed
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 leading-relaxed">
+                      Automated system alerts have been issued to OB committee members. Click below to review and approve new members.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setCurrentTab('directory');
+                    setDirectoryStatusFilter('pending');
+                  }}
+                  className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 shrink-0 self-stretch sm:self-auto justify-center"
+                >
+                  <span>Review Pending Applications ({pendingCount})</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             {/* View Swapper & Preferences Toggles */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
               <div className="flex border-b border-stone-200 bg-white p-1 rounded-2xl shadow-2xs border max-w-full sm:max-w-lg overflow-x-auto w-full md:w-auto">
@@ -2379,6 +2431,14 @@ function AppContent() {
                 >
                   <Calendar className="w-3.5 h-3.5 shrink-0" />
                   <span>Service Schedules</span>
+                </button>
+                <button
+                  id="tab-btn-prayers"
+                  onClick={() => setCurrentTab('prayer-requests')}
+                  className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'prayer-requests' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                >
+                  <Heart className="w-3.5 h-3.5 shrink-0 text-rose-400 fill-rose-400" />
+                  <span>Prayer Requests</span>
                 </button>
                 {(isOBUser(user.role) || user.role === 'ECM') && (
                   <button
@@ -2523,6 +2583,8 @@ function AppContent() {
                   setLogs(getActivityLogs());
                 }}
               />
+            ) : currentTab === 'prayer-requests' ? (
+              <PrayerRequestsPage currentUser={user} />
             ) : currentTab === 'birthday-tasks' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
               <BirthdayEmailSettingsPage currentUser={user} members={members} />
             ) : currentTab === 'meta-settings' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
@@ -2768,14 +2830,26 @@ function AppContent() {
                 
                 {/* Age Group Distribution Chart */}
                 <div className={`${isCurrentUserAdmin ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4`}>
-                  <div className="flex items-center justify-between border-b pb-3 border-stone-100">
+                  <div className="flex flex-wrap items-center justify-between border-b pb-3 border-stone-100 gap-2">
                     <div>
                       <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Member Demographics</h4>
-                      <p className="text-[10px] text-stone-400">Age distribution breakdown across the fellowship</p>
+                      <p className="text-[10px] text-stone-400">Gender ratios & age distribution across the fellowship</p>
                     </div>
-                    <span className="bg-pink-50 text-pink-700 px-2.5 py-1 text-[10px] font-bold rounded-lg border border-pink-100">
-                      Average Age: {averageAge > 0 ? `${averageAge} yrs` : 'N/A'}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="bg-blue-50 text-blue-700 px-2.5 py-1 text-[10px] font-extrabold rounded-lg border border-blue-100/80 flex items-center gap-1">
+                        <span>Male:</span>
+                        <strong className="text-blue-900 font-black text-xs">{totalMaleCount}</strong>
+                        {marriedMaleCount > 0 && <span className="text-[9px] text-blue-600 font-semibold">({singleMaleCount} Tg. | {marriedMaleCount} Pa)</span>}
+                      </span>
+                      <span className="bg-pink-50 text-pink-700 px-2.5 py-1 text-[10px] font-extrabold rounded-lg border border-pink-100/80 flex items-center gap-1">
+                        <span>Female:</span>
+                        <strong className="text-pink-900 font-black text-xs">{totalFemaleCount}</strong>
+                        <span className="text-[9px] text-pink-600 font-semibold">(Lia)</span>
+                      </span>
+                      <span className="bg-stone-100 text-stone-700 px-2.5 py-1 text-[10px] font-bold rounded-lg border border-stone-200">
+                        Avg Age: {averageAge > 0 ? `${averageAge} yrs` : 'N/A'}
+                      </span>
+                    </div>
                   </div>
 
                   {totalWithDob > 0 ? (
@@ -2802,12 +2876,35 @@ function AppContent() {
                       </div>
 
                       {/* Gender Specific / Breakdown details */}
-                      <div className="md:col-span-5 flex flex-col justify-center space-y-3 bg-stone-50/50 p-4 rounded-xl border border-stone-100">
-                        <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wide border-b pb-1">Gender breakdowns</div>
+                      <div className="md:col-span-5 flex flex-col justify-center space-y-2.5 bg-stone-50/50 p-4 rounded-xl border border-stone-100">
+                        <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wide border-b pb-1 flex items-center justify-between">
+                          <span>Gender Breakdown</span>
+                          <span className="text-[10px] text-stone-400 font-normal">Total {totalMaleCount + totalFemaleCount}</span>
+                        </div>
                         
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-stone-500 font-semibold flex items-center gap-1.5">
+                        <div className="flex items-center justify-between text-xs bg-blue-50/60 p-2 rounded-lg border border-blue-100/60">
+                          <span className="text-blue-900 font-bold flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                            <span>Male Members:</span>
+                          </span>
+                          <span className="font-black text-blue-800 text-xs">
+                            {totalMaleCount} <span className="text-[9px] font-medium text-blue-600">({singleMaleCount} Tg. | {marriedMaleCount} Pa)</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs bg-pink-50/60 p-2 rounded-lg border border-pink-100/60">
+                          <span className="text-pink-900 font-bold flex items-center gap-1.5">
                             <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
+                            <span>Female Members:</span>
+                          </span>
+                          <span className="font-black text-pink-800 text-xs">
+                            {totalFemaleCount} <span className="text-[9px] font-medium text-pink-600">(Lia)</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs pt-1">
+                          <span className="text-stone-500 font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-pink-400 shrink-0" />
                             <span>Female Avg Age:</span>
                           </span>
                           <span className="font-bold text-stone-850">
@@ -2817,7 +2914,7 @@ function AppContent() {
 
                         <div className="flex items-center justify-between text-xs border-b border-stone-100 pb-2">
                           <span className="text-stone-500 font-semibold flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                            <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
                             <span>Male Avg Age:</span>
                           </span>
                           <span className="font-bold text-stone-850">
@@ -3035,6 +3132,7 @@ function AppContent() {
                 }}
                 isCurrentUserAdmin={isCurrentUserAdmin}
                 onlineUserIds={onlineUserIds}
+                initialStatusFilter={directoryStatusFilter}
               />
             </section>
               </>

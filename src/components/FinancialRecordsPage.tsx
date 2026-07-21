@@ -175,14 +175,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   const getContributorLegalName = (rec: { user_id?: string; name: string }) => {
     if (rec.user_id) {
       const match = members.find(m => m.id === rec.user_id);
-      if (match) return formatMemberName(match.username || match.name, match.gender);
+      if (match) return formatMemberName(match.username || match.name, match.gender, match.marital_status);
     }
     // Fallback: search members by name or username
     const nameMatch = members.find(m => 
       m.name.trim().toLowerCase() === rec.name.trim().toLowerCase() || 
       (m.username && m.username.trim().toLowerCase() === rec.name.trim().toLowerCase())
     );
-    if (nameMatch) return formatMemberName(nameMatch.username || nameMatch.name, nameMatch.gender);
+    if (nameMatch) return formatMemberName(nameMatch.username || nameMatch.name, nameMatch.gender, nameMatch.marital_status);
     return rec.name;
   };
 

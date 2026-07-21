@@ -57,3 +57,40 @@ export function addActivityLog(
 export function clearActivityLogs() {
   localStorage.setItem('sy_activity_logs', JSON.stringify([]));
 }
+
+export async function notifyOBsOfPendingRegistration(member: {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role?: string;
+  status?: string;
+  dob?: string;
+}): Promise<void> {
+  try {
+    // 1. Add activity log for local feed & notification bell
+    addActivityLog(
+      member.id,
+      member.email,
+      member.name,
+      'New Pending Registration',
+      `Pending registration submitted by ${member.name} (${member.email}). Awaiting OB approval.`,
+      member.id,
+      member.name
+    );
+
+    // 2. Dispatch to backend endpoint for automated email alerts to all OBs
+    const res = await fetch('/api/notify-pending-registration', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      console.log('[notifyOBsOfPendingRegistration] OB notification sent:', data);
+    }
+  } catch (err) {
+    console.warn('[notifyOBsOfPendingRegistration] Warning sending OB notification:', err);
+  }
+}
+

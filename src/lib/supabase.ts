@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   theme TEXT,
   custom_title TEXT,
   church_titles TEXT,
+  marital_status TEXT DEFAULT 'Single',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -68,6 +69,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS custom_title TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS church_titles TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS marital_status TEXT DEFAULT 'Single';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS hide_notifications_ui BOOLEAN DEFAULT false;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS user_id UUID;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS username TEXT;
@@ -492,7 +494,40 @@ DROP POLICY IF EXISTS "Allow public management of smtp_configs" ON public.smtp_c
 CREATE POLICY "Allow public management of smtp_configs" ON public.smtp_configs
   FOR ALL USING (true) WITH CHECK (true);
 
--- 11. Storage Buckets and Security Policies for avatars and thumbnails
+-- 11. Prayer Requests table (Stores confidential member prayer requests)
+CREATE TABLE IF NOT EXISTS public.prayer_requests (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT NOT NULL,
+  user_name TEXT,
+  user_email TEXT,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'General',
+  details TEXT NOT NULL,
+  is_anonymous BOOLEAN NOT NULL DEFAULT true,
+  status TEXT NOT NULL DEFAULT 'pending',
+  prayed_by_id TEXT,
+  prayed_by_name TEXT,
+  prayed_at TIMESTAMP WITH TIME ZONE,
+  ob_note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Safe migration in case prayer_requests table was created previously with UUID id
+DO $$ 
+BEGIN
+  ALTER TABLE public.prayer_requests ALTER COLUMN id TYPE TEXT;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+ALTER TABLE public.prayer_requests ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public management of prayer_requests" ON public.prayer_requests;
+CREATE POLICY "Allow public management of prayer_requests" ON public.prayer_requests
+  FOR ALL USING (true) WITH CHECK (true);
+
+-- 12. Storage Buckets and Security Policies for avatars and thumbnails
 -- Enable storage buckets
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('avatars', 'avatars', true)
@@ -687,28 +722,67 @@ class HybridDatabaseManager {
         throw error;
       }
 
-      // Cache locally for offline resilience
-      if (data && data.length > 0) {
-        try {
-          localStorage.setItem('sy_local_members', JSON.stringify(data));
-        } catch (_) {}
-      }
+      // Read local marital_status store map to preserve marital status even if Supabase table schema lacks column
+      let maritalStatusMap: Record<string, string> = {};
+      try {
+        const stored = localStorage.getItem('sy_marital_status_store');
+        if (stored) maritalStatusMap = JSON.parse(stored);
+      } catch (_) {}
 
-      return data as Member[];
+      const rawMembers = (data && data.length > 0) ? data : [];
+      const updatedMembers = rawMembers.map((m: any) => {
+        let ms = m.marital_status;
+        if (!ms && m.id && maritalStatusMap[m.id]) {
+          ms = maritalStatusMap[m.id];
+        }
+        if (!ms && m.email && maritalStatusMap[m.email.toLowerCase()]) {
+          ms = maritalStatusMap[m.email.toLowerCase()];
+        }
+        if (!ms) ms = 'Single';
+        
+        if (m.id) maritalStatusMap[m.id] = ms;
+        if (m.email) maritalStatusMap[m.email.toLowerCase()] = ms;
+
+        return {
+          ...m,
+          marital_status: ms
+        };
+      });
+
+      // Cache locally for offline resilience
+      try {
+        localStorage.setItem('sy_marital_status_store', JSON.stringify(maritalStatusMap));
+        localStorage.setItem('sy_local_members', JSON.stringify(updatedMembers));
+      } catch (_) {}
+
+      return updatedMembers as Member[];
     } catch (err: any) {
       console.error('Supabase members query error, loading from local cache:', err?.message || err);
+      let maritalStatusMap: Record<string, string> = {};
+      try {
+        const stored = localStorage.getItem('sy_marital_status_store');
+        if (stored) maritalStatusMap = JSON.parse(stored);
+      } catch (_) {}
+
       try {
         const cached = localStorage.getItem('sy_local_members');
         if (cached) {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
+            const patched = parsed.map((m: any) => ({
+              ...m,
+              marital_status: m.marital_status || (m.id ? maritalStatusMap[m.id] : undefined) || (m.email ? maritalStatusMap[m.email.toLowerCase()] : undefined) || 'Single'
+            }));
+            return patched;
           }
         }
       } catch (_) {}
       
       // Fallback to initial mock members if no cache exists
-      return INITIAL_MOCK_MEMBERS;
+      return INITIAL_MOCK_MEMBERS.map(m => ({
+        ...m,
+        marital_status: m.marital_status || (m.id ? maritalStatusMap[m.id] : undefined) || (m.email ? maritalStatusMap[m.email.toLowerCase()] : undefined) || 'Single'
+      }));
     }
   }
 
@@ -763,8 +837,18 @@ class HybridDatabaseManager {
       theme: member.theme,
       custom_title: member.custom_title,
       church_titles: member.church_titles,
+      marital_status: member.marital_status || 'Single',
       created_at: member.created_at || new Date().toISOString()
     };
+
+    // Persist marital_status in persistent store map
+    try {
+      const stored = localStorage.getItem('sy_marital_status_store');
+      const maritalStatusMap = stored ? JSON.parse(stored) : {};
+      if (newMember.id) maritalStatusMap[newMember.id] = newMember.marital_status;
+      if (newMember.email) maritalStatusMap[newMember.email.toLowerCase()] = newMember.marital_status;
+      localStorage.setItem('sy_marital_status_store', JSON.stringify(maritalStatusMap));
+    } catch (_) {}
 
     let existingProfile: any = null;
 
@@ -842,7 +926,8 @@ class HybridDatabaseManager {
         bial: newMember.bial,
         theme: newMember.theme,
         custom_title: newMember.custom_title,
-        church_titles: newMember.church_titles
+        church_titles: newMember.church_titles,
+        marital_status: newMember.marital_status
       };
 
       const insertPayload: any = {
@@ -866,6 +951,7 @@ class HybridDatabaseManager {
         theme: newMember.theme,
         custom_title: newMember.custom_title,
         church_titles: newMember.church_titles,
+        marital_status: newMember.marital_status,
         created_at: newMember.created_at
       };
 

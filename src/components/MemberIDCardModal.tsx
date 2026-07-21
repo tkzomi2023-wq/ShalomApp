@@ -436,7 +436,7 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
 
                     <div className="mt-3.5 text-center w-full">
                       <h3 className="text-base font-extrabold text-stone-900 tracking-tight leading-tight uppercase truncate">
-                        {formatMemberName(member.display_name || member.name, member.gender)}
+                        {formatMemberName(member.display_name || member.name, member.gender, member.marital_status)}
                       </h3>
                       
                       <div className="mt-1 flex flex-col items-center gap-1 justify-center">

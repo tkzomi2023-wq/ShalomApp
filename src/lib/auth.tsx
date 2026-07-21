@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Member, DEFAULT_ADMIN_EMAIL, UserRole } from '../types';
 import { supabase, db } from './supabase';
+import { notifyOBsOfPendingRegistration } from './activity';
 
 const safeStorage = {
   getItem(key: string): string | null {
@@ -112,6 +113,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 role: email === DEFAULT_ADMIN_EMAIL ? 'Founder' : 'standard',
                 status: email === DEFAULT_ADMIN_EMAIL ? 'approved' : 'pending'
               }), 5000, "Profile Setup Timeout");
+
+              if (currentProfile.status === 'pending') {
+                notifyOBsOfPendingRegistration(currentProfile);
+              }
             } else if (currentProfile.id !== session.user.id) {
               // Sync/upgrade profile ID to match active Supabase Auth user ID
               console.log(`[initAuth] Syncing profile ID from ${currentProfile.id} to ${session.user.id}`);
@@ -333,6 +338,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: emailTrim === DEFAULT_ADMIN_EMAIL ? 'Founder' : 'standard',
           status: emailTrim === DEFAULT_ADMIN_EMAIL ? 'approved' : 'pending'
         });
+        if (profile.status === 'pending') {
+          notifyOBsOfPendingRegistration(profile);
+        }
       } else if (profile.id !== signInData.user.id) {
         // Handle potential ID mismatch by upgrading the profile ID
         const success = await db.updateProfileId(profile.id, signInData.user.id);
@@ -394,6 +402,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: initialStatus,
         ...extra
       });
+
+      if (newMember.status === 'pending') {
+        notifyOBsOfPendingRegistration(newMember);
+      }
 
       setUser(newMember);
       safeStorage.setItem('sy_current_user', JSON.stringify(newMember));
@@ -566,6 +578,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: initialStatus,
         ...extra
       });
+
+      if (newMember.status === 'pending') {
+        notifyOBsOfPendingRegistration(newMember);
+      }
 
       setUser(newMember);
       safeStorage.setItem('sy_current_user', JSON.stringify(newMember));

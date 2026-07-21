@@ -184,13 +184,13 @@ export function NotificationBell({
             let msg = '';
             if (diffDays === 0) {
               title = `🎂 Happy Birthday Today!`;
-              msg = `Today is ${formatMemberName(m.name, m.gender)}'s birthday! 🎉 Send your wishes and celebrate!`;
+              msg = `Today is ${formatMemberName(m.name, m.gender, m.marital_status)}'s birthday! 🎉 Send your wishes and celebrate!`;
             } else if (diffDays === 1) {
               title = `🎂 Birthday Tomorrow!`;
-              msg = `${formatMemberName(m.name, m.gender)}'s birthday is tomorrow (${targetBday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}). Get ready to celebrate!`;
+              msg = `${formatMemberName(m.name, m.gender, m.marital_status)}'s birthday is tomorrow (${targetBday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}). Get ready to celebrate!`;
             } else {
               title = `🎂 Upcoming Birthday`;
-              msg = `${formatMemberName(m.name, m.gender)}'s birthday is in ${diffDays} days on ${targetBday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}.`;
+              msg = `${formatMemberName(m.name, m.gender, m.marital_status)}'s birthday is in ${diffDays} days on ${targetBday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}.`;
             }
 
             notifications.push({
@@ -205,6 +205,22 @@ export function NotificationBell({
           }
         }
       }
+    });
+  }
+
+  // 0.5. Pending Registrations Alerts for OB / Admin Users
+  if (isCurrentUserAdmin && members && members.length > 0) {
+    const pendingMembers = members.filter(m => m.status === 'pending');
+    pendingMembers.forEach(pendingMem => {
+      notifications.push({
+        id: `pending-review-${pendingMem.id}`,
+        type: 'personal_log', // Placed in high-priority Personal Alerts tab for OBs
+        title: `⏳ Pending Registration: ${formatMemberName(pendingMem.name, pendingMem.gender, pendingMem.marital_status)}`,
+        message: `${formatMemberName(pendingMem.name, pendingMem.gender, pendingMem.marital_status)} (${pendingMem.email}) registered and is awaiting OB approval. Click to open directory and review profile.`,
+        timestamp: pendingMem.created_at || new Date().toISOString(),
+        isRead: readIds.includes(`pending-review-${pendingMem.id}`),
+        meta: { targetTab: 'directory', logId: pendingMem.id }
+      });
     });
   }
 
@@ -534,7 +550,7 @@ export function NotificationBell({
                   <span>Notification Center</span>
                 </h3>
                 <p className="text-[10px] text-emerald-200 font-medium">
-                  {unreadCount} unread message{unreadCount !== 1 ? 's' : ''} for {formatMemberName(currentUser.name, currentUser.gender)}
+                  {unreadCount} unread message{unreadCount !== 1 ? 's' : ''} for {formatMemberName(currentUser.name, currentUser.gender, currentUser.marital_status)}
                 </p>
               </div>
 

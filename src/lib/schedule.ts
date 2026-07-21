@@ -20,6 +20,7 @@ export interface ServiceSchedule {
   sumpi_khon_ding?: string; // Offering collector
   notes?: string;
   thumbnail?: string; // Built-in preset URL or base64 data string
+  segment_order?: string[]; // Optional custom reordered list of segment keys
   created_at: string;
   created_by_email: string;
   created_by_name: string;
@@ -66,10 +67,36 @@ export const INITIAL_SCHEDULES: ServiceSchedule[] = [
   }
 ];
 
+function getLocalSegmentOrders(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem('sy_segment_orders');
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveLocalSegmentOrder(id: string, order: string[]) {
+  try {
+    const orders = getLocalSegmentOrders();
+    orders[id] = order;
+    localStorage.setItem('sy_segment_orders', JSON.stringify(orders));
+  } catch (e) {
+    console.warn('Failed to save segment order locally:', e);
+  }
+}
+
 class SchedulesDataManager {
   constructor() {}
 
   async getSchedules(): Promise<ServiceSchedule[]> {
+    const segmentOrders = getLocalSegmentOrders();
+    const attachOrders = (list: ServiceSchedule[]) =>
+      list.map(s => ({
+        ...s,
+        segment_order: segmentOrders[s.id] || s.segment_order
+      }));
+
     try {
       const { data, error } = await supabase
         .from('youth_service_schedules')
@@ -81,13 +108,14 @@ class SchedulesDataManager {
       }
       
       if (data && data.length > 0) {
+        const enriched = attachOrders(data as ServiceSchedule[]);
         try {
-          localStorage.setItem('sy_cached_schedules', JSON.stringify(data));
+          localStorage.setItem('sy_cached_schedules', JSON.stringify(enriched));
           localStorage.setItem('sy_has_database_schedules', 'true');
         } catch (e) {
           console.warn('Failed to write schedules cache:', e);
         }
-        return data as ServiceSchedule[];
+        return enriched;
       }
 
       // If data is empty:
@@ -97,7 +125,7 @@ class SchedulesDataManager {
         try {
           const cached = localStorage.getItem('sy_cached_schedules');
           if (cached) {
-            return JSON.parse(cached) as ServiceSchedule[];
+            return attachOrders(JSON.parse(cached) as ServiceSchedule[]);
           }
         } catch (_) {}
         return []; // It was legitimately cleared or database is empty
@@ -121,17 +149,17 @@ class SchedulesDataManager {
         });
       }
 
-      return INITIAL_SCHEDULES;
+      return attachOrders(INITIAL_SCHEDULES);
     } catch (err: any) {
       console.error('Supabase youth_service_schedules query failed, returning in-memory fallback:', err?.message || err);
       // Fallback to cache if available
       try {
         const cached = localStorage.getItem('sy_cached_schedules');
         if (cached) {
-          return JSON.parse(cached) as ServiceSchedule[];
+          return attachOrders(JSON.parse(cached) as ServiceSchedule[]);
         }
       } catch (_) {}
-      return INITIAL_SCHEDULES;
+      return attachOrders(INITIAL_SCHEDULES);
     }
   }
 
@@ -139,25 +167,13 @@ class SchedulesDataManager {
     try {
       const { error } = await supabase
         .from('youth_service_schedules')
-        .upsert(INITIAL_SCHEDULES.map(s => ({
-          id: s.id,
-          title: s.title,
-          date: s.date,
-          time: s.time,
-          speaker: s.speaker,
-          leader: s.leader,
-          topic: s.topic,
-          venue: s.venue,
-          solo: s.solo,
-          sumpi_aapna: s.sumpi_aapna,
-          lst_simna_quiz: s.lst_simna_quiz,
-          sumpi_khon_ding: s.sumpi_khon_ding,
-          notes: s.notes,
-          thumbnail: s.thumbnail,
-          created_at: s.created_at || new Date().toISOString(),
-          created_by_email: s.created_by_email,
-          created_by_name: s.created_by_name
-        })));
+        .upsert(INITIAL_SCHEDULES.map(s => {
+          const { segment_order, ...dbPayload } = s;
+          return {
+            ...dbPayload,
+            created_at: s.created_at || new Date().toISOString()
+          };
+        }));
       if (error) throw error;
     } catch (e: any) {
       console.error('Failed to seed initial schedules to Supabase:', e?.message || e);
@@ -177,12 +193,20 @@ class SchedulesDataManager {
       created_by_name: activeUserName
     };
 
+    if (newSchedule.segment_order) {
+      saveLocalSegmentOrder(newSchedule.id, newSchedule.segment_order);
+    }
+
+    const { segment_order, ...dbPayload } = newSchedule;
+
     try {
       const { error } = await supabase
         .from('youth_service_schedules')
-        .insert(newSchedule);
+        .insert(dbPayload);
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Supabase schedule insert warning:', error.message);
+      }
 
       // Update local cache
       try {
@@ -204,39 +228,51 @@ class SchedulesDataManager {
   }
 
   async updateSchedule(id: string, updated: Partial<ServiceSchedule>): Promise<ServiceSchedule> {
-    try {
-      const { error } = await supabase
-        .from('youth_service_schedules')
-        .update(updated)
-        .eq('id', id);
-
-      if (error) throw error;
-    } catch (err: any) {
-      console.error('Supabase schedule update failed:', err?.message || err);
-      throw err;
+    if (updated.segment_order) {
+      saveLocalSegmentOrder(id, updated.segment_order);
     }
 
-    const { data, error: fetchErr } = await supabase
-      .from('youth_service_schedules')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-    if (fetchErr || !data) {
-      throw new Error('Failed to retrieve updated schedule');
+    const { segment_order, ...dbPayload } = updated;
+
+    if (Object.keys(dbPayload).length > 0) {
+      try {
+        const { error } = await supabase
+          .from('youth_service_schedules')
+          .update(dbPayload)
+          .eq('id', id);
+
+        if (error) {
+          console.warn('Supabase schedule update warning:', error.message);
+        }
+      } catch (err: any) {
+        console.warn('Supabase schedule update error:', err?.message || err);
+      }
     }
 
     // Update local cache
+    let updatedSchedule: ServiceSchedule | null = null;
     try {
       const cached = localStorage.getItem('sy_cached_schedules');
       let currentList: ServiceSchedule[] = cached ? JSON.parse(cached) : [];
-      currentList = currentList.map(s => s.id === id ? { ...s, ...data } : s);
+      const targetIndex = currentList.findIndex(s => s.id === id);
+      if (targetIndex !== -1) {
+        currentList[targetIndex] = { ...currentList[targetIndex], ...updated };
+        updatedSchedule = currentList[targetIndex];
+      } else {
+        updatedSchedule = { id, ...updated } as ServiceSchedule;
+        currentList.push(updatedSchedule);
+      }
       currentList.sort((a, b) => a.date.localeCompare(b.date));
       localStorage.setItem('sy_cached_schedules', JSON.stringify(currentList));
     } catch (e) {
       console.warn('Failed to update schedule cache:', e);
     }
 
-    return data as ServiceSchedule;
+    if (!updatedSchedule) {
+      updatedSchedule = { id, ...updated } as ServiceSchedule;
+    }
+
+    return updatedSchedule;
   }
 
   async deleteSchedule(id: string): Promise<boolean> {
