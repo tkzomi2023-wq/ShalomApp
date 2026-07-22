@@ -66,13 +66,13 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     }, 120);
 
     try {
-      const ext = file.name.split('.').pop() || 'png';
-      const filePath = `meta/og_image_${Date.now()}.${ext}`;
+      const filePath = `meta/og-image.png`;
       const imageUrl = await db.uploadToStorage('thumbnails', filePath, file);
+      const freshImageUrl = `${imageUrl.split('?')[0]}?v=${Date.now()}`;
       
       clearInterval(progressInterval);
       setOgUploadProgress(100);
-      setConfig(prev => ({ ...prev, ogImage: imageUrl }));
+      setConfig(prev => ({ ...prev, ogImage: freshImageUrl }));
     } catch (err: any) {
       clearInterval(progressInterval);
       console.error('Error uploading custom OG image:', err);
@@ -102,13 +102,13 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     }, 120);
 
     try {
-      const ext = file.name.split('.').pop() || 'png';
-      const filePath = `meta/favicon_${Date.now()}.${ext}`;
+      const filePath = `meta/favicon.png`;
       const imageUrl = await db.uploadToStorage('thumbnails', filePath, file);
+      const freshFaviconUrl = `${imageUrl.split('?')[0]}?v=${Date.now()}`;
       
       clearInterval(progressInterval);
       setFaviconUploadProgress(100);
-      setConfig(prev => ({ ...prev, favicon: imageUrl }));
+      setConfig(prev => ({ ...prev, favicon: freshFaviconUrl }));
     } catch (err: any) {
       clearInterval(progressInterval);
       console.error('Error uploading custom favicon:', err);
@@ -176,15 +176,57 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       if (config.title) {
         document.title = config.title;
       }
-      if (config.favicon) {
-        let faviconLink = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel="shortcut icon"]');
-        if (!faviconLink) {
-          faviconLink = document.createElement('link');
-          faviconLink.setAttribute('rel', 'icon');
-          document.head.appendChild(faviconLink);
+      
+      const setMetaTag = (selector: string, attrName: string, attrVal: string, contentVal: string) => {
+        if (!contentVal) return;
+        let el = document.querySelector(selector);
+        if (!el) {
+          el = document.createElement('meta');
+          el.setAttribute(attrName, attrVal);
+          document.head.appendChild(el);
         }
-        faviconLink.setAttribute('href', config.favicon);
+        el.setAttribute('content', contentVal);
+      };
+
+      setMetaTag('meta[name="description"]', 'name', 'description', config.description);
+      setMetaTag('meta[name="keywords"]', 'name', 'keywords', config.keywords);
+      
+      setMetaTag('meta[property="og:title"]', 'property', 'og:title', config.title);
+      setMetaTag('meta[property="og:description"]', 'property', 'og:description', config.description);
+      setMetaTag('meta[property="og:image"]', 'property', 'og:image', config.ogImage);
+      setMetaTag('meta[property="og:url"]', 'property', 'og:url', config.siteUrl);
+
+      setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', config.title);
+      setMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', config.description);
+      setMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', config.ogImage);
+      setMetaTag('meta[name="twitter:url"]', 'name', 'twitter:url', config.siteUrl);
+
+      if (config.siteUrl) {
+        let canonical = document.querySelector('link[rel="canonical"]');
+        if (!canonical) {
+          canonical = document.createElement('link');
+          canonical.setAttribute('rel', 'canonical');
+          document.head.appendChild(canonical);
+        }
+        canonical.setAttribute('href', config.siteUrl);
       }
+
+      if (config.favicon) {
+        let faviconLinks = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
+        if (faviconLinks.length === 0) {
+          const newFav = document.createElement('link');
+          newFav.setAttribute('rel', 'icon');
+          document.head.appendChild(newFav);
+          faviconLinks = document.querySelectorAll('link[rel="icon"]');
+        }
+        faviconLinks.forEach(link => {
+          link.setAttribute('href', config.favicon);
+        });
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent('meta_config_updated', { detail: config }));
+      } catch (e) {}
     };
 
     // Attempt direct database write to Supabase first for absolute high-fidelity persistence

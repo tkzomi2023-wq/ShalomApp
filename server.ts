@@ -38,12 +38,13 @@ app.post("/api/client-log", (req, res) => {
 app.use("/api/football", createFootballRouter());
 
 // Android APK Download Endpoint
-app.get("/api/download-apk", (req, res) => {
+app.get(["/api/download-apk", "/download-apk", "/Shalom_Youth_App_v2.4.apk"], (req, res) => {
   try {
     const apkFilePath = path.join(process.cwd(), "public", "Shalom_Youth_v2.4.apk");
     if (fs.existsSync(apkFilePath)) {
       res.setHeader("Content-Type", "application/vnd.android.package-archive");
       res.setHeader("Content-Disposition", "attachment; filename=\"Shalom_Youth_App_v2.4.apk\"");
+      res.setHeader("X-Content-Type-Options", "nosniff");
       return res.sendFile(apkFilePath);
     }
 
@@ -60,6 +61,8 @@ app.get("/api/download-apk", (req, res) => {
     res.setHeader("Content-Type", "application/vnd.android.package-archive");
     res.setHeader("Content-Disposition", "attachment; filename=\"Shalom_Youth_App_v2.4.apk\"");
     res.setHeader("Content-Length", apkBuffer.length.toString());
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.send(apkBuffer);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to download APK file: " + err.message });
@@ -1546,7 +1549,31 @@ setTimeout(() => {
 
 
 // REST API endpoints for Website Meta / OG Configurations
-app.get("/api/meta-config", (req, res) => {
+app.get("/api/meta-config", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("meta_configs")
+      .select("*")
+      .eq("id", "singleton")
+      .single();
+
+    if (data && !error) {
+      const dbConfig: MetaConfig = {
+        title: data.title || defaultMeta.title,
+        description: data.description || defaultMeta.description,
+        keywords: data.keywords || defaultMeta.keywords,
+        ogImage: data.og_image || defaultMeta.ogImage,
+        favicon: data.favicon || defaultMeta.favicon,
+        siteUrl: data.site_url || defaultMeta.siteUrl,
+      };
+      try {
+        fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(dbConfig, null, 2), "utf-8");
+      } catch (err) {}
+      return res.json(dbConfig);
+    }
+  } catch (err) {
+    console.warn("[MetaConfig API] Failed to fetch from Supabase, returning local config:", err);
+  }
   res.json(getMetaConfig());
 });
 

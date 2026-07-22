@@ -44,19 +44,14 @@ export const DownloadAppModal: React.FC<DownloadAppModalProps> = ({ isOpen, onCl
     setIsDownloading(true);
     setDownloadSuccess(false);
 
-    // Trigger direct download
-    const link = document.createElement('a');
-    link.href = '/api/download-apk';
-    link.download = 'Shalom_Youth_App_v2.4.apk';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Direct location redirect to trigger native browser download manager on mobile
+    window.location.href = '/api/download-apk';
 
     setTimeout(() => {
       setIsDownloading(false);
       setDownloadSuccess(true);
       setTimeout(() => setDownloadSuccess(false), 5000);
-    }, 1500);
+    }, 1200);
   };
 
   const handleInstallPwa = async () => {

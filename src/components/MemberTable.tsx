@@ -799,30 +799,38 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       {/* Role selection Dropdown for Admin */}
                       <td className="py-2 sm:py-3.5 px-2 sm:px-4">
                         {canChangeRole && !isDefaultAdmin ? (
-                          <select
-                            value={member.role}
-                            onChange={(e) => {
-                              const targetRole = e.target.value as UserRole;
-                              if (targetRole !== member.role) {
-                                setUpdateConfirm({
-                                  memberId: member.id,
-                                  memberName: member.name,
-                                  currentRole: member.role,
-                                  currentStatus: member.status,
-                                  targetRole: targetRole,
-                                  targetStatus: member.status,
-                                  type: 'role'
-                                });
-                              }
-                            }}
-                            className="bg-stone-50 border border-stone-200 rounded-lg p-0.5 sm:p-1 text-[10px] sm:text-[11px] font-medium text-stone-700 hover:bg-stone-100 transition-colors focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                          >
-                            {ALL_ROLES.map(r => (
-                              <option key={r} value={r}>
-                                {r === 'standard' ? 'standard (Member)' : r}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex flex-col gap-1 items-start">
+                            <select
+                              value={member.role}
+                              onChange={(e) => {
+                                const targetRole = e.target.value as UserRole;
+                                if (targetRole !== member.role) {
+                                  setUpdateConfirm({
+                                    memberId: member.id,
+                                    memberName: member.name,
+                                    currentRole: member.role,
+                                    currentStatus: member.status,
+                                    targetRole: targetRole,
+                                    targetStatus: member.status,
+                                    type: 'role'
+                                  });
+                                }
+                              }}
+                              className="bg-stone-50 border border-stone-200 rounded-lg p-0.5 sm:p-1 text-[10px] sm:text-[11px] font-medium text-stone-700 hover:bg-stone-100 transition-colors focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                            >
+                              {ALL_ROLES.map(r => (
+                                <option key={r} value={r}>
+                                  {r === 'standard' ? 'standard (Member)' : r}
+                                </option>
+                              ))}
+                            </select>
+                            {member.custom_title && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.25 rounded-md text-[9px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-100 dark:border-amber-900/30 uppercase tracking-wide">
+                                <Sparkles className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+                                <span>{member.custom_title}</span>
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <div className="flex flex-col gap-1 items-start">
                             <RoleBadge role={member.role} />

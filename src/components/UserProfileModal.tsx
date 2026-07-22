@@ -637,7 +637,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   const isSelf = currentUser?.id === member.id || (currentUser?.email && currentUser.email.toLowerCase() === member.email.toLowerCase());
   const isUserAdmin = currentUser ? (currentUser.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(currentUser.role)) : false;
-  const isFounder = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+  const isFounder = currentUser ? (currentUser.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || currentUser.role === 'Founder') : false;
   const canEdit = isSelf || (isUserAdmin && (member.role === 'standard' || canChangeRole));
 
   const currentYear = 2026; // Match mock and app default data year

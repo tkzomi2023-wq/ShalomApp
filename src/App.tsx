@@ -22,6 +22,7 @@ import BirthdayEmailSettingsPage from './components/BirthdayEmailSettingsPage';
 import { WebsiteMetaSettingsPage } from './components/WebsiteMetaSettingsPage';
 import { DatabaseHealthCheck } from './components/DatabaseHealthCheck';
 import { AppFooter } from './components/AppFooter';
+import { DownloadAppModal } from './components/DownloadAppModal';
 import { FootballModule } from './components/FootballModule';
 import { PrayerRequestsPage } from './components/PrayerRequestsPage';
 import { MemberDemographicsSection } from './components/MemberDemographicsSection';
@@ -65,6 +66,9 @@ import {
   Activity, 
   BookOpen, 
   PhoneCall, 
+  Smartphone,
+  Download,
+  ChevronRight,
   CheckCircle,
   HelpCircle,
   User,
@@ -196,54 +200,128 @@ function AppContent() {
     localStorage.setItem('sy_theme', 'light');
   }, []);
 
+  const applyMetaToDom = (data: {
+    title?: string;
+    description?: string;
+    keywords?: string;
+    favicon?: string;
+    ogImage?: string;
+    siteUrl?: string;
+  }) => {
+    if (!data) return;
+
+    if (data.title) {
+      document.title = data.title;
+    }
+
+    const setMetaTag = (selector: string, attrName: string, attrVal: string, contentVal?: string) => {
+      if (!contentVal) return;
+      let el = document.querySelector(selector);
+      if (!el) {
+        el = document.createElement('meta');
+        el.setAttribute(attrName, attrVal);
+        document.head.appendChild(el);
+      }
+      el.setAttribute('content', contentVal);
+    };
+
+    setMetaTag('meta[name="description"]', 'name', 'description', data.description);
+    setMetaTag('meta[name="keywords"]', 'name', 'keywords', data.keywords);
+
+    setMetaTag('meta[property="og:title"]', 'property', 'og:title', data.title);
+    setMetaTag('meta[property="og:description"]', 'property', 'og:description', data.description);
+    setMetaTag('meta[property="og:image"]', 'property', 'og:image', data.ogImage);
+    setMetaTag('meta[property="og:url"]', 'property', 'og:url', data.siteUrl);
+
+    setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', data.title);
+    setMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', data.description);
+    setMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', data.ogImage);
+    setMetaTag('meta[name="twitter:url"]', 'name', 'twitter:url', data.siteUrl);
+
+    if (data.siteUrl) {
+      let canonical = document.querySelector('link[rel="canonical"]');
+      if (!canonical) {
+        canonical = document.createElement('link');
+        canonical.setAttribute('rel', 'canonical');
+        document.head.appendChild(canonical);
+      }
+      canonical.setAttribute('href', data.siteUrl);
+    }
+
+    if (data.favicon) {
+      let faviconLinks = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
+      if (faviconLinks.length === 0) {
+        const newFav = document.createElement('link');
+        newFav.setAttribute('rel', 'icon');
+        document.head.appendChild(newFav);
+        faviconLinks = document.querySelectorAll('link[rel="icon"]');
+      }
+      faviconLinks.forEach(link => {
+        link.setAttribute('href', data.favicon!);
+      });
+    }
+  };
+
   useEffect(() => {
     // Dynamic website meta & SEO configurations loader
     const loadWebsiteMeta = async () => {
       let data: any = null;
+
+      // 1. Try fetching from Supabase directly
       try {
-        let response = await apiFetch('/api/meta-config');
-        
-        // Explicitly verify response headers and status
-        if (!response.ok) {
-          const wwwAuthenticate = response.headers.get('www-authenticate');
-          console.warn(`Metadata service response not ok: Status ${response.status}. WWW-Authenticate header: ${wwwAuthenticate || 'none'}`);
+        const { data: dbMeta, error: dbErr } = await supabase
+          .from('meta_configs')
+          .select('*')
+          .eq('id', 'singleton')
+          .single();
+
+        if (dbMeta && !dbErr) {
+          data = {
+            title: dbMeta.title,
+            description: dbMeta.description,
+            keywords: dbMeta.keywords,
+            ogImage: dbMeta.og_image,
+            favicon: dbMeta.favicon,
+            siteUrl: dbMeta.site_url
+          };
+          localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
+        }
+      } catch (e) {
+        console.warn('Direct Supabase fetch for meta_configs yielded:', e);
+      }
+
+      // 2. Fallback to API endpoint if not loaded yet
+      if (!data) {
+        try {
+          let response = await apiFetch('/api/meta-config');
           
-          if (response.status === 401) {
-            console.log('401 Unauthorized detected. Triggering silent re-authentication attempt for the metadata service...');
-            
-            // Silent re-authentication attempt
+          if (!response.ok && response.status === 401) {
             try {
-              // Retrieve or refresh session silently using Supabase
-              const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-              if (sessionError) throw sessionError;
-              
+              const { data: { session } } = await supabase.auth.getSession();
               if (session) {
-                console.log('Silent re-authentication successful. Retrying metadata service request...');
-                // Retry the request after successful re-authentication
                 response = await apiFetch('/api/meta-config');
-              } else {
-                console.warn('No active session found during silent re-authentication.');
               }
             } catch (authErr) {
               console.error('Silent re-authentication attempt failed:', authErr);
             }
           }
-        }
 
-        if (response.ok) {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('text/html')) {
-            throw new Error('Static HTML response received instead of JSON. Static host (Netlify) fallback mode triggered.');
+          if (response.ok) {
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('text/html')) {
+              data = await response.json();
+              if (data) {
+                localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
+              }
+            }
           }
-          data = await response.json();
-          if (data) {
-            localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
-          }
-        } else {
-          throw new Error(`Failed to fetch metadata service. Status: ${response.status}`);
+        } catch (err) {
+          console.warn('Failed to fetch website metadata via API:', err);
         }
-      } catch (err) {
-        console.warn('Failed to dynamically fetch website metadata via API, falling back to local cache:', err);
+      }
+
+      // 3. Fallback to local storage
+      if (!data) {
         try {
           const cached = localStorage.getItem('sy_local_meta_config');
           if (cached) {
@@ -255,45 +333,42 @@ function AppContent() {
       }
 
       if (data) {
-        if (data.title) {
-          document.title = data.title;
-        }
-        
-        // Dynamically update description
-        if (data.description) {
-          let descMeta = document.querySelector('meta[name="description"]');
-          if (!descMeta) {
-            descMeta = document.createElement('meta');
-            descMeta.setAttribute('name', 'description');
-            document.head.appendChild(descMeta);
-          }
-          descMeta.setAttribute('content', data.description);
-        }
-        
-        // Dynamically update keywords
-        if (data.keywords) {
-          let keyMeta = document.querySelector('meta[name="keywords"]');
-          if (!keyMeta) {
-            keyMeta = document.createElement('meta');
-            keyMeta.setAttribute('name', 'keywords');
-            document.head.appendChild(keyMeta);
-          }
-          keyMeta.setAttribute('content', data.keywords);
-        }
-
-        // Dynamically update favicon
-        if (data.favicon) {
-          let faviconLink = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel="shortcut icon"]');
-          if (!faviconLink) {
-            faviconLink = document.createElement('link');
-            faviconLink.setAttribute('rel', 'icon');
-            document.head.appendChild(faviconLink);
-          }
-          faviconLink.setAttribute('href', data.favicon);
-        }
+        applyMetaToDom(data);
       }
     };
+
     loadWebsiteMeta();
+
+    // Setup Supabase Realtime subscription for meta_configs table
+    const metaChannel = supabase
+      .channel('meta_configs_realtime_app')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meta_configs' }, (payload: any) => {
+        if (payload.new) {
+          const newMeta = {
+            title: payload.new.title,
+            description: payload.new.description,
+            keywords: payload.new.keywords,
+            ogImage: payload.new.og_image,
+            favicon: payload.new.favicon,
+            siteUrl: payload.new.site_url,
+          };
+          applyMetaToDom(newMeta);
+          localStorage.setItem('sy_local_meta_config', JSON.stringify(newMeta));
+        }
+      })
+      .subscribe();
+
+    const handleCustomEvent = (e: any) => {
+      if (e.detail) {
+        applyMetaToDom(e.detail);
+      }
+    };
+    window.addEventListener('meta_config_updated', handleCustomEvent);
+
+    return () => {
+      supabase.removeChannel(metaChannel);
+      window.removeEventListener('meta_config_updated', handleCustomEvent);
+    };
   }, []);
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -426,6 +501,7 @@ function AppContent() {
   // Modals / Portal selectors
   const [isSQLModalOpen, setIsSQLModalOpen] = useState(false);
   const [isBialDiagnosticOpen, setIsBialDiagnosticOpen] = useState(false);
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   
   // Birthday Wishes & Gift Box states
   const [birthdayWishes, setBirthdayWishes] = useState<BirthdayWish[]>([]);
@@ -1999,9 +2075,15 @@ function AppContent() {
 
             <div className="text-right hidden sm:block shrink-0">
               <span className="block text-xs font-bold text-white leading-none">{formatMemberName(user.display_name || user.name, user.gender, user.marital_status)}</span>
-              <span className="inline-flex items-center mt-1">
+              <div className="flex items-center justify-end gap-1 mt-1">
                 <RoleBadge role={user.role} className="scale-85 origin-right py-0 px-1.5" />
-              </span>
+                {user.custom_title && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.25 rounded-md text-[9px] font-extrabold bg-amber-400 text-amber-950 shadow-2xs">
+                    <Sparkles className="w-2.5 h-2.5 text-amber-900 shrink-0 animate-pulse" />
+                    <span>{user.custom_title}</span>
+                  </span>
+                )}
+              </div>
             </div>
             
             <button
@@ -2427,18 +2509,19 @@ function AppContent() {
             )}
 
             {/* View Swapper & Preferences Toggles */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-              <div className="flex border-b border-stone-200 bg-white p-1 rounded-2xl shadow-2xs border max-w-full sm:max-w-lg overflow-x-auto w-full md:w-auto">
+            <div className="flex flex-col gap-3 mb-6">
+              {/* Navigation Tabs bar */}
+              <div className="flex bg-white dark:bg-stone-900 p-1 rounded-xl sm:rounded-2xl shadow-2xs border border-stone-200 dark:border-stone-800 max-w-full overflow-x-auto no-scrollbar w-full scroll-smooth">
                 <button
                   onClick={() => setCurrentTab('directory')}
-                  className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center whitespace-nowrap ${currentTab === 'directory' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                  className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center whitespace-nowrap shrink-0 ${currentTab === 'directory' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
                 >
                   Members Directory
                 </button>
                 <button
                   id="tab-btn-schedule"
                   onClick={() => setCurrentTab('schedule')}
-                  className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'schedule' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                  className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'schedule' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
                 >
                   <Calendar className="w-3.5 h-3.5 shrink-0" />
                   <span>Service Schedules</span>
@@ -2447,7 +2530,7 @@ function AppContent() {
                   <button
                     id="tab-btn-prayers"
                     onClick={() => setCurrentTab('prayer-requests')}
-                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'prayer-requests' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'prayer-requests' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
                   >
                     <Heart className="w-3.5 h-3.5 shrink-0 text-rose-400 fill-rose-400" />
                     <span>Prayer Requests</span>
@@ -2456,7 +2539,7 @@ function AppContent() {
                 {(isOBUser(user.role) || user.role === 'ECM') && (
                   <button
                     onClick={() => setCurrentTab('financials')}
-                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'financials' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'financials' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
                   >
                     <FileText className="w-3.5 h-3.5 shrink-0" />
                     <span>Financial Records</span>
@@ -2465,7 +2548,7 @@ function AppContent() {
                 {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
                   <button
                     onClick={() => setCurrentTab('birthday-tasks')}
-                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'birthday-tasks' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'birthday-tasks' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
                   >
                     <Mail className="w-3.5 h-3.5 shrink-0" />
                     <span>Birthday Emails</span>
@@ -2474,7 +2557,7 @@ function AppContent() {
                 {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
                   <button
                     onClick={() => setCurrentTab('meta-settings')}
-                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'meta-settings' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'meta-settings' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
                   >
                     <Globe className="w-3.5 h-3.5 shrink-0" />
                     <span>Meta Settings</span>
@@ -2483,7 +2566,7 @@ function AppContent() {
                 {(isFootballEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
                   <button
                     onClick={() => setCurrentTab('football')}
-                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
                   >
                     <Trophy className="w-3.5 h-3.5 shrink-0" />
                     <span>Football Predictions</span>
@@ -2491,15 +2574,15 @@ function AppContent() {
                 )}
               </div>
 
-              {/* Preferences Toggle / Layout Customize Menu */}
+              {/* Preferences Toggle / Layout Customize Menu - Rendered strictly BELOW tabs */}
               {currentTab === 'directory' && (
-                <div className="flex flex-wrap items-center gap-2.5 bg-white p-2 px-3.5 rounded-2xl border border-stone-150 shadow-2xs text-[11px] font-bold text-stone-600 w-full md:w-auto">
-                  <span className="flex items-center gap-1.5 text-stone-450 mr-1">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 py-2 px-3 sm:px-4 rounded-xl sm:rounded-2xl bg-stone-100/90 dark:bg-stone-900/90 border border-stone-200/80 dark:border-stone-800 text-[11px] font-bold text-stone-600 dark:text-stone-300 w-full shadow-2xs">
+                  <span className="flex items-center gap-1.5 text-stone-500 dark:text-stone-400 shrink-0 mr-1">
                     <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Layout preferences:</span>
+                    <span>Layout Preferences:</span>
                   </span>
                   
-                  <label className="flex items-center gap-1.5 hover:bg-stone-50/80 p-1.5 px-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-stone-100">
+                  <label className="flex items-center gap-1.5 bg-white dark:bg-stone-800 hover:bg-stone-50 p-1.5 px-2.5 rounded-lg cursor-pointer transition-colors border border-stone-200/60 dark:border-stone-700/60 shrink-0 select-none shadow-2xs">
                     <input
                       type="checkbox"
                       checked={showBirthdayAlerts}
@@ -2509,10 +2592,10 @@ function AppContent() {
                       }}
                       className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
                     />
-                    <span>Birthday Alerts</span>
+                    <span className="whitespace-nowrap">Birthday Alerts</span>
                   </label>
 
-                  <label className="flex items-center gap-1.5 hover:bg-stone-50/80 p-1.5 px-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-stone-100">
+                  <label className="flex items-center gap-1.5 bg-white dark:bg-stone-800 hover:bg-stone-50 p-1.5 px-2.5 rounded-lg cursor-pointer transition-colors border border-stone-200/60 dark:border-stone-700/60 shrink-0 select-none shadow-2xs">
                     <input
                       type="checkbox"
                       checked={showQuickMetrics}
@@ -2522,10 +2605,10 @@ function AppContent() {
                       }}
                       className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
                     />
-                    <span>Metrics Stats</span>
+                    <span className="whitespace-nowrap">Metrics Stats</span>
                   </label>
 
-                  <label className="flex items-center gap-1.5 hover:bg-stone-50/80 p-1.5 px-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-stone-100">
+                  <label className="flex items-center gap-1.5 bg-white dark:bg-stone-800 hover:bg-stone-50 p-1.5 px-2.5 rounded-lg cursor-pointer transition-colors border border-stone-200/60 dark:border-stone-700/60 shrink-0 select-none shadow-2xs">
                     <input
                       type="checkbox"
                       checked={showRoleDistribution}
@@ -2535,10 +2618,10 @@ function AppContent() {
                       }}
                       className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
                     />
-                    <span>Role Charts</span>
+                    <span className="whitespace-nowrap">Role Charts</span>
                   </label>
 
-                  <label className="flex items-center gap-1.5 hover:bg-stone-50/80 p-1.5 px-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-stone-100">
+                  <label className="flex items-center gap-1.5 bg-white dark:bg-stone-800 hover:bg-stone-50 p-1.5 px-2.5 rounded-lg cursor-pointer transition-colors border border-stone-200/60 dark:border-stone-700/60 shrink-0 select-none shadow-2xs">
                     <input
                       type="checkbox"
                       checked={showMemberDemographics}
@@ -2548,7 +2631,7 @@ function AppContent() {
                       }}
                       className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
                     />
-                    <span>Demographics</span>
+                    <span className="whitespace-nowrap">Demographics</span>
                   </label>
                 </div>
               )}
@@ -2626,67 +2709,67 @@ function AppContent() {
               <>
                 {/* Quick overview metrics Grid */}
             {showQuickMetrics && (
-              <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3.5 lg:gap-4">
                 
-                <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between text-stone-400">
-                    <span className="text-[10px] uppercase font-bold tracking-wider">Total Members</span>
-                    <Users className="w-4 h-4 text-emerald-600" />
+                <div className="bg-white dark:bg-stone-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-1.5 transition-all">
+                  <div className="flex items-center justify-between text-stone-400 dark:text-stone-500">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-extrabold tracking-wider truncate">Total Members</span>
+                    <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
                   </div>
                   <div className="space-y-0.5">
-                    <div className="text-2xl font-black text-stone-900">{totalCount}</div>
-                    <p className="text-[10px] text-emerald-65 font-medium">Registered in database</p>
+                    <div className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white">{totalCount}</div>
+                    <p className="text-[9px] sm:text-[10px] text-emerald-600 font-medium truncate">Registered in database</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between text-stone-400">
-                    <span className="text-[10px] uppercase font-bold tracking-wider">Approved Active</span>
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                <div className="bg-white dark:bg-stone-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-1.5 transition-all">
+                  <div className="flex items-center justify-between text-stone-400 dark:text-stone-500">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-extrabold tracking-wider truncate">Approved Active</span>
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 shrink-0"></div>
                   </div>
                   <div className="space-y-0.5">
-                    <div className="text-2xl font-black text-stone-900">{approvedCount}</div>
-                    <p className="text-[10px] text-stone-400 font-medium">{Math.round((approvedCount/totalCount)*100 || 0)}% of total users cleared</p>
+                    <div className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white">{approvedCount}</div>
+                    <p className="text-[9px] sm:text-[10px] text-stone-400 font-medium truncate">{Math.round((approvedCount/totalCount)*100 || 0)}% cleared</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between text-stone-450">
-                    <span className="text-[10px] uppercase font-bold tracking-wider">Review Pending</span>
-                    <div className="w-2.5 h-2.5 bg-amber-400 rounded-full animate-ping"></div>
+                <div className="bg-white dark:bg-stone-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-1.5 transition-all">
+                  <div className="flex items-center justify-between text-stone-400 dark:text-stone-500">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-extrabold tracking-wider truncate">Review Pending</span>
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-amber-400 rounded-full animate-ping shrink-0"></div>
                   </div>
                   <div className="space-y-0.5">
-                    <div className="text-2xl font-black text-stone-900">{pendingCount}</div>
-                    <p className="text-[10px] text-stone-400 font-medium">Require admin approvals</p>
+                    <div className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white">{pendingCount}</div>
+                    <p className="text-[9px] sm:text-[10px] text-stone-400 font-medium truncate">Require approvals</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between text-stone-400">
-                    <span className="text-[10px] uppercase font-bold tracking-wider">Leader Officers / OB</span>
-                    <ShieldCheck className="w-4 h-4 text-amber-500" />
+                <div className="bg-white dark:bg-stone-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-1.5 transition-all">
+                  <div className="flex items-center justify-between text-stone-400 dark:text-stone-500">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-extrabold tracking-wider truncate">Leader / OB</span>
+                    <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 shrink-0" />
                   </div>
                   <div className="space-y-0.5">
-                    <div className="text-2xl font-black text-stone-900">{obCount}</div>
-                    <p className="text-[10px] text-stone-400 font-medium">Active administrative users</p>
+                    <div className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white">{obCount}</div>
+                    <p className="text-[9px] sm:text-[10px] text-stone-400 font-medium truncate">Admin & Leaders</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs space-y-2 relative group overflow-visible">
-                  <div className="flex items-center justify-between text-stone-400">
-                    <span className="text-[10px] uppercase font-bold tracking-wider">Online Now</span>
+                <div className="col-span-2 sm:col-span-1 bg-white dark:bg-stone-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-stone-200/80 dark:border-stone-800 shadow-2xs space-y-1.5 relative group overflow-visible transition-all">
+                  <div className="flex items-center justify-between text-stone-400 dark:text-stone-500">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-extrabold tracking-wider truncate">Online Now</span>
                     <div className="flex items-center gap-1.5">
-                      <span className="relative flex h-2.5 w-2.5">
+                      <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 bg-green-500"></span>
                       </span>
                     </div>
                   </div>
                   <div className="space-y-0.5">
-                    <div className="text-2xl font-black text-stone-900 flex items-baseline gap-1.5">
+                    <div className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white flex items-baseline gap-1.5">
                       {onlineUserIds.length}
                     </div>
-                    <p className="text-[10px] text-stone-400 font-medium truncate">
+                    <p className="text-[9px] sm:text-[10px] text-stone-400 font-medium truncate">
                       {onlineUserIds.length === 1 ? '1 active user' : `${onlineUserIds.length} active users`}
                     </p>
                   </div>
@@ -2890,21 +2973,72 @@ function AppContent() {
           </>
         ) : null}
 
-        {/* Dynamic informational support block */}
-        <section className="bg-emerald-950 text-emerald-200 p-6 rounded-2xl border border-emerald-900 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-1.5 flex-1 p-1">
-            <h4 className="font-extrabold text-white text-base"> Shalom Youth Org Guidelines</h4>
-            <p className="text-xs leading-relaxed text-emerald-300">
-              Shalom Youth acts with deep spiritual commitment and active community service. Under Officer Bearer (OB) management directions, we verify every member's role (standard, Executive Committee (ECM), or Leader OB roles) to foster clean collaboration and trust.
-            </p>
-          </div>
-          <div className="flex items-center gap-4 shrink-0 bg-white/5 p-4 rounded-xl border border-white/5 w-full md:w-auto">
-            <PhoneCall className="w-5 h-5 text-emerald-300" />
-            <div className="text-xs">
-              <p className="font-extrabold text-white">Need Assisting Help?</p>
-              <p className="text-[11px] text-emerald-35 gap-1 inline-flex items-center">
-                Contact Admin: tkpaite2016@gmail.com
+        {/* Dynamic informational support block with repositioned Mobile App Download */}
+        <section className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 text-emerald-200 p-6 sm:p-7 rounded-3xl border border-emerald-800/80 shadow-xl space-y-5">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+            
+            {/* Guidelines Text */}
+            <div className="space-y-2 flex-1 text-left">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black uppercase tracking-wider">
+                  Community Standards
+                </span>
+                <span className="text-[10px] text-emerald-300/80 font-bold">
+                  v2.4 Mobile Release
+                </span>
+              </div>
+              <h4 className="font-extrabold text-white text-base sm:text-lg tracking-tight">
+                Shalom Youth Org Guidelines
+              </h4>
+              <p className="text-xs leading-relaxed text-emerald-200/90 max-w-3xl">
+                Shalom Youth acts with deep spiritual commitment and active community service. Under Officer Bearer (OB) management directions, we verify every member's role (standard, Executive Committee (ECM), or Leader OB roles) to foster clean collaboration and trust.
               </p>
+            </div>
+
+            {/* Need Assisting Help Card */}
+            <div className="flex items-center gap-3.5 bg-white/10 dark:bg-black/20 backdrop-blur-md p-4 rounded-2xl border border-white/10 shrink-0 w-full lg:w-auto">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 shrink-0">
+                <PhoneCall className="w-5 h-5" />
+              </div>
+              <div className="text-xs text-left">
+                <p className="font-extrabold text-white">Need Assisting Help?</p>
+                <p className="text-[11px] text-emerald-300 font-medium">
+                  Contact Admin: tkpaite2016@gmail.com
+                </p>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Repositioned Mobile App Download Controls within Guidelines Section */}
+          <div className="pt-4 border-t border-emerald-800/60 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-xs text-emerald-300/90 font-medium text-center sm:text-left">
+              <Smartphone className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Get the official Android APK or install the Web App directly on your mobile device.</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto shrink-0 justify-end">
+              <a
+                href="/api/download-apk"
+                download="Shalom_Youth_App_v2.4.apk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-emerald-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer group"
+                title="Directly download Android APK file"
+              >
+                <Download className="w-4 h-4 transition-transform group-hover:-translate-y-0.5" />
+                <span>Download Mobile App (.apk)</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => setIsDownloadModalOpen(true)}
+                className="w-full sm:w-auto px-4 py-2.5 bg-white/10 hover:bg-white/20 active:scale-95 text-white font-extrabold text-xs rounded-xl border border-white/15 backdrop-blur-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                title="View installation guide & iOS options"
+              >
+                <span>Install Options & Guide</span>
+                <ChevronRight className="w-4 h-4 text-emerald-300" />
+              </button>
             </div>
           </div>
         </section>
@@ -2912,7 +3046,13 @@ function AppContent() {
       </main>
 
       {/* Footer */}
-      <AppFooter />
+      <AppFooter onOpenDownloadModal={() => setIsDownloadModalOpen(true)} />
+
+      {/* Download Mobile App Modal */}
+      <DownloadAppModal 
+        isOpen={isDownloadModalOpen} 
+        onClose={() => setIsDownloadModalOpen(false)} 
+      />
 
       {/* SQL script Copy tool */}
       <SQLSetupModal isOpen={isSQLModalOpen} onClose={() => setIsSQLModalOpen(false)} />
