@@ -21,8 +21,10 @@ import { SchedulePage } from './components/SchedulePage';
 import BirthdayEmailSettingsPage from './components/BirthdayEmailSettingsPage';
 import { WebsiteMetaSettingsPage } from './components/WebsiteMetaSettingsPage';
 import { DatabaseHealthCheck } from './components/DatabaseHealthCheck';
+import { AppFooter } from './components/AppFooter';
 import { FootballModule } from './components/FootballModule';
 import { PrayerRequestsPage } from './components/PrayerRequestsPage';
+import { MemberDemographicsSection } from './components/MemberDemographicsSection';
 import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -298,9 +300,24 @@ function AppContent() {
   const [logs, setLogs] = useState(() => getActivityLogs());
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isRetryingFromUI, setIsRetryingFromUI] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [connectionSuccess, setConnectionSuccess] = useState<boolean | null>(null);
   const [connectionRetryCount, setConnectionRetryCount] = useState(0);
+
+  const handleManualRetry = async () => {
+    setIsRetryingFromUI(true);
+    try {
+      if (retryInit) {
+        await retryInit();
+      }
+      await loadDatabase();
+    } catch (e) {
+      console.error("Manual connection retry error:", e);
+    } finally {
+      setIsRetryingFromUI(false);
+    }
+  };
   const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football' | 'prayer-requests'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
@@ -318,6 +335,10 @@ function AppContent() {
 
   const [isFootballEnabled, setIsFootballEnabled] = useState<boolean>(() => {
     return localStorage.getItem('sy_enable_football_predictions') !== 'false';
+  });
+
+  const [isPrayerRequestsEnabled, setIsPrayerRequestsEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('sy_enable_prayer_requests') !== 'false';
   });
 
   useEffect(() => {
@@ -757,13 +778,13 @@ function AppContent() {
     setConnectionError(null);
     setConnectionSuccess(null);
     try {
-      const isOnline = await db.testConnection();
+      const isOnline = await db.testConnection(2, 400);
       setDbConnected(isOnline);
       if (isOnline) {
         setConnectionSuccess(true);
         setConnectionRetryCount(0); // Reset retry counter upon successful connection
-        await db.syncLocalDataToSupabase();
-        await financialsDb.syncLocalFinancialsToSupabase();
+        await db.syncLocalDataToSupabase().catch(e => console.warn("Local sync warning:", e));
+        await financialsDb.syncLocalFinancialsToSupabase().catch(e => console.warn("Financials sync warning:", e));
       } else {
         setConnectionError(db.lastError || "Could not reach database. Check if tables are created.");
         setConnectionSuccess(false);
@@ -1786,11 +1807,12 @@ function AppContent() {
                 </p>
               </div>
               <button
-                onClick={() => retryInit?.()}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                onClick={handleManualRetry}
+                disabled={isRetryingFromUI}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-70 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
-                Retry Connection Now
+                <RefreshCw className={`w-3.5 h-3.5 ${isRetryingFromUI ? 'animate-spin' : ''}`} />
+                {isRetryingFromUI ? 'Reconnecting to Database...' : 'Retry Connection Now'}
               </button>
             </div>
           ) : (
@@ -1811,22 +1833,23 @@ function AppContent() {
                 <h3 className="text-sm font-bold text-stone-800 dark:text-stone-200">
                   {loadingStatus === 'connecting' && "Accessing Shalom Youth Database..."}
                   {loadingStatus === 'slow' && "We're preparing your workspace. Please wait a moment..."}
-                  {loadingStatus === 'retrying' && "Connection taking longer than expected. Retrying automatically..."}
+                  {loadingStatus === 'retrying' && "Connection taking longer than expected. Retrying..."}
                 </h3>
                 <p className="text-[11px] text-stone-400 dark:text-stone-500 font-semibold leading-normal">
                   {loadingStatus === 'connecting' && "Verifying security credentials and syncing current session details..."}
                   {loadingStatus === 'slow' && "Resolving temporary latency. If it takes too long, you can manually trigger a retry."}
-                  {loadingStatus === 'retrying' && "Starting fallback connection sequence. Please do not refresh the page."}
+                  {loadingStatus === 'retrying' && "Starting fallback connection sequence..."}
                 </p>
               </div>
 
-              {loadingStatus === 'slow' && (
+              {(loadingStatus === 'slow' || loadingStatus === 'retrying') && (
                 <button
-                  onClick={() => retryInit?.()}
-                  className="w-full py-2 px-4 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer border border-stone-200 dark:border-stone-750"
+                  onClick={handleManualRetry}
+                  disabled={isRetryingFromUI}
+                  className="w-full py-2 px-4 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 disabled:opacity-70 text-stone-700 dark:text-stone-300 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer border border-stone-200 dark:border-stone-750"
                 >
-                  <RefreshCw className="w-3 h-3" />
-                  Retry Connection
+                  <RefreshCw className={`w-3 h-3 ${isRetryingFromUI ? 'animate-spin' : ''}`} />
+                  {isRetryingFromUI ? 'Reconnecting...' : 'Retry Connection'}
                 </button>
               )}
             </div>
@@ -1877,23 +1900,18 @@ function AppContent() {
               </div>
 
               {/* Db Synchronizer status */}
-              <div className="pt-2">
-                <button
-                  onClick={() => {
-                    if (user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') {
-                      setIsSQLModalOpen(true);
-                    } else {
-                      alert("Access Denied: Only tkpaite2016@gmail.com can configure Supabase Setup.");
-                    }
-                  }}
-                  disabled={user?.email?.toLowerCase() !== 'tkpaite2016@gmail.com'}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-350 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 px-3.5 py-2 rounded-xl border border-emerald-100 dark:border-emerald-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                  title={user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? "Configure database" : "Supabase configurations are restricted to tkpaite2016@gmail.com"}
-                >
-                  <Database className="w-4 h-4" />
-                  Supabase Setup Configurations
-                </button>
-              </div>
+              {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
+                <div className="pt-2">
+                  <button
+                    onClick={() => setIsSQLModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-350 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 px-3.5 py-2 rounded-xl border border-emerald-100 dark:border-emerald-900/50 transition-colors cursor-pointer"
+                    title="Configure database"
+                  >
+                    <Database className="w-4 h-4" />
+                    Supabase Setup Configurations
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Auth card Form Column */}
@@ -1917,10 +1935,7 @@ function AppContent() {
         </div>
 
         {/* Universal Footer */}
-        <footer className="py-6 border-t border-stone-200 dark:border-stone-850 bg-white dark:bg-stone-900 flex flex-col sm:flex-row items-center justify-between px-6 gap-4 text-xs text-stone-400 dark:text-stone-500">
-          <p>© {new Date().getFullYear()} Shalom Youth Community Organization. Designed by TK Paite.</p>
-          <DatabaseHealthCheck />
-        </footer>
+        <AppFooter />
 
         <SQLSetupModal isOpen={isSQLModalOpen} onClose={() => setIsSQLModalOpen(false)} />
       </div>
@@ -2310,20 +2325,16 @@ function AppContent() {
                 </div>
               )}
               <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  onClick={() => {
-                    if (user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') {
-                      setIsSQLModalOpen(true);
-                    } else {
-                      alert("Access Denied: Only tkpaite2016@gmail.com can configure Supabase Setup.");
-                    }
-                  }}
-                  disabled={isTestingConnection || user?.email?.toLowerCase() !== 'tkpaite2016@gmail.com'}
-                  className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed cursor-pointer"
-                  title={user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? "Configure database" : "Supabase configurations are restricted to tkpaite2016@gmail.com"}
-                >
-                  Open SQL Setup Guide
-                </button>
+                {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
+                  <button
+                    onClick={() => setIsSQLModalOpen(true)}
+                    disabled={isTestingConnection}
+                    className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed cursor-pointer"
+                    title="Configure database"
+                  >
+                    Open SQL Setup Guide
+                  </button>
+                )}
                 <button
                   onClick={async () => {
                     await loadDatabase();
@@ -2432,14 +2443,16 @@ function AppContent() {
                   <Calendar className="w-3.5 h-3.5 shrink-0" />
                   <span>Service Schedules</span>
                 </button>
-                <button
-                  id="tab-btn-prayers"
-                  onClick={() => setCurrentTab('prayer-requests')}
-                  className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'prayer-requests' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
-                >
-                  <Heart className="w-3.5 h-3.5 shrink-0 text-rose-400 fill-rose-400" />
-                  <span>Prayer Requests</span>
-                </button>
+                {(isPrayerRequestsEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+                  <button
+                    id="tab-btn-prayers"
+                    onClick={() => setCurrentTab('prayer-requests')}
+                    className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'prayer-requests' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
+                  >
+                    <Heart className="w-3.5 h-3.5 shrink-0 text-rose-400 fill-rose-400" />
+                    <span>Prayer Requests</span>
+                  </button>
+                )}
                 {(isOBUser(user.role) || user.role === 'ECM') && (
                   <button
                     onClick={() => setCurrentTab('financials')}
@@ -2467,7 +2480,7 @@ function AppContent() {
                     <span>Meta Settings</span>
                   </button>
                 )}
-                {(isFootballEnabled || user?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()) && (
+                {(isFootballEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
                   <button
                     onClick={() => setCurrentTab('football')}
                     className={`flex-1 py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}
@@ -2584,7 +2597,27 @@ function AppContent() {
                 }}
               />
             ) : currentTab === 'prayer-requests' ? (
-              <PrayerRequestsPage currentUser={user} />
+              (!isPrayerRequestsEnabled && user?.email?.toLowerCase() !== 'tkpaite2016@gmail.com') ? (
+                <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-8 md:p-12 text-center max-w-lg mx-auto shadow-sm my-8">
+                  <div className="w-16 h-16 bg-rose-50 dark:bg-rose-950/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-200/50">
+                    <Heart className="w-8 h-8 text-rose-600 dark:text-rose-500 fill-rose-600 dark:fill-rose-500" />
+                  </div>
+                  <h3 className="text-xl font-extrabold text-stone-900 dark:text-white mb-3">
+                    Prayer Requests Module Inactive
+                  </h3>
+                  <p className="text-stone-500 dark:text-stone-400 text-sm mb-6 leading-relaxed">
+                    The Prayer Requests module is currently disabled by administrators. Please check back later or contact your system administrator.
+                  </p>
+                  <button
+                    onClick={() => setCurrentTab('directory')}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-6 rounded-xl transition-all cursor-pointer shadow-xs"
+                  >
+                    Go Back to Directory
+                  </button>
+                </div>
+              ) : (
+                <PrayerRequestsPage currentUser={user} />
+              )
             ) : currentTab === 'birthday-tasks' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
               <BirthdayEmailSettingsPage currentUser={user} members={members} />
             ) : currentTab === 'meta-settings' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
@@ -2679,306 +2712,23 @@ function AppContent() {
               </section>
             )}
 
-            {/* Admin Analytics and SQL utilities representation - Only OB (Chairman, Vice Chairman, etc) can see this panel */}
-            {/* Admin Analytics / Role distributions representation - Visible to OB, or standard users with preferences enabled */}
-            {(isCurrentUserAdmin || showRoleDistribution) && (
-              <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-                {/* Left side: Role distributions (Recharts) */}
-                {showRoleDistribution && (
-                  <div className={`${isCurrentUserAdmin ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4`}>
-                    <div className="flex items-center justify-between border-b pb-3 border-stone-100">
-                      <div>
-                        <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Role & Status Distributions</h4>
-                        <p className="text-[10px] text-stone-400">Visual representations of the database</p>
-                      </div>
-                      <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 text-[10px] font-bold rounded-lg border border-emerald-100">
-                        {isCurrentUserAdmin ? 'Officer Bearer Control' : 'Youth Core Database'}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Role distributions chart */}
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-stone-400 text-center uppercase tracking-wide">Role breakdown (Standard vs Committee)</p>
-                        <div className="h-44 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={roleDistributionData} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                              <XAxis dataKey="name" tick={{ fontSize: 9 }} stroke="#888888" />
-                              <YAxis tick={{ fontSize: 9 }} stroke="#888888" />
-                              <ChartTooltip contentStyle={{ fontSize: '10px', borderRadius: '8px' }} />
-                              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                                {roleDistributionData.map((entry, idx) => (
-                                  <Cell key={`cell-${idx}`} fill={entry.fill} />
-                                ))}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </div>
-
-                      {/* Status pie chart */}
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-stone-400 text-center uppercase tracking-wide">Application states</p>
-                        <div className="h-44 w-full relative flex items-center justify-center">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={statusDistributionData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={35}
-                                outerRadius={55}
-                                paddingAngle={2}
-                                dataKey="value"
-                              >
-                                {statusDistributionData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                              </Pie>
-                              <ChartTooltip contentStyle={{ fontSize: '10px', borderRadius: '8px' }} />
-                              <Legend verticalAlign="bottom" height={24} iconSize={8} wrapperStyle={{ fontSize: '9px' }} />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Right side: Developer Tools & Custom Action box */}
-                {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
-                  <div className={`${showRoleDistribution ? 'lg:col-span-4' : 'lg:col-span-12'} bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4`}>
-                    <div className="border-b pb-3 border-stone-100">
-                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Administrative Quick Panel</h4>
-                      <p className="text-[10px] text-stone-400">Database links & manual provisioning</p>
-                    </div>
-
-                    <div className="space-y-3.5">
-                      <button
-                        onClick={() => setAddNewMemberOpen(true)}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow-xs hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" /> Manually Add Member
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          if (user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') {
-                            setIsSQLModalOpen(true);
-                          } else {
-                            alert("Access Denied: Only tkpaite2016@gmail.com can configure Supabase Setup.");
-                          }
-                        }}
-                        disabled={user?.email?.toLowerCase() !== 'tkpaite2016@gmail.com'}
-                        className="w-full bg-white text-stone-700 hover:bg-stone-50 border border-stone-200 font-semibold text-xs py-2 px-4 rounded-xl shadow-xxs transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1.5"
-                        title={user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? "Configure database" : "Supabase configurations are restricted to tkpaite2016@gmail.com"}
-                      >
-                        <Database className="w-3.5 h-3.5 text-emerald-600" />
-                        Database SQL Script Guide
-                      </button>
-
-                      <button
-                        onClick={() => setIsBialDiagnosticOpen(true)}
-                        className="w-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/50 font-bold text-xs py-2 px-4 rounded-xl shadow-xxs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                        title="Compare financial records against registered user profiles to check Bial assignments"
-                      >
-                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-                        Bial Assignment Diagnostic Tool
-                      </button>
-
-                      <div className="pt-3 border-t border-stone-100 flex items-center justify-between">
-                        <div className="flex flex-col text-left">
-                          <span className="text-[10px] font-extrabold text-stone-700 uppercase tracking-wider">Football Predictions Module</span>
-                          <span className="text-[9px] text-stone-400">Toggle public access for standard members</span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isFootballEnabled}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setIsFootballEnabled(newValue);
-                              localStorage.setItem('sy_enable_football_predictions', newValue ? 'true' : 'false');
-                            }}
-                            className="sr-only peer"
-                          />
-                          <div className="w-8 h-4 bg-stone-200 dark:bg-stone-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-stone-600 peer-checked:bg-emerald-600"></div>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100/30 text-[11px] leading-normal text-emerald-900 space-y-1">
-                      <div className="flex items-center gap-1 font-bold">
-                        <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                        <span>Security Authority: OB</span>
-                      </div>
-                      <p className="text-emerald-800">
-                        As an Officer Bearer (Chairman/Secretary/etc.), you have absolute control over member clearances and roles. Promote users to ECM or OB anytime.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-              </section>
-            )}
-
-            {/* Member Demographics section */}
-            {showMemberDemographics && (
-              <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6 mb-6">
-                
-                {/* Age Group Distribution Chart */}
-                <div className={`${isCurrentUserAdmin ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4`}>
-                  <div className="flex flex-wrap items-center justify-between border-b pb-3 border-stone-100 gap-2">
-                    <div>
-                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Member Demographics</h4>
-                      <p className="text-[10px] text-stone-400">Gender ratios & age distribution across the fellowship</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="bg-blue-50 text-blue-700 px-2.5 py-1 text-[10px] font-extrabold rounded-lg border border-blue-100/80 flex items-center gap-1">
-                        <span>Male:</span>
-                        <strong className="text-blue-900 font-black text-xs">{totalMaleCount}</strong>
-                        {marriedMaleCount > 0 && <span className="text-[9px] text-blue-600 font-semibold">({singleMaleCount} Tg. | {marriedMaleCount} Pa)</span>}
-                      </span>
-                      <span className="bg-pink-50 text-pink-700 px-2.5 py-1 text-[10px] font-extrabold rounded-lg border border-pink-100/80 flex items-center gap-1">
-                        <span>Female:</span>
-                        <strong className="text-pink-900 font-black text-xs">{totalFemaleCount}</strong>
-                        <span className="text-[9px] text-pink-600 font-semibold">(Lia)</span>
-                      </span>
-                      <span className="bg-stone-100 text-stone-700 px-2.5 py-1 text-[10px] font-bold rounded-lg border border-stone-200">
-                        Avg Age: {averageAge > 0 ? `${averageAge} yrs` : 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {totalWithDob > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                      
-                      {/* Age Group Distribution bar chart */}
-                      <div className="md:col-span-7 space-y-2">
-                        <p className="text-[11px] font-bold text-stone-400 text-center uppercase tracking-wide">Age distribution groups</p>
-                        <div className="h-44 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={ageGroupDistributionData} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                              <XAxis dataKey="name" tick={{ fontSize: 9 }} stroke="#888888" />
-                              <YAxis tick={{ fontSize: 9 }} stroke="#888888" allowDecimals={false} />
-                              <ChartTooltip contentStyle={{ fontSize: '10px', borderRadius: '8px' }} />
-                              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                                {ageGroupDistributionData.map((entry, idx) => (
-                                  <Cell key={`cell-${idx}`} fill={entry.fill} />
-                                ))}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </div>
-
-                      {/* Gender Specific / Breakdown details */}
-                      <div className="md:col-span-5 flex flex-col justify-center space-y-2.5 bg-stone-50/50 p-4 rounded-xl border border-stone-100">
-                        <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wide border-b pb-1 flex items-center justify-between">
-                          <span>Gender Breakdown</span>
-                          <span className="text-[10px] text-stone-400 font-normal">Total {totalMaleCount + totalFemaleCount}</span>
-                        </div>
-                        
-                        <div className="flex items-center justify-between text-xs bg-blue-50/60 p-2 rounded-lg border border-blue-100/60">
-                          <span className="text-blue-900 font-bold flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
-                            <span>Male Members:</span>
-                          </span>
-                          <span className="font-black text-blue-800 text-xs">
-                            {totalMaleCount} <span className="text-[9px] font-medium text-blue-600">({singleMaleCount} Tg. | {marriedMaleCount} Pa)</span>
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs bg-pink-50/60 p-2 rounded-lg border border-pink-100/60">
-                          <span className="text-pink-900 font-bold flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
-                            <span>Female Members:</span>
-                          </span>
-                          <span className="font-black text-pink-800 text-xs">
-                            {totalFemaleCount} <span className="text-[9px] font-medium text-pink-600">(Lia)</span>
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs pt-1">
-                          <span className="text-stone-500 font-semibold flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-pink-400 shrink-0" />
-                            <span>Female Avg Age:</span>
-                          </span>
-                          <span className="font-bold text-stone-850">
-                            {femaleAvgAge > 0 ? `${femaleAvgAge} yrs` : 'N/A'}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs border-b border-stone-100 pb-2">
-                          <span className="text-stone-500 font-semibold flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
-                            <span>Male Avg Age:</span>
-                          </span>
-                          <span className="font-bold text-stone-850">
-                            {maleAvgAge > 0 ? `${maleAvgAge} yrs` : 'N/A'}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-stone-500 font-semibold">Youngest member:</span>
-                          <span className="font-bold text-emerald-600 truncate max-w-[140px]" title={youngestMemberName}>
-                            {youngestMemberName ? `${youngestMemberName} (${youngestAge})` : 'N/A'}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-stone-500 font-semibold">Oldest member:</span>
-                          <span className="font-bold text-purple-600 truncate max-w-[140px]" title={oldestMemberName}>
-                            {oldestMemberName ? `${oldestMemberName} (${oldestAge})` : 'N/A'}
-                          </span>
-                        </div>
-
-                        <div className="text-[10px] text-stone-400 mt-1 font-medium text-center">
-                          Based on {totalWithDob} of {totalCount} registered members ({Math.round((totalWithDob/totalCount)*100 || 0)}% DOB accuracy)
-                        </div>
-                      </div>
-
-                    </div>
-                  ) : (
-                    <div className="h-44 flex flex-col items-center justify-center text-stone-400 text-xs text-center border-2 border-dashed border-stone-150 rounded-xl bg-stone-50/20 p-4">
-                      <Calendar className="w-8 h-8 text-stone-300 mb-2 animate-pulse" />
-                      <p className="font-semibold">No member Date of Birth registered yet.</p>
-                      <p className="text-[10px] text-stone-400 mt-1">Update member profiles with DOB to calculate demographics.</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right side helper info panel (only if isCurrentUserAdmin, matching layout) */}
-                {isCurrentUserAdmin && (
-                  <div className="lg:col-span-4 bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-4">
-                    <div className="border-b pb-3 border-stone-100">
-                      <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Demographic Outlook</h4>
-                      <p className="text-[10px] text-stone-400 font-medium">Core youth representation insights</p>
-                    </div>
-
-                    <div className="space-y-3.5 flex-1 flex flex-col justify-center">
-                      <div className="text-center p-4 bg-amber-50/40 rounded-xl border border-amber-100/50">
-                        <span className="text-2xl font-black text-amber-600">{averageAge > 0 ? `${averageAge}` : 'N/A'}</span>
-                        <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mt-1">Average Youth Age</p>
-                      </div>
-                      
-                      <p className="text-[11px] leading-relaxed text-stone-500 text-center">
-                        The demographics data helps Committee Leaders and Officer Bearers arrange targeted spiritual retreats, age-appropriate study classes, and volunteer tasks.
-                      </p>
-                    </div>
-
-                    <div className="bg-stone-50 p-3.5 rounded-xl border border-stone-100 text-[10px] leading-normal text-stone-500 flex items-center gap-2">
-                      <Info className="w-4 h-4 text-stone-400 shrink-0" />
-                      <span>Encourage members to update their profile DOB to improve analytics precision!</span>
-                    </div>
-                  </div>
-                )}
-
-              </section>
-            )}
+            {/* Member Demographics & Analytics Charts Section */}
+            <MemberDemographicsSection
+              members={members}
+              currentUser={user}
+              isCurrentUserAdmin={isCurrentUserAdmin}
+              showRoleDistribution={showRoleDistribution}
+              showMemberDemographics={showMemberDemographics}
+              roleDistributionData={roleDistributionData}
+              statusDistributionData={statusDistributionData}
+              setAddNewMemberOpen={setAddNewMemberOpen}
+              setIsSQLModalOpen={setIsSQLModalOpen}
+              setIsBialDiagnosticOpen={setIsBialDiagnosticOpen}
+              isFootballEnabled={isFootballEnabled}
+              setIsFootballEnabled={setIsFootballEnabled}
+              isPrayerRequestsEnabled={isPrayerRequestsEnabled}
+              setIsPrayerRequestsEnabled={setIsPrayerRequestsEnabled}
+            />
 
             {/* Administrative / Manual register slider form */}
             {isCurrentUserAdmin && addNewMemberOpen && (
@@ -3162,10 +2912,7 @@ function AppContent() {
       </main>
 
       {/* Footer */}
-      <footer className="py-6 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row items-center justify-between px-6 gap-4 text-xs text-stone-400 dark:text-stone-500 mt-8">
-        <p>© {new Date().getFullYear()} Shalom Youth Center. All system rights reserved.</p>
-        <DatabaseHealthCheck />
-      </footer>
+      <AppFooter />
 
       {/* SQL script Copy tool */}
       <SQLSetupModal isOpen={isSQLModalOpen} onClose={() => setIsSQLModalOpen(false)} />

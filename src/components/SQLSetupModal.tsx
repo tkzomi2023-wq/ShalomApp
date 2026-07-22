@@ -47,17 +47,25 @@ export const SQLSetupModal: React.FC<SQLSetupModalProps> = ({ isOpen, onClose })
 
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-5 text-sm leading-relaxed text-stone-600 dark:text-stone-300">
-          <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-xs flex flex-col gap-1 shadow-xs">
-            <span className="font-bold flex items-center gap-1">🙏 Prayer Requests Table & Policies Setup</span>
-            <span>
-              The SQL script below creates the <strong>prayer_requests</strong> table with Row-Level Security (RLS) policies allowing members to post intercession requests and Office Bearers to view and mark requests as prayed.
+          <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-xs flex flex-col gap-1.5 shadow-xs">
+            <span className="font-bold text-sm flex items-center gap-1.5">
+              <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              Unified Supabase Database Schema (Members Directory & Prayer Requests)
             </span>
+            <span>
+              This comprehensive SQL script sets up all database tables and security policies required for the app, including:
+            </span>
+            <ul className="list-disc list-inside space-y-1 ml-1 text-stone-700 dark:text-stone-300 font-medium">
+              <li><strong>1. Members Directory Schema (<code>public.profiles</code>)</strong>: User records, roles, Bial groups, marital status, and auto-signup trigger.</li>
+              <li><strong>2. Prayer Requests Schema (<code>public.prayer_requests</code>)</strong>: Confidential member prayer & intercession requests table with RLS policies.</li>
+              <li><strong>3. Financial Records, Service Schedules, Chat & Storage Buckets</strong>: Complete support for all Shalom Youth modules.</li>
+            </ul>
           </div>
 
           <div className="bg-rose-50 dark:bg-rose-950/20 text-rose-800 dark:text-rose-400 p-3.5 rounded-xl border border-rose-100 dark:border-rose-900/30 text-xs flex flex-col gap-1 shadow-xs">
-            <span className="font-bold flex items-center gap-1">🚨 Error: column reference "user_id" is ambiguous (Bulk Edit Fix)</span>
+            <span className="font-bold flex items-center gap-1">🚨 Column Reference "user_id" Fix</span>
             <span>
-              If you receive an error stating <strong>'column reference "user_id" is ambiguous'</strong> during updates or bulk editing on the financial page, please copy and re-run the updated SQL script below in your Supabase SQL Editor. This redefines the database security helper functions (like <code>is_finance_admin</code>) with renamed parameters to prevent shadowing the <code>user_id</code> column in the profiles table.
+              If you encounter <strong>'column reference "user_id" is ambiguous'</strong> during updates or bulk editing, re-run this script in your Supabase SQL Editor. It redefines security helper functions (e.g. <code>is_finance_admin</code>) to prevent column shadowing.
             </span>
           </div>
 

@@ -42,7 +42,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   clearError: () => void;
-  retryInit: () => Promise<void>;
+  retryInit: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -61,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
 
   // Synchronize state and verify database connection
-  const initAuth = async (retryAttempt = 0) => {
+  const initAuth = async (retryAttempt = 0): Promise<boolean> => {
     const slowTimer = setTimeout(() => {
       setLoadingStatus(retryAttempt > 0 ? 'retrying' : 'slow');
     }, 3500);
@@ -75,12 +75,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoadingStatus('connecting');
       }
 
-      // Test connection with 5-second timeout
+      // Test connection with generous 12-second timeout to avoid premature cold-start timeouts
       let isSupabaseOnline = false;
       try {
-        isSupabaseOnline = await withTimeout(db.testConnection(), 5000, "Database Connection Timeout");
+        isSupabaseOnline = await withTimeout(db.testConnection(2, 400), 12000, "Database Connection Timeout");
       } catch (connErr) {
-        console.warn("Database Connection Timeout or connection test failed. Proceeding in offline/local fallback mode.", connErr);
+        console.warn("Database connection test failed or timed out. Proceeding with fallback check.", connErr);
         isSupabaseOnline = false;
       }
 
@@ -88,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         setLoadingStatus('connecting');
         clearTimeout(slowTimer);
-        return;
+        return isSupabaseOnline;
       }
 
       // Check if there is a cached user session locally or in Supabase
@@ -97,10 +97,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isSupabaseOnline) {
         try {
           // If we have a live connection, synchronize with Supabase Auth
-          const { data: { session } } = await withTimeout(supabase.auth.getSession(), 5000, "Session Fetch Timeout");
+          const { data: { session } } = await withTimeout(supabase.auth.getSession(), 8000, "Session Fetch Timeout");
           if (session?.user) {
             const email = session.user.email || '';
-            const members = await withTimeout(db.getMembers(), 5000, "Members Sync Timeout");
+            const members = await withTimeout(db.getMembers(), 8000, "Members Sync Timeout");
             let currentProfile = members.find(m => m.email.toLowerCase() === email.toLowerCase());
             
             if (!currentProfile) {
@@ -112,7 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 phone: session.user.phone || session.user.user_metadata?.phone || '',
                 role: email === DEFAULT_ADMIN_EMAIL ? 'Founder' : 'standard',
                 status: email === DEFAULT_ADMIN_EMAIL ? 'approved' : 'pending'
-              }), 5000, "Profile Setup Timeout");
+              }), 8000, "Profile Setup Timeout");
 
               if (currentProfile.status === 'pending') {
                 notifyOBsOfPendingRegistration(currentProfile);
@@ -141,31 +141,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!isSupabaseOnline) {
         // Local emulator/offline mode
         if (cachedUserStr) {
-          const cachedUser = JSON.parse(cachedUserStr) as Member;
-          // Get latest data from local profile copy
-          const members = await withTimeout(db.getMembers(), 4000, "Local DB Timeout").catch(() => [] as Member[]);
-          const latestProfile = members.find(m => m.email.toLowerCase() === cachedUser.email.toLowerCase());
-          if (latestProfile) {
-            setUser(latestProfile);
-            safeStorage.setItem('sy_current_user', JSON.stringify(latestProfile));
-          } else {
-            setUser(cachedUser);
-          }
+          try {
+            const cachedUser = JSON.parse(cachedUserStr) as Member;
+            // Get latest data from local profile copy
+            const members = await withTimeout(db.getMembers(), 4000, "Local DB Timeout").catch(() => [] as Member[]);
+            const latestProfile = members.find(m => m.email.toLowerCase() === cachedUser.email.toLowerCase());
+            if (latestProfile) {
+              setUser(latestProfile);
+              safeStorage.setItem('sy_current_user', JSON.stringify(latestProfile));
+            } else {
+              setUser(cachedUser);
+            }
+          } catch (_) {}
+        } else if (retryAttempt > 0) {
+          // Explicit manual retry failed with no live connection and no session
+          setLoadingStatus('error');
+          setError(db.lastError || "Could not reach Shalom Youth Database. Please check your network connection and retry.");
+          clearTimeout(slowTimer);
+          return false;
         }
       }
+
       clearTimeout(slowTimer);
       setLoadingStatus('connecting'); // Reset
+      return isSupabaseOnline;
     } catch (err: any) {
       console.error(`Auth initialization error (attempt ${retryAttempt + 1}):`, err);
       clearTimeout(slowTimer);
 
       if (retryAttempt < 2) {
-        // Wait 1.5 seconds and retry
-        console.log(`Retrying initialization in 1.5s...`);
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        console.log(`Retrying initialization in 1s...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
         return initAuth(retryAttempt + 1);
       } else {
-        // Fallback to cache if we are completely offline but have local user cached
         const cachedUserStr = safeStorage.getItem('sy_current_user');
         if (cachedUserStr) {
           try {
@@ -174,11 +182,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.warn("Using cached profile session after failed connections.");
             setLoadingStatus('connecting');
             setLoading(false);
-            return;
+            return false;
           } catch (_) {}
         }
         setLoadingStatus('error');
         setError(err?.message || "Failed to establish a secure connection with Shalom Youth Database.");
+        return false;
       }
     } finally {
       setLoading(false);
@@ -232,8 +241,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const retryInit = async () => {
-    await initAuth(0);
+  const retryInit = async (): Promise<boolean> => {
+    return await initAuth(1);
   };
 
   const refreshProfile = async () => {

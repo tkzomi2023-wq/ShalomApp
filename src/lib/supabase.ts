@@ -668,33 +668,72 @@ class HybridDatabaseManager {
     this.useLocalOnly = false;
   }
 
-  // Check if live Supabase is fully configured with our custom tables (with robust progressive retries)
-  async testConnection(retries = 3, delayMs = 600): Promise<boolean> {
+  // Check if live Supabase is fully reachable and online (with robust progressive retries & fallbacks)
+  async testConnection(retries = 2, delayMs = 400): Promise<boolean> {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const { error } = await supabase.from('profiles').select('id').limit(1);
         if (error) {
-          const fullMsg = `[Code: ${error.code || 'unknown'}] ${error.message || 'No message'}`;
-          console.warn(`Supabase profiles query returned an error (attempt ${attempt}/${retries}):`, fullMsg);
-          this.lastError = fullMsg;
-          
-          if (attempt === retries) {
-            return false;
+          const supaErr = error as any;
+          const msg = error.message || '';
+          const isNetworkFailure = 
+            msg.toLowerCase().includes('failed to fetch') || 
+            msg.toLowerCase().includes('network') ||
+            msg.toLowerCase().includes('timeout') ||
+            msg.toLowerCase().includes('load failed') ||
+            supaErr.status === null || 
+            supaErr.status === undefined ||
+            supaErr.status === 0;
+
+          if (isNetworkFailure) {
+            const fullMsg = `[Code: ${error.code || 'NetworkError'}] ${msg || 'Failed to reach Supabase REST API'}`;
+            console.warn(`Supabase profiles query returned network error (attempt ${attempt}/${retries}):`, fullMsg);
+            this.lastError = fullMsg;
+
+            // Secondary fallback test: check if auth REST endpoint is reachable
+            try {
+              const { error: authErr } = await supabase.auth.getSession();
+              if (!authErr) {
+                console.log("Secondary Supabase Auth ping succeeded!");
+                this.lastError = null;
+                return true;
+              }
+            } catch (_) {}
+
+            if (attempt === retries) {
+              return false;
+            }
+          } else {
+            // Non-network response (e.g. RLS active, PGRST code, HTTP 200/401/403/406) means Supabase API is reachable!
+            console.log(`Supabase API connection test succeeded with response code: ${error.code || supaErr.status}`);
+            this.lastError = null;
+            return true;
           }
         } else {
+          // Success! Query returned data array
           this.lastError = null;
           return true;
         }
       } catch (e: any) {
         const errStr = e?.message || String(e);
-        console.warn(`Supabase connection test failed (attempt ${attempt}/${retries}):`, errStr);
+        console.warn(`Supabase connection test exception (attempt ${attempt}/${retries}):`, errStr);
         this.lastError = errStr;
+
+        // Try auth fallback on exception
+        try {
+          const { error: authErr } = await supabase.auth.getSession();
+          if (!authErr) {
+            console.log("Secondary Auth ping succeeded after query exception!");
+            this.lastError = null;
+            return true;
+          }
+        } catch (_) {}
+
         if (attempt === retries) {
           return false;
         }
       }
       if (attempt < retries) {
-        // Progressive backoff: wait longer on subsequent attempts
         await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
       }
     }

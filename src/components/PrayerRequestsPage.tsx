@@ -21,13 +21,11 @@ import {
   EyeOff,
   Eye,
   Check,
-  Edit3,
-  Database
+  Edit3
 } from 'lucide-react';
 import { Member, PrayerRequest, PrayerCategory, isOBUser, DEFAULT_ADMIN_EMAIL } from '../types';
 import { prayerService } from '../lib/prayers';
 import { supabase } from '../lib/supabase';
-import { SQLSetupModal } from './SQLSetupModal';
 
 interface PrayerRequestsPageProps {
   currentUser: Member;
@@ -79,9 +77,6 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
   // Delete modal state
   const [deletingRequest, setDeletingRequest] = useState<PrayerRequest | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
-
-  // SQL Setup Modal
-  const [isSqlModalOpen, setIsSqlModalOpen] = useState<boolean>(false);
 
   const isOB = currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(currentUser.role);
 
@@ -265,6 +260,8 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
   const totalCount = requests.length;
   const pendingCount = requests.filter(r => r.status === 'pending').length;
   const prayedCount = requests.filter(r => r.status === 'prayed').length;
+  const urgentCount = requests.filter(r => r.category === 'Urgent').length;
+  const answerRate = totalCount > 0 ? Math.round((prayedCount / totalCount) * 100) : 0;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -287,15 +284,6 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
 
           <div className="flex flex-wrap items-center gap-3">
             <button
-              type="button"
-              onClick={() => setIsSqlModalOpen(true)}
-              className="px-4 py-3 bg-stone-800/80 hover:bg-stone-800 text-stone-200 font-bold text-xs sm:text-sm rounded-xl border border-stone-700/60 transition-all cursor-pointer flex items-center gap-2 shrink-0 shadow-sm"
-              title="View / Copy SQL Script for Supabase Table Setup"
-            >
-              <Database className="w-4 h-4 text-emerald-400" />
-              <span>Supabase SQL Setup</span>
-            </button>
-            <button
               onClick={() => {
                 setFormError(null);
                 setSubmitSuccess(false);
@@ -307,6 +295,137 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
               <span>Post Prayer Request</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Summary Dashboard Widget */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Requests Card */}
+        <div 
+          onClick={() => { setActiveTab('all'); setSelectedCategory('All'); }}
+          className={`p-4 rounded-2xl bg-white dark:bg-stone-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+            activeTab === 'all' && selectedCategory === 'All'
+              ? 'border-emerald-500 ring-2 ring-emerald-500/20'
+              : 'border-stone-200/80 dark:border-stone-800 hover:border-emerald-300 dark:hover:border-emerald-700'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+              Total Requests
+            </span>
+            <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400 border border-teal-100 dark:border-teal-900/40">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white tracking-tight">
+              {totalCount}
+            </span>
+            <span className="text-[10px] font-semibold text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-full border border-teal-200/50">
+              Submitted
+            </span>
+          </div>
+          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-teal-500 shrink-0" />
+            Active intercessory needs
+          </p>
+        </div>
+
+        {/* Answered / Prayed For Card */}
+        <div 
+          onClick={() => { setActiveTab('prayed'); setSelectedCategory('All'); }}
+          className={`p-4 rounded-2xl bg-white dark:bg-stone-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+            activeTab === 'prayed'
+              ? 'border-emerald-500 ring-2 ring-emerald-500/20'
+              : 'border-stone-200/80 dark:border-stone-800 hover:border-emerald-300 dark:hover:border-emerald-700'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+              Prayed & Answered
+            </span>
+            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+              {prayedCount}
+            </span>
+            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-300/50">
+              {answerRate}% Interceded
+            </span>
+          </div>
+          <div className="mt-2.5">
+            <div className="w-full h-1.5 bg-stone-150 dark:bg-stone-800 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                style={{ width: `${answerRate}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Pending Requests Card */}
+        <div 
+          onClick={() => { setActiveTab('pending'); setSelectedCategory('All'); }}
+          className={`p-4 rounded-2xl bg-white dark:bg-stone-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+            activeTab === 'pending'
+              ? 'border-amber-500 ring-2 ring-amber-500/20'
+              : 'border-stone-200/80 dark:border-stone-800 hover:border-amber-300 dark:hover:border-amber-700'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+              Pending Intercessions
+            </span>
+            <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/40">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white tracking-tight">
+              {pendingCount}
+            </span>
+            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-200/50">
+              In Prayer
+            </span>
+          </div>
+          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2 flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3 text-amber-500 shrink-0" />
+            Standing in agreement
+          </p>
+        </div>
+
+        {/* Urgent Needs Card */}
+        <div 
+          onClick={() => { setSelectedCategory('Urgent'); setActiveTab('all'); }}
+          className={`p-4 rounded-2xl bg-white dark:bg-stone-900 border transition-all cursor-pointer shadow-xs hover:shadow-md ${
+            selectedCategory === 'Urgent'
+              ? 'border-rose-500 ring-2 ring-rose-500/20'
+              : 'border-stone-200/80 dark:border-stone-800 hover:border-rose-300 dark:hover:border-rose-700'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+              Urgent Requests
+            </span>
+            <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/40">
+              <AlertCircle className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl sm:text-3xl font-black text-rose-600 dark:text-rose-400 tracking-tight">
+              {urgentCount}
+            </span>
+            <span className="text-[10px] font-semibold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-full border border-rose-200/50">
+              High Priority
+            </span>
+          </div>
+          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2 flex items-center gap-1">
+            <Heart className="w-3 h-3 text-rose-500 fill-rose-500 shrink-0" />
+            Requires immediate prayer
+          </p>
         </div>
       </div>
 
@@ -1046,12 +1165,6 @@ export const PrayerRequestsPage: React.FC<PrayerRequestsPageProps> = ({ currentU
           </div>
         )}
       </AnimatePresence>
-
-      {/* --- MODAL: SQL Setup Modal --- */}
-      <SQLSetupModal
-        isOpen={isSqlModalOpen}
-        onClose={() => setIsSqlModalOpen(false)}
-      />
     </div>
   );
 };

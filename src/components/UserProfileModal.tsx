@@ -283,16 +283,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   };
 
-  const runPassportCrop = async (imageFile: File, attempt = 1): Promise<File> => {
-    const withTimeoutHelper = <T,>(promise: Promise<T>, timeoutMs: number, errorMessage = "Timeout"): Promise<T> => {
+  const runPassportCrop = async (imageFile: File): Promise<File> => {
+    const withTimeoutHelper = <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
       return Promise.race([
         promise,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(errorMessage)), timeoutMs))
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), timeoutMs))
       ]);
     };
 
     setIsCroppingPassport(true);
     setPassportCropError(null);
+
     try {
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
@@ -302,40 +303,25 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       reader.readAsDataURL(imageFile);
       const base64Image = await base64Promise;
 
-      // Call API with a 9-second timeout
-      let res: Response;
+      let coords: { top: number; left: number; right: number; bottom: number } | null = null;
       try {
-        res = await withTimeoutHelper(fetch("/api/detect-face", {
+        const res = await withTimeoutHelper(fetch("/api/detect-face", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: base64Image })
-        }), 9000);
-      } catch (err: any) {
-        if (err.name === 'AbortError' || err.message?.includes("Timeout")) {
-          throw new Error("CONNECTION_TIMEOUT");
+        }), 8000);
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.left === 'number' && typeof data.top === 'number' && !data.error) {
+            coords = data;
+          }
         }
-        throw err;
+      } catch (err) {
+        console.warn("AI face detection API call skipped or timed out, using smart client fallback crop:", err);
       }
 
-      if (!res.ok) {
-        if (res.status === 429) {
-          throw new Error("RATE_LIMIT");
-        }
-        throw new Error("API_ERROR");
-      }
-
-      const coords = await res.json();
-      if (!coords || coords.error) {
-        if (coords?.error?.includes("face")) {
-          throw new Error("NO_FACE_DETECTED");
-        }
-        throw new Error(coords?.error || "INVALID_COORDS");
-      }
-      if (typeof coords.left !== 'number') {
-        throw new Error("NO_FACE_DETECTED");
-      }
-
-      // Perform canvas drawing
+      // Load image into HTML Image object
       const img = new Image();
       const loadPromise = new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
@@ -344,10 +330,61 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       img.src = base64Image;
       await loadPromise;
 
-      const sx = Math.max(0, Math.min(img.width - 10, coords.left * img.width));
-      const sy = Math.max(0, Math.min(img.height - 10, coords.top * img.height));
-      const sWidth = Math.max(10, Math.min(img.width - sx, (coords.right - coords.left) * img.width));
-      const sHeight = Math.max(10, Math.min(img.height - sy, (coords.bottom - coords.top) * img.height));
+      let finalLeft = 0.15;
+      let finalTop = 0.08;
+      let finalRight = 0.85;
+      let finalBottom = 0.78;
+
+      if (coords) {
+        // AI Face Detection was successful
+        const rawTop = coords.top;
+        const rawLeft = coords.left;
+        const rawRight = coords.right;
+        const rawBottom = coords.bottom;
+
+        const boxHeight = rawBottom - rawTop;
+        const boxWidth = rawRight - rawLeft;
+
+        // Apply 22% headroom offset above the top of the face/head to ensure top of head/hair is never clipped
+        const headroomOffset = boxHeight * 0.22;
+        const adjustedTop = Math.max(0, rawTop - headroomOffset);
+
+        // Keep a square 1:1 aspect ratio centered over the face
+        const adjustedHeight = rawBottom - adjustedTop;
+        const adjustedWidth = Math.max(adjustedHeight, boxWidth * 1.1);
+        const centerX = (rawLeft + rawRight) / 2;
+
+        finalTop = adjustedTop;
+        finalBottom = finalTop + adjustedWidth;
+        if (finalBottom > 1.0) {
+          finalBottom = 1.0;
+          finalTop = Math.max(0, finalBottom - adjustedWidth);
+        }
+
+        finalLeft = Math.max(0, centerX - adjustedWidth / 2);
+        finalRight = Math.min(1.0, finalLeft + adjustedWidth);
+        if (finalRight - finalLeft < adjustedWidth) {
+          finalLeft = Math.max(0, finalRight - adjustedWidth);
+        }
+      } else {
+        // Smart client-side fallback crop when AI service is unavailable
+        const minDim = Math.min(img.width, img.height);
+        const cropRatio = 0.85;
+        
+        // Center horizontally
+        finalLeft = Math.max(0, (img.width - minDim * cropRatio) / (2 * img.width));
+        finalRight = Math.min(1.0, finalLeft + (minDim * cropRatio) / img.width);
+        
+        // Generous headroom at top (5% top margin)
+        finalTop = Math.max(0, 0.05);
+        finalBottom = Math.min(1.0, finalTop + (minDim * cropRatio) / img.height);
+      }
+
+      // Perform canvas drawing with pixel precision
+      const sx = Math.max(0, Math.min(img.width - 10, finalLeft * img.width));
+      const sy = Math.max(0, Math.min(img.height - 10, finalTop * img.height));
+      const sWidth = Math.max(10, Math.min(img.width - sx, (finalRight - finalLeft) * img.width));
+      const sHeight = Math.max(10, Math.min(img.height - sy, (finalBottom - finalTop) * img.height));
 
       const canvas = document.createElement("canvas");
       canvas.width = 400;
@@ -369,34 +406,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
       const ext = 'jpg';
       const croppedFile = new File([croppedBlob], `avatar_passport_${Date.now()}.${ext}`, { type: 'image/jpeg' });
+      setPassportCropError(null);
       return croppedFile;
 
     } catch (err: any) {
-      console.warn(`Face detection attempt ${attempt} failed:`, err.message || err);
-
-      // Retry logic (up to 3 times) with exponential backoff
-      if (attempt < 3 && err.message !== "NO_FACE_DETECTED" && err.message !== "FAILED_IMAGE_LOAD") {
-        const backoffDelay = Math.pow(2, attempt) * 1000; // 2s, then 4s
-        await new Promise(resolve => setTimeout(resolve, backoffDelay));
-        return runPassportCrop(imageFile, attempt + 1);
+      console.warn("Passport crop error:", err.message || err);
+      if (err.message === "FAILED_IMAGE_LOAD") {
+        setPassportCropError("The image file could not be read. Please try selecting a different image.");
       }
-
-      // Map technical errors to user friendly warnings
-      let friendlyMessage = "We encountered an unexpected error during AI cropping.";
-      if (err.message === "CONNECTION_TIMEOUT") {
-        friendlyMessage = "Poor connection detected. The face-detection service timed out.";
-      } else if (err.message === "RATE_LIMIT") {
-        friendlyMessage = "Face-detection service is currently busy (rate limit reached). Please try again shortly.";
-      } else if (err.message === "NO_FACE_DETECTED") {
-        friendlyMessage = "No clear face was detected in the uploaded photo. Please use a well-lit, front-facing passport style image.";
-      } else if (err.message === "FAILED_IMAGE_LOAD") {
-        friendlyMessage = "The image resolution is too high or the file is corrupted.";
-      } else if (err.message === "API_ERROR") {
-        friendlyMessage = "Failed to contact the face-detection AI service.";
-      }
-
-      setPassportCropError(friendlyMessage);
-      // Return original file so user can proceed
       return imageFile;
     } finally {
       setIsCroppingPassport(false);
