@@ -77,6 +77,7 @@ export const ActiveCallModal: React.FC = () => {
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Callback ref handler to attach localStream as soon as video element enters DOM
   const setLocalVideoRef = (el: HTMLVideoElement | null) => {
@@ -96,7 +97,20 @@ export const ActiveCallModal: React.FC = () => {
       if (el.srcObject !== remoteStream) {
         el.srcObject = remoteStream;
       }
+      el.muted = isSpeakerMuted;
       el.play().catch(() => {});
+    }
+  };
+
+  // Callback ref handler for dedicated audio playback during voice calls
+  const setRemoteAudioRef = (el: HTMLAudioElement | null) => {
+    remoteAudioRef.current = el;
+    if (el && remoteStream) {
+      if (el.srcObject !== remoteStream) {
+        el.srcObject = remoteStream;
+      }
+      el.muted = isSpeakerMuted;
+      el.play().catch((err) => console.warn('Remote audio stream play warning:', err));
     }
   };
 
@@ -116,9 +130,21 @@ export const ActiveCallModal: React.FC = () => {
       if (remoteVideoRef.current.srcObject !== remoteStream) {
         remoteVideoRef.current.srcObject = remoteStream;
       }
+      remoteVideoRef.current.muted = isSpeakerMuted;
       remoteVideoRef.current.play().catch(() => {});
     }
-  }, [remoteStream, callState, callType]);
+  }, [remoteStream, callState, callType, isSpeakerMuted]);
+
+  // Attach remote stream to audio element for voice calls
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream) {
+      if (remoteAudioRef.current.srcObject !== remoteStream) {
+        remoteAudioRef.current.srcObject = remoteStream;
+      }
+      remoteAudioRef.current.muted = isSpeakerMuted;
+      remoteAudioRef.current.play().catch((err) => console.warn('Remote audio stream play warning:', err));
+    }
+  }, [remoteStream, callState, callType, isSpeakerMuted]);
 
   if (callState !== 'ringing_outgoing' && callState !== 'active' && callState !== 'ended') {
     return null;
@@ -188,6 +214,17 @@ export const ActiveCallModal: React.FC = () => {
             <PhoneOff className="w-4 h-4" />
           </button>
         </div>
+
+        {/* Dedicated audio element for voice calls in PiP mode */}
+        {remoteStream && (
+          <audio 
+            ref={setRemoteAudioRef} 
+            autoPlay 
+            playsInline 
+            muted={isSpeakerMuted} 
+            className="hidden" 
+          />
+        )}
       </div>
     );
   }
@@ -419,6 +456,17 @@ export const ActiveCallModal: React.FC = () => {
             <span className="hidden sm:inline text-sm">End Call</span>
           </button>
         </div>
+
+        {/* Dedicated audio element for voice calls */}
+        {remoteStream && (
+          <audio 
+            ref={setRemoteAudioRef} 
+            autoPlay 
+            playsInline 
+            muted={isSpeakerMuted} 
+            className="hidden" 
+          />
+        )}
 
       </div>
 
