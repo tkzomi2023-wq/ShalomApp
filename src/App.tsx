@@ -30,6 +30,10 @@ import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
 import { getApiUrl, apiFetch, safeJsonParse } from './lib/api';
+import { CallingProvider } from './context/CallingContext';
+import { IncomingCallModal } from './components/calling/IncomingCallModal';
+import { ActiveCallModal } from './components/calling/ActiveCallModal';
+import { CallHistoryPage } from './components/calling/CallHistoryPage';
 
 // Recharts for analytics representation
 import { 
@@ -393,14 +397,14 @@ function AppContent() {
       setIsRetryingFromUI(false);
     }
   };
-  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football' | 'prayer-requests'>(() => {
+  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football' | 'prayer-requests' | 'calling'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests'].includes(tab)) {
+    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling'].includes(tab)) {
       return tab as any;
     }
     const hash = window.location.hash.replace('#', '');
-    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests'].includes(hash)) {
+    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling'].includes(hash)) {
       return hash as any;
     }
     return 'directory';
@@ -414,6 +418,10 @@ function AppContent() {
 
   const [isPrayerRequestsEnabled, setIsPrayerRequestsEnabled] = useState<boolean>(() => {
     return localStorage.getItem('sy_enable_prayer_requests') !== 'false';
+  });
+
+  const [isCallingEnabled, setIsCallingEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('sy_enable_calling_services') !== 'false';
   });
 
   useEffect(() => {
@@ -2526,6 +2534,7 @@ function AppContent() {
                   <Calendar className="w-3.5 h-3.5 shrink-0" />
                   <span>Service Schedules</span>
                 </button>
+
                 {(isPrayerRequestsEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
                   <button
                     id="tab-btn-prayers"
@@ -2570,6 +2579,16 @@ function AppContent() {
                   >
                     <Trophy className="w-3.5 h-3.5 shrink-0" />
                     <span>Football Predictions</span>
+                  </button>
+                )}
+                {(isCallingEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+                  <button
+                    id="tab-btn-calling"
+                    onClick={() => setCurrentTab('calling')}
+                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'calling' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
+                  >
+                    <PhoneCall className="w-3.5 h-3.5 shrink-0" />
+                    <span>Calls & History</span>
                   </button>
                 )}
               </div>
@@ -2701,6 +2720,28 @@ function AppContent() {
               ) : (
                 <PrayerRequestsPage currentUser={user} />
               )
+            ) : currentTab === 'calling' ? (
+              (!isCallingEnabled && user?.email?.toLowerCase() !== 'tkpaite2016@gmail.com') ? (
+                <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-8 md:p-12 text-center max-w-lg mx-auto shadow-sm my-8">
+                  <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-200/50">
+                    <PhoneCall className="w-8 h-8 text-blue-600 dark:text-blue-500" />
+                  </div>
+                  <h3 className="text-xl font-extrabold text-stone-900 dark:text-white mb-3">
+                    Calling Services Module Inactive
+                  </h3>
+                  <p className="text-stone-500 dark:text-stone-400 text-sm mb-6 leading-relaxed">
+                    Voice & Video Calling services and call history features are currently disabled by administrators. Please check back later or contact your system administrator.
+                  </p>
+                  <button
+                    onClick={() => setCurrentTab('directory')}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-6 rounded-xl transition-all cursor-pointer shadow-xs"
+                  >
+                    Go Back to Directory
+                  </button>
+                </div>
+              ) : (
+                <CallHistoryPage />
+              )
             ) : currentTab === 'birthday-tasks' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
               <BirthdayEmailSettingsPage currentUser={user} members={members} />
             ) : currentTab === 'meta-settings' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
@@ -2811,6 +2852,8 @@ function AppContent() {
               setIsFootballEnabled={setIsFootballEnabled}
               isPrayerRequestsEnabled={isPrayerRequestsEnabled}
               setIsPrayerRequestsEnabled={setIsPrayerRequestsEnabled}
+              isCallingEnabled={isCallingEnabled}
+              setIsCallingEnabled={setIsCallingEnabled}
             />
 
             {/* Administrative / Manual register slider form */}
@@ -4394,6 +4437,9 @@ function AppContent() {
           </div>
         </div>
       )}
+      {/* Real-time Voice & Video Call Overlays */}
+      <IncomingCallModal />
+      <ActiveCallModal />
     </div>
   );
 }
@@ -4401,7 +4447,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <CallingProvider>
+        <AppContent />
+      </CallingProvider>
     </AuthProvider>
   );
 }

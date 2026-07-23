@@ -9,6 +9,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Member, UserRole, ALL_ROLES, OB_ROLES, isOBUser, DEFAULT_ADMIN_EMAIL, formatMemberName, getDefaultAvatar, getCleanAvatar } from '../types';
 import { RoleBadge } from './RoleBadge';
+import { CallButtons } from './calling/CallButtons';
 import { 
   Search, 
   ShieldAlert, 
@@ -888,6 +889,10 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             </button>
                           )}
 
+                          {member.status === 'approved' && currentUser && currentUser.id !== member.id && (
+                            <CallButtons member={member} size="sm" />
+                          )}
+
                           {member.status === 'approved' && (
                             <button
                               type="button"
@@ -1064,7 +1069,11 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                     )}
                   </div>
                   
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 items-center">
+                    {member.status === 'approved' && currentUser && currentUser.id !== member.id && (
+                      <CallButtons member={member} size="sm" />
+                    )}
+
                     {isCurrentUserAdmin && member.status === 'pending' && (
                       <button
                         onClick={() => handleQuickApprove(member.id, member.role)}

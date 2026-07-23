@@ -46,6 +46,8 @@ interface MemberDemographicsSectionProps {
   setIsFootballEnabled: (enabled: boolean) => void;
   isPrayerRequestsEnabled: boolean;
   setIsPrayerRequestsEnabled: (enabled: boolean) => void;
+  isCallingEnabled?: boolean;
+  setIsCallingEnabled?: (enabled: boolean) => void;
 }
 
 // Custom Tooltip for Recharts Bar Chart
@@ -94,7 +96,9 @@ export const MemberDemographicsSection: React.FC<MemberDemographicsSectionProps>
   isFootballEnabled,
   setIsFootballEnabled,
   isPrayerRequestsEnabled,
-  setIsPrayerRequestsEnabled
+  setIsPrayerRequestsEnabled,
+  isCallingEnabled = true,
+  setIsCallingEnabled
 }) => {
   // Total stats
   const totalCount = members.length;
@@ -372,6 +376,25 @@ export const MemberDemographicsSection: React.FC<MemberDemographicsSectionProps>
                             const newValue = e.target.checked;
                             setIsPrayerRequestsEnabled(newValue);
                             localStorage.setItem('sy_enable_prayer_requests', newValue ? 'true' : 'false');
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4 bg-stone-300 dark:bg-stone-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-stone-800 dark:text-stone-200">Audio/Video Calling & History Module</span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isCallingEnabled}
+                          onChange={(e) => {
+                            const newValue = e.target.checked;
+                            if (setIsCallingEnabled) {
+                              setIsCallingEnabled(newValue);
+                            }
+                            localStorage.setItem('sy_enable_calling_services', newValue ? 'true' : 'false');
                           }}
                           className="sr-only peer"
                         />

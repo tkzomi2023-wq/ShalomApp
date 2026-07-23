@@ -222,7 +222,7 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 bg-stone-950/80 backdrop-blur-xs flex items-start sm:items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
+      <div className="fixed inset-0 bg-stone-950/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
         
         {/* Scoped printing stylesheet injected dynamically */}
         <style dangerouslySetInnerHTML={{ __html: `
@@ -258,71 +258,69 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ type: "spring", duration: 0.4 }}
-          className="bg-stone-50 dark:bg-stone-900 rounded-2xl max-w-4xl w-full flex flex-col shadow-2xl border border-stone-200 dark:border-stone-800 my-2 sm:my-8"
+          className="bg-stone-50 dark:bg-stone-900 rounded-2xl max-w-4xl w-full flex flex-col shadow-2xl border border-stone-200 dark:border-stone-800 my-auto overflow-hidden max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2.5rem)] shrink-0 min-h-0"
         >
           {/* Header Controls */}
-          <div className="p-5 border-b border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="p-3 sm:p-5 border-b border-stone-200 dark:border-stone-800 flex items-start justify-between gap-3 shrink-0 bg-stone-50 dark:bg-stone-900 z-10">
             <div>
-              <h3 className="text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                Printable Member ID Card
+              <h3 className="text-sm sm:text-base font-extrabold text-stone-900 dark:text-white flex items-center gap-1.5 sm:gap-2">
+                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                Member ID Card
               </h3>
-              <p className="text-xs text-stone-500 dark:text-stone-400">
+              <p className="text-[11px] sm:text-xs text-stone-500 dark:text-stone-400 mt-0.5">
                 Official double-sided CR80 badge design with event scanning QR code.
               </p>
             </div>
             
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button
-                type="button"
-                onClick={onClose}
-                className="ml-auto sm:ml-0 p-2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl transition-all cursor-pointer"
-                title="Close Modal"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl transition-all cursor-pointer shrink-0"
+              title="Close Modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Action Toolbar */}
-          <div className="bg-stone-100 dark:bg-stone-950 p-4 border-b border-stone-200 dark:border-stone-850 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex bg-stone-200/65 dark:bg-stone-850 p-1 rounded-xl gap-1">
+          <div className="bg-stone-100 dark:bg-stone-950 p-2.5 sm:p-3.5 border-b border-stone-200 dark:border-stone-850 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
+            <div className="flex bg-stone-200/65 dark:bg-stone-850 p-1 rounded-xl gap-1 w-full sm:w-auto justify-center">
               <button
                 onClick={() => setSelectedSide('both')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedSide === 'both' ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-xxs' : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'}`}
+                className={`px-2.5 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedSide === 'both' ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-xxs' : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'}`}
               >
-                Show Both Sides
+                Both Sides
               </button>
               <button
                 onClick={() => setSelectedSide('front')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedSide === 'front' ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-xxs' : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'}`}
+                className={`px-2.5 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedSide === 'front' ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-xxs' : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'}`}
               >
                 Front Only
               </button>
               <button
                 onClick={() => setSelectedSide('back')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedSide === 'back' ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-xxs' : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'}`}
+                className={`px-2.5 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer ${selectedSide === 'back' ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-xxs' : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'}`}
               >
                 Back Only
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-1.5 sm:gap-2 w-full sm:w-auto">
               <button
                 onClick={handlePrint}
-                className="px-3.5 py-1.5 bg-stone-200 hover:bg-stone-300 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-stone-300 dark:border-stone-700"
+                className="px-2.5 sm:px-3.5 py-1.5 bg-stone-200 hover:bg-stone-300 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 rounded-xl text-[11px] sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer border border-stone-300 dark:border-stone-700"
               >
                 <Printer className="w-3.5 h-3.5" />
-                Print Card
+                <span>Print</span>
               </button>
 
               <button
                 onClick={downloadAsPdf}
                 disabled={isDownloading}
-                className="px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="px-2.5 sm:px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <FileDown className="w-3.5 h-3.5" />
-                Download PDF
+                <span>PDF</span>
               </button>
 
               <div className="relative" ref={saveMenuRef}>
@@ -330,10 +328,10 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
                   type="button"
                   onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)}
                   disabled={isDownloading}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="px-2.5 sm:px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] sm:text-xs font-black transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Save Image(s)</span>
+                  <span>Save Image</span>
                   <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {isSaveMenuOpen && (
@@ -377,18 +375,18 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
 
           {/* Download Loader status message */}
           {isDownloading && (
-            <div className="bg-emerald-500 text-white text-xs px-4 py-2 text-center font-bold flex items-center justify-center gap-2 animate-pulse">
+            <div className="bg-emerald-500 text-white text-xs px-4 py-2 text-center font-bold flex items-center justify-center gap-2 animate-pulse shrink-0">
               <span className="w-3.5 h-3.5 border border-t-transparent border-white rounded-full animate-spin"></span>
               {downloadProgress || 'Preparing download assets...'}
             </div>
           )}
 
           {/* Main Printable Card Container area */}
-          <div className="p-8 flex items-center justify-center bg-stone-250 dark:bg-stone-950 overflow-x-auto min-h-[500px]">
+          <div className="p-2 sm:p-6 flex items-center justify-center bg-stone-200/50 dark:bg-stone-950 overflow-y-auto overflow-x-auto flex-1 min-h-0">
             <div 
               id="printable-id-card-area"
               ref={containerRef}
-              className="flex flex-col md:flex-row items-center justify-center gap-8 py-4 px-2"
+              className="flex flex-col md:flex-row items-center justify-center gap-4 sm:gap-8 py-2 sm:py-4 px-1 transform scale-[0.82] min-[400px]:scale-90 sm:scale-100 origin-center"
             >
               
               {/* Front Side Card */}

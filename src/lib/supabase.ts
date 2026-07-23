@@ -576,6 +576,83 @@ CREATE POLICY "Allow authenticated users to update thumbnails" ON storage.object
   FOR UPDATE USING (
     bucket_id = 'thumbnails' AND auth.role() = 'authenticated'
   );
+
+-- 13. Voice and Video Calling Tables & RLS Policies
+CREATE TABLE IF NOT EXISTS public.calls (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  caller_id UUID NOT NULL,
+  receiver_id UUID NOT NULL,
+  call_type TEXT NOT NULL DEFAULT 'voice',
+  status TEXT NOT NULL DEFAULT 'ringing',
+  started_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  answered_at TIMESTAMP WITH TIME ZONE,
+  ended_at TIMESTAMP WITH TIME ZONE,
+  duration INTEGER DEFAULT 0,
+  room_id TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+ALTER TABLE public.calls ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow authenticated users full access to calls" ON public.calls;
+CREATE POLICY "Allow authenticated users full access to calls" ON public.calls
+  FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE IF NOT EXISTS public.call_participants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  call_id UUID REFERENCES public.calls(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL,
+  joined_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  left_at TIMESTAMP WITH TIME ZONE,
+  device TEXT,
+  network TEXT
+);
+
+ALTER TABLE public.call_participants ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow authenticated users full access to call_participants" ON public.call_participants;
+CREATE POLICY "Allow authenticated users full access to call_participants" ON public.call_participants
+  FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE IF NOT EXISTS public.call_notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  receiver_id UUID NOT NULL,
+  caller_id UUID NOT NULL,
+  status TEXT NOT NULL DEFAULT 'missed',
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+ALTER TABLE public.call_notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow authenticated users full access to call_notifications" ON public.call_notifications;
+CREATE POLICY "Allow authenticated users full access to call_notifications" ON public.call_notifications
+  FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE IF NOT EXISTS public.call_settings (
+  user_id UUID PRIMARY KEY,
+  microphone_enabled BOOLEAN DEFAULT true,
+  camera_enabled BOOLEAN DEFAULT true,
+  speaker_enabled BOOLEAN DEFAULT true,
+  video_quality TEXT DEFAULT '720p',
+  preferred_camera TEXT,
+  preferred_microphone TEXT,
+  preferred_speaker TEXT,
+  ringtone_volume NUMERIC DEFAULT 0.8,
+  auto_answer BOOLEAN DEFAULT false,
+  turn_server_url TEXT,
+  turn_username TEXT,
+  turn_credential TEXT,
+  turn_enabled BOOLEAN DEFAULT false,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+ALTER TABLE public.call_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow authenticated users full access to call_settings" ON public.call_settings;
+CREATE POLICY "Allow authenticated users full access to call_settings" ON public.call_settings
+  FOR ALL USING (true) WITH CHECK (true);
 `;
 
 // Initial Mock data for local fallback & presentation

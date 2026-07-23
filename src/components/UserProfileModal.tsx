@@ -7,9 +7,14 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultAvatar, DEFAULT_ADMIN_EMAIL, getCleanAvatar, isOBUser } from '../types';
 import { useAuth } from '../lib/auth';
+import { useCalling } from '../context/CallingContext';
 import { supabase, db } from '../lib/supabase';
-import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2 } from 'lucide-react';
+import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2, PhoneCall, Video, SlidersHorizontal, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Trash2, Volume2 } from 'lucide-react';
 import { RoleBadge } from './RoleBadge';
+import { CallButtons } from './calling/CallButtons';
+import { CommunicationSettingsModal } from './calling/CommunicationSettingsModal';
+import { callingService } from '../lib/callingService';
+import { CallRecord } from '../types/calling';
 import { FinancialRecord, financialsDb, MONTHS, BIAL_IDS } from '../lib/financials';
 import { getActivityLogs, addActivityLog } from '../lib/activity';
 import { MemberIDCardModal } from './MemberIDCardModal';
@@ -33,6 +38,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   initialEditMode = false
 }) => {
   const { user: currentUser } = useAuth();
+  const { startCall, callState } = useCalling();
   const getOriginalAvatar = (url: string | undefined): string => {
     if (!url) return '';
     if (url.includes('|||')) {
@@ -478,7 +484,43 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [avatar, setAvatar] = useState(member.avatar || '');
   const [emailNotifications, setEmailNotifications] = useState<boolean>(member.email_notifications !== false);
   const [hideNotificationsUI, setHideNotificationsUI] = useState<boolean>(member.hide_notifications_ui === true);
-  const [activeTab, setActiveTab] = useState<'personal' | 'roles' | 'financial'>('personal');
+  const [activeTab, setActiveTab] = useState<'personal' | 'roles' | 'financial' | 'calling'>('personal');
+  const [isCommSettingsOpen, setIsCommSettingsOpen] = useState(false);
+  const [profileCalls, setProfileCalls] = useState<CallRecord[]>([]);
+  const [loadingProfileCalls, setLoadingProfileCalls] = useState(false);
+
+  const isSelfProfile = currentUser?.id === member.id;
+
+  // Ensure non-self profiles cannot access the Calls & Media tab
+  useEffect(() => {
+    if (!isSelfProfile && activeTab === 'calling') {
+      setActiveTab('personal');
+    }
+  }, [isSelfProfile, activeTab]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'calling' && currentUser?.id && isSelfProfile) {
+      loadProfileCalls();
+    }
+  }, [isOpen, activeTab, currentUser?.id, member.id, isSelfProfile]);
+
+  const loadProfileCalls = async () => {
+    if (!currentUser?.id || !isSelfProfile) return;
+    setLoadingProfileCalls(true);
+    try {
+      const history = await callingService.getCallHistory(currentUser.id);
+      setProfileCalls(history);
+    } catch (e) {
+      console.error('Error loading profile call logs:', e);
+    } finally {
+      setLoadingProfileCalls(false);
+    }
+  };
+
+  const handleDeleteProfileCall = async (callId: string) => {
+    await callingService.deleteCallHistoryItem(callId);
+    setProfileCalls(prev => prev.filter(c => c.id !== callId));
+  };
   const [bial, setBial] = useState(member.bial || '');
   const [customTitle, setCustomTitle] = useState(member.custom_title || '');
   const [churchTitlesInput, setChurchTitlesInput] = useState('');
@@ -875,17 +917,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50"
+      className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 z-50 overflow-y-auto"
     >
       <motion.div 
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", duration: 0.4 }}
-        className="bg-white dark:bg-stone-900 rounded-2xl max-w-lg w-full flex flex-col shadow-2xl border border-stone-200 dark:border-stone-800"
+        className="bg-white dark:bg-stone-900 rounded-2xl max-w-lg w-full flex flex-col shadow-2xl border border-stone-200 dark:border-stone-800 my-auto overflow-hidden max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-2.5rem)] shrink-0 min-h-0"
       >
         
         {/* Header */}
-        <div className="p-6 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
+        <div className="p-4 sm:p-5 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between shrink-0 bg-white dark:bg-stone-900 z-10">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-emerald-50 text-emerald-600 dark:bg-emerald-920 dark:text-emerald-400 rounded-xl">
               <User className="w-5 h-5" />
@@ -917,7 +959,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         </div>
 
         {/* Scrollable Body */}
-        <div className="p-6 overflow-y-auto max-h-[70vh] space-y-5 text-xs text-stone-600 dark:text-stone-300">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0 space-y-5 text-xs text-stone-600 dark:text-stone-300">
           
           {/* Avatar and Primary Identity */}
           <div className="flex flex-col items-center text-center pb-4 border-b border-stone-100 dark:border-stone-800">
@@ -1477,6 +1519,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </span>
             </div>
 
+            {/* Quick Voice & Video Call Action */}
+            {currentUser && currentUser.id !== member.id && member.status === 'approved' && (
+              <div className="mt-3 flex justify-center">
+                <CallButtons member={member} size="lg" />
+              </div>
+            )}
+
             {/* Ministry Hashtags in header */}
             {churchTitles.length > 0 && (
               <div className="mt-2.5 flex flex-wrap gap-1 justify-center max-w-sm mx-auto">
@@ -1550,31 +1599,31 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('personal')}
-              className={`flex-1 py-1.5 px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2 sm:px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 ${
                 activeTab === 'personal'
                   ? 'bg-white dark:bg-stone-850 text-emerald-700 dark:text-emerald-400 shadow-xs border border-stone-150 dark:border-stone-800'
                   : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'
               }`}
             >
               <User className="w-3.5 h-3.5" />
-              <span>Personal Info</span>
+              <span><span className="hidden sm:inline">Personal </span>Info</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('roles')}
-              className={`flex-1 py-1.5 px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2 sm:px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 ${
                 activeTab === 'roles'
                   ? 'bg-white dark:bg-stone-850 text-emerald-700 dark:text-emerald-400 shadow-xs border border-stone-150 dark:border-stone-800'
                   : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Org Roles</span>
+              <span><span className="hidden sm:inline">Org </span>Roles</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('financial')}
-              className={`flex-1 py-1.5 px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2 sm:px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 ${
                 activeTab === 'financial'
                   ? 'bg-white dark:bg-stone-850 text-emerald-700 dark:text-emerald-400 shadow-xs border border-stone-150 dark:border-stone-800'
                   : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'
@@ -1583,6 +1632,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <Coins className="w-3.5 h-3.5" />
               <span>Financials</span>
             </button>
+            {isSelfProfile && (localStorage.getItem('sy_enable_calling_services') !== 'false' || currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('calling')}
+                className={`flex-1 py-1.5 px-2 sm:px-3 text-center rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 ${
+                  activeTab === 'calling'
+                    ? 'bg-white dark:bg-stone-850 text-emerald-700 dark:text-emerald-400 shadow-xs border border-stone-150 dark:border-stone-800'
+                    : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'
+                }`}
+              >
+                <PhoneCall className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Calls<span className="hidden sm:inline"> & Media</span></span>
+              </button>
+            )}
           </div>
 
           {/* Tab contents */}
@@ -2283,76 +2346,218 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </div>
             </motion.div>
           )}
+
+          {activeTab === 'calling' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4"
+            >
+              {/* Top Quick Actions Card */}
+              {currentUser && currentUser.id !== member.id ? (
+                <div className="p-4 bg-gradient-to-r from-stone-900 to-stone-850 text-white rounded-2xl border border-stone-800 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="space-y-1 text-center sm:text-left">
+                    <h5 className="font-bold text-sm flex items-center justify-center sm:justify-start gap-1.5 text-stone-100">
+                      <PhoneCall className="w-4 h-4 text-emerald-400" /> Direct Member Calling
+                    </h5>
+                    <p className="text-xs text-stone-400">
+                      Connect instantly with {member.name} via WebRTC encrypted audio or HD video.
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    <CallButtons member={member} size="lg" />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-stone-50 dark:bg-stone-850 rounded-2xl border border-stone-200 dark:border-stone-800 flex items-center justify-between gap-4">
+                  <div>
+                    <h5 className="font-bold text-xs text-stone-900 dark:text-white flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      Hardware & Media Settings
+                    </h5>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                      Configure your preferred microphone, camera, speaker output, and custom TURN servers.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsCommSettingsOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span>Open Settings</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Call History Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="font-bold text-stone-900 dark:text-white uppercase tracking-wider text-[10px] border-l-2 border-emerald-600 pl-1.5 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                    {currentUser?.id === member.id ? 'Your Personal Call Logs' : `Call History with ${member.name.split(' ')[0]}`}
+                  </h5>
+                  <button
+                    onClick={loadProfileCalls}
+                    className="text-[10px] font-bold text-emerald-600 hover:underline cursor-pointer"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {loadingProfileCalls ? (
+                  <div className="p-6 text-center text-stone-400 text-xs">Loading call logs...</div>
+                ) : profileCalls.length === 0 ? (
+                  <div className="p-6 bg-stone-50/50 dark:bg-stone-950/40 rounded-2xl border border-stone-200/60 dark:border-stone-800/60 text-center space-y-1">
+                    <PhoneCall className="w-6 h-6 mx-auto text-stone-400 opacity-40" />
+                    <p className="text-xs font-bold text-stone-600 dark:text-stone-300">No call history recorded</p>
+                    <p className="text-[10px] text-stone-400">
+                      {currentUser?.id === member.id 
+                        ? 'Your completed and missed calls will be saved here.' 
+                        : `You have not had any voice or video calls with ${member.name} yet.`}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-stone-100 dark:divide-stone-800/80 max-h-60 overflow-y-auto pr-1">
+                    {profileCalls.map(c => {
+                      const isCaller = c.caller_id === currentUser?.id;
+                      const isAnswered = c.status === 'accepted' || c.status === 'ended' || (c.duration && c.duration > 0);
+                      let icon = <PhoneIncoming className="w-3.5 h-3.5 text-emerald-500" />;
+                      let statusText = 'Incoming';
+
+                      if (isCaller) {
+                        if (isAnswered) {
+                          icon = <PhoneOutgoing className="w-3.5 h-3.5 text-sky-500" />;
+                          statusText = 'Outgoing';
+                        } else {
+                          icon = <PhoneOutgoing className="w-3.5 h-3.5 text-amber-500" />;
+                          statusText = 'Outgoing (Missed)';
+                        }
+                      } else {
+                        if (isAnswered) {
+                          icon = <PhoneIncoming className="w-3.5 h-3.5 text-emerald-500" />;
+                          statusText = 'Incoming';
+                        } else {
+                          icon = <PhoneMissed className="w-3.5 h-3.5 text-rose-500" />;
+                          statusText = c.status === 'declined' ? 'Rejected' : 'Missed';
+                        }
+                      }
+
+                      return (
+                        <div key={c.id} className="py-2.5 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="p-1.5 bg-stone-100 dark:bg-stone-800 rounded-lg shrink-0">
+                              {c.call_type === 'video' ? <Video className="w-4 h-4 text-sky-500" /> : <PhoneCall className="w-4 h-4 text-emerald-500" />}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 font-bold text-stone-800 dark:text-stone-200">
+                                <span>{icon}</span>
+                                <span>{statusText} {c.call_type} call</span>
+                              </div>
+                              <div className="text-[10px] text-stone-400 flex items-center gap-1.5">
+                                <span>{new Date(c.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                {c.duration ? (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{Math.floor(c.duration / 60)}m {c.duration % 60}s</span>
+                                  </>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleDeleteProfileCall(c.id)}
+                            className="p-1 text-stone-400 hover:text-rose-500 transition-colors cursor-pointer"
+                            title="Delete log item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Embedded Communication Settings Modal */}
+          <CommunicationSettingsModal 
+            isOpen={isCommSettingsOpen} 
+            onClose={() => setIsCommSettingsOpen(false)} 
+          />
           </div>
 
         </div>
 
         {/* Footer actions */}
-        <div className="p-5 border-t border-stone-100 dark:border-stone-800 flex justify-end gap-2 bg-stone-50/50">
-          {canEdit && (
-            <>
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="px-3.5 py-1.5 bg-white border border-stone-250 text-stone-700 hover:bg-stone-50 font-bold text-[11px] rounded-lg cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    disabled={isSaving || isProcessingBg || isAvatarUploading}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 disabled:opacity-50 text-white font-bold text-[11px] rounded-lg shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer"
-                  >
-                    {isSaving ? (
-                      <>
-                        <Clock className="w-3.5 h-3.5 animate-spin" /> Saving...
-                      </>
-                    ) : isProcessingBg ? (
-                      <>
-                        <Clock className="w-3.5 h-3.5 animate-spin" /> Processing AI...
-                      </>
-                    ) : isAvatarUploading ? (
-                      <>
-                        <Clock className="w-3.5 h-3.5 animate-spin" /> Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-3.5 h-3.5" /> Save Changes
-                      </>
-                    )}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="px-3.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-[11px] rounded-lg shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Edit3 className="w-3.5 h-3.5" /> Edit Profile Details
-                </button>
-              )}
-            </>
-          )}
-
-          {!isEditing && (
-            <div className="flex items-center justify-between w-full">
-              {member.status === 'approved' ? (
-                <button
-                  type="button"
-                  onClick={() => setShowIdCard(true)}
-                  className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 text-emerald-750 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 rounded-lg text-[11px] font-black transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <IdCard className="w-3.5 h-3.5" /> Print/View ID Card
-                </button>
-              ) : (
-                <div />
-              )}
+        <div className="p-4 sm:p-5 border-t border-stone-100 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/90 flex flex-wrap items-center justify-between gap-2.5 shrink-0 z-10">
+          {isEditing ? (
+            <div className="flex items-center justify-end gap-2 w-full">
               <button
-                onClick={onClose}
-                className="px-3.5 py-1.5 bg-stone-950 text-white hover:bg-stone-800 dark:bg-stone-800 dark:hover:bg-stone-700 font-bold text-[11px] rounded-lg cursor-pointer"
+                onClick={() => setIsEditing(false)}
+                className="px-3.5 py-1.5 bg-white border border-stone-250 text-stone-700 hover:bg-stone-50 font-bold text-[11px] rounded-lg cursor-pointer"
               >
-                Close Card
+                Cancel
               </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving || isProcessingBg || isAvatarUploading}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 disabled:opacity-50 text-white font-bold text-[11px] rounded-lg shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                {isSaving ? (
+                  <>
+                    <Clock className="w-3.5 h-3.5 animate-spin" /> Saving...
+                  </>
+                ) : isProcessingBg ? (
+                  <>
+                    <Clock className="w-3.5 h-3.5 animate-spin" /> Processing AI...
+                  </>
+                ) : isAvatarUploading ? (
+                  <>
+                    <Clock className="w-3.5 h-3.5 animate-spin" /> Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" /> Save Changes
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+              {/* Left Side: Member Actions (ID Card & Direct Calling) */}
+              <div className="flex flex-wrap items-center gap-2">
+                {member.status === 'approved' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowIdCard(true)}
+                    className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 text-emerald-750 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 rounded-lg text-[11px] font-black transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <IdCard className="w-3.5 h-3.5" /> Print/View ID Card
+                  </button>
+                )}
+
+
+              </div>
+
+              {/* Right Side: Edit & Close Actions */}
+              <div className="flex items-center gap-2">
+                {canEdit && (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="px-3.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-[11px] rounded-lg shadow-xs hover:shadow-md flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" /> Edit Profile Details
+                  </button>
+                )}
+                <button
+                  onClick={onClose}
+                  className="px-3.5 py-1.5 bg-stone-950 text-white hover:bg-stone-800 dark:bg-stone-800 dark:hover:bg-stone-700 font-bold text-[11px] rounded-lg cursor-pointer"
+                >
+                  Close Card
+                </button>
+              </div>
             </div>
           )}
         </div>
