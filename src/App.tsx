@@ -26,6 +26,7 @@ import { DownloadAppModal } from './components/DownloadAppModal';
 import { FootballModule } from './components/FootballModule';
 import { PrayerRequestsPage } from './components/PrayerRequestsPage';
 import { MemberDemographicsSection } from './components/MemberDemographicsSection';
+import { AdminControlPage } from './components/AdminControlPage';
 import { financialsDb } from './lib/financials';
 import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -397,14 +398,14 @@ function AppContent() {
       setIsRetryingFromUI(false);
     }
   };
-  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football' | 'prayer-requests' | 'calling'>(() => {
+  const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football' | 'prayer-requests' | 'calling' | 'admin-control'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling'].includes(tab)) {
+    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling', 'admin-control'].includes(tab)) {
       return tab as any;
     }
     const hash = window.location.hash.replace('#', '');
-    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling'].includes(hash)) {
+    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling', 'admin-control'].includes(hash)) {
       return hash as any;
     }
     return 'directory';
@@ -434,7 +435,7 @@ function AppContent() {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get('tab');
-      if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football'].includes(tab)) {
+      if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling', 'admin-control'].includes(tab)) {
         setCurrentTab(tab as any);
       }
     };
@@ -2554,24 +2555,6 @@ function AppContent() {
                     <span>Financial Records</span>
                   </button>
                 )}
-                {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
-                  <button
-                    onClick={() => setCurrentTab('birthday-tasks')}
-                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'birthday-tasks' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
-                  >
-                    <Mail className="w-3.5 h-3.5 shrink-0" />
-                    <span>Birthday Emails</span>
-                  </button>
-                )}
-                {user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
-                  <button
-                    onClick={() => setCurrentTab('meta-settings')}
-                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'meta-settings' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
-                  >
-                    <Globe className="w-3.5 h-3.5 shrink-0" />
-                    <span>Meta Settings</span>
-                  </button>
-                )}
                 {(isFootballEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
                   <button
                     onClick={() => setCurrentTab('football')}
@@ -2589,6 +2572,16 @@ function AppContent() {
                   >
                     <PhoneCall className="w-3.5 h-3.5 shrink-0" />
                     <span>Calls & History</span>
+                  </button>
+                )}
+                {(isOBUser(user.role) || user?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+                  <button
+                    id="tab-btn-admin-control"
+                    onClick={() => setCurrentTab('admin-control')}
+                    className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'admin-control' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>Admin Control</span>
                   </button>
                 )}
               </div>
@@ -2742,10 +2735,23 @@ function AppContent() {
               ) : (
                 <CallHistoryPage />
               )
-            ) : currentTab === 'birthday-tasks' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
-              <BirthdayEmailSettingsPage currentUser={user} members={members} />
-            ) : currentTab === 'meta-settings' && user?.email?.toLowerCase() === 'tkpaite2016@gmail.com' ? (
-              <WebsiteMetaSettingsPage currentUser={user} />
+            ) : (currentTab === 'admin-control' || currentTab === 'birthday-tasks' || currentTab === 'meta-settings') && (isOBUser(user.role) || user?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') ? (
+              <AdminControlPage
+                currentUser={user}
+                members={members}
+                onOpenProvisionModal={() => setAddNewMemberOpen(true)}
+                onOpenSQLModal={() => setIsSQLModalOpen(true)}
+                onOpenBialModal={() => setIsBialDiagnosticOpen(true)}
+                onOpenRetentionModal={() => setIsRetentionModalOpen(true)}
+                isFootballEnabled={isFootballEnabled}
+                setIsFootballEnabled={setIsFootballEnabled}
+                isPrayerRequestsEnabled={isPrayerRequestsEnabled}
+                setIsPrayerRequestsEnabled={setIsPrayerRequestsEnabled}
+                isCallingEnabled={isCallingEnabled}
+                setIsCallingEnabled={setIsCallingEnabled}
+                membersCount={totalCount}
+                pendingCount={pendingCount}
+              />
             ) : (
               <>
                 {/* Quick overview metrics Grid */}

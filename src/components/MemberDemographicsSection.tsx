@@ -203,7 +203,7 @@ export const MemberDemographicsSection: React.FC<MemberDemographicsSectionProps>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
           {/* Main Role Breakdown Chart Card */}
-          <div className={`${isCurrentUserAdmin ? 'lg:col-span-8' : 'lg:col-span-12'} bg-white dark:bg-stone-900 p-5 sm:p-6 rounded-3xl border border-stone-200/80 dark:border-stone-800 shadow-sm flex flex-col justify-between space-y-5 transition-colors`}>
+          <div className="lg:col-span-12 bg-white dark:bg-stone-900 p-5 sm:p-6 rounded-3xl border border-stone-200/80 dark:border-stone-800 shadow-sm flex flex-col justify-between space-y-5 transition-colors">
             
             <div className="flex flex-wrap items-center justify-between border-b pb-4 border-stone-150 dark:border-stone-800 gap-3">
               <div className="flex items-center gap-3">
@@ -303,121 +303,6 @@ export const MemberDemographicsSection: React.FC<MemberDemographicsSectionProps>
 
             </div>
           </div>
-
-          {/* Admin Panel Quick Tools */}
-          {(isOBUser(currentUser?.role) || currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
-            <div className={`${showRoleDistribution ? 'lg:col-span-4' : 'lg:col-span-12'} bg-white dark:bg-stone-900 p-5 sm:p-6 rounded-3xl border border-stone-200/80 dark:border-stone-800 shadow-sm flex flex-col justify-between space-y-4`}>
-              
-              <div className="border-b pb-3 border-stone-150 dark:border-stone-800">
-                <h4 className="font-extrabold text-stone-900 dark:text-stone-100 text-sm tracking-tight">
-                  Administrative Control Panel
-                </h4>
-                <p className="text-xs text-stone-500 dark:text-stone-400">
-                  Officer Bearer management tools & system options
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <button
-                  onClick={() => setAddNewMemberOpen(true)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs py-3 px-4 rounded-xl shadow-md shadow-emerald-600/15 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" /> Manually Provision Member
-                </button>
-
-                {currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
-                  <button
-                    onClick={() => setIsSQLModalOpen(true)}
-                    className="w-full bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-750 text-stone-800 dark:text-stone-200 font-bold text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 border border-stone-200 dark:border-stone-700"
-                    title="Configure Supabase Database setup and view unified schemas"
-                  >
-                    <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    Database SQL Script Guide
-                  </button>
-                )}
-
-                {currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
-                  <button
-                    onClick={() => setIsBialDiagnosticOpen(true)}
-                    className="w-full bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 font-bold text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 border border-amber-200/80 dark:border-amber-800/60"
-                    title="Compare financial records against registered user profiles to check Bial assignments"
-                  >
-                    <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    Bial Assignment Diagnostic Tool
-                  </button>
-                )}
-
-                {currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
-                  <div className="p-3 bg-stone-50 dark:bg-stone-850 rounded-xl border border-stone-200/60 dark:border-stone-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-stone-800 dark:text-stone-200">Football Predictions Module</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isFootballEnabled}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setIsFootballEnabled(newValue);
-                            localStorage.setItem('sy_enable_football_predictions', newValue ? 'true' : 'false');
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-8 h-4 bg-stone-300 dark:bg-stone-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
-                      </label>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-stone-800 dark:text-stone-200">Prayer Requests Module</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isPrayerRequestsEnabled}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setIsPrayerRequestsEnabled(newValue);
-                            localStorage.setItem('sy_enable_prayer_requests', newValue ? 'true' : 'false');
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-8 h-4 bg-stone-300 dark:bg-stone-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
-                      </label>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-stone-800 dark:text-stone-200">Audio/Video Calling & History Module</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isCallingEnabled}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            if (setIsCallingEnabled) {
-                              setIsCallingEnabled(newValue);
-                            }
-                            localStorage.setItem('sy_enable_calling_services', newValue ? 'true' : 'false');
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-8 h-4 bg-stone-300 dark:bg-stone-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-xs leading-relaxed text-emerald-900 dark:text-emerald-200 space-y-1">
-                <div className="flex items-center gap-1.5 font-black text-emerald-800 dark:text-emerald-300">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span>Officer Bearer Authority</span>
-                </div>
-                <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/90">
-                  Manage clearances, assign Bial, and promote members to ECM or Officer Bearer roles.
-                </p>
-              </div>
-
-            </div>
-          )}
-
         </div>
       )}
 
