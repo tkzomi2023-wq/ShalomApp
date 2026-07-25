@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import { execSync } from "child_process";
 import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import { supabase } from "./src/lib/supabase";
@@ -41,29 +42,26 @@ app.use("/api/football", createFootballRouter());
 app.get(["/api/download-apk", "/download-apk", "/Shalom_Youth_App_v2.4.apk"], (req, res) => {
   try {
     const apkFilePath = path.join(process.cwd(), "public", "Shalom_Youth_v2.4.apk");
+    
+    // Auto-generate if missing
+    if (!fs.existsSync(apkFilePath)) {
+      try {
+        execSync("python3 scripts/build_apk.py", { stdio: "ignore" });
+      } catch (e) {
+        console.warn("Failed to trigger python build_apk.py:", e);
+      }
+    }
+
     if (fs.existsSync(apkFilePath)) {
       res.setHeader("Content-Type", "application/vnd.android.package-archive");
-      res.setHeader("Content-Disposition", "attachment; filename=\"Shalom_Youth_App_v2.4.apk\"");
+      res.setHeader("Content-Disposition", 'attachment; filename="Shalom_Youth_App_v2.4.apk"');
       res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       return res.sendFile(apkFilePath);
     }
 
-    // Fallback: Generate valid WebAPK installer package
-    const apkBuffer = Buffer.from(
-      "PK\x03\x04\x14\x00\x08\x00\x08\x00" +
-      "Shalom Youth Fellowship Mobile Android App Package v2.4\n" +
-      "Application Package Name: com.shalomyouth.app\n" +
-      "Version: 2.4.0\n" +
-      "Target SDK: Android 14 (API 34)\n" +
-      "Build Signature: Verified Release\n"
-    );
-
-    res.setHeader("Content-Type", "application/vnd.android.package-archive");
-    res.setHeader("Content-Disposition", "attachment; filename=\"Shalom_Youth_App_v2.4.apk\"");
-    res.setHeader("Content-Length", apkBuffer.length.toString());
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.send(apkBuffer);
+    // Fallback: Return error response
+    return res.status(404).json({ error: "APK package build in progress, please retry in a moment." });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to download APK file: " + err.message });
   }

@@ -332,7 +332,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
 
   if (currentUser?.email?.toLowerCase() !== 'tkpaite2016@gmail.com') {
     return (
-      <div className="bg-red-50 text-red-800 p-6 rounded-2xl border border-red-100 flex items-center gap-3">
+      <div className="bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 p-6 rounded-2xl border border-red-100 dark:border-red-900/40 flex items-center gap-3">
         <AlertCircle className="w-5 h-5 shrink-0" />
         <div>
           <h4 className="font-bold">Access Denied</h4>
@@ -345,20 +345,20 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="bg-white p-6 rounded-2xl border border-stone-150 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-stone-900 p-6 rounded-2xl border border-stone-150 dark:border-stone-850 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-purple-50 text-purple-600 rounded-2xl border border-purple-100 shadow-xs">
+          <div className="p-3 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-xs">
             <Globe className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-black text-stone-900">Website Meta & OG Details</h2>
-            <p className="text-xs text-stone-500">Configure global SEO, titles, descriptions, keywords, and share preview images</p>
+            <h2 className="text-xl font-black text-stone-900 dark:text-white">Website Meta & OG Details</h2>
+            <p className="text-xs text-stone-500 dark:text-stone-400">Configure global SEO, titles, descriptions, keywords, and share preview images</p>
           </div>
         </div>
         <button
           onClick={fetchConfig}
           disabled={loading}
-          className="p-2 px-4 hover:bg-stone-50 text-stone-600 text-xs font-semibold rounded-xl border border-stone-200 transition-all flex items-center gap-2 cursor-pointer"
+          className="p-2 px-4 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 text-xs font-semibold rounded-xl border border-stone-200 dark:border-stone-700 transition-all flex items-center gap-2 cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           Reload Settings
@@ -368,69 +368,69 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       {feedback && (
         <div className={`p-4 rounded-xl border flex items-center gap-3 text-xs font-semibold shadow-xs ${
           feedback.type === 'success' 
-            ? 'bg-emerald-50 text-emerald-800 border-emerald-100' 
-            : 'bg-red-50 text-red-800 border-red-100'
+            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-100 dark:border-emerald-900/40' 
+            : 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-100 dark:border-red-900/40'
         }`}>
-          {feedback.type === 'success' ? <Check className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />}
+          {feedback.type === 'success' ? <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />}
           <span>{feedback.message}</span>
         </div>
       )}
 
       {loading ? (
-        <div className="bg-white p-12 rounded-2xl border border-stone-150 shadow-xs flex flex-col items-center justify-center space-y-3">
-          <RefreshCw className="w-8 h-8 text-purple-600 animate-spin" />
-          <p className="text-xs font-bold text-stone-500">Retrieving meta details...</p>
+        <div className="bg-white dark:bg-stone-900 p-12 rounded-2xl border border-stone-150 dark:border-stone-850 shadow-xs flex flex-col items-center justify-center space-y-3">
+          <RefreshCw className="w-8 h-8 text-purple-600 dark:text-purple-400 animate-spin" />
+          <p className="text-xs font-bold text-stone-500 dark:text-stone-400">Retrieving meta details...</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Settings Form - Left Column */}
-          <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-stone-150 shadow-xs space-y-6">
-            <div className="flex items-center gap-2 border-b border-stone-100 pb-3">
-              <Sparkles className="w-4 h-4 text-purple-500" />
-              <h3 className="font-black text-stone-900 text-sm">Configure SEO Meta Parameters</h3>
+          <div className="lg:col-span-7 bg-white dark:bg-stone-900 p-6 rounded-2xl border border-stone-150 dark:border-stone-850 shadow-xs space-y-6">
+            <div className="flex items-center gap-2 border-b border-stone-100 dark:border-stone-800 pb-3">
+              <Sparkles className="w-4 h-4 text-purple-500 dark:text-purple-400" />
+              <h3 className="font-black text-stone-900 dark:text-white text-sm">Configure SEO Meta Parameters</h3>
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-600 block">Website Title</label>
+                <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Website Title</label>
                 <input
                   type="text"
                   required
                   value={config.title}
                   onChange={(e) => setConfig({ ...config, title: e.target.value })}
                   placeholder="e.g. Shalom Youth Fellowship - MZP"
-                  className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                  className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                 />
-                <p className="text-[10px] text-stone-400">Used as the browser tab title and the primary title on search engine results. Recommended: under 60 characters.</p>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">Used as the browser tab title and the primary title on search engine results. Recommended: under 60 characters.</p>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-600 block">Meta Description</label>
+                <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Meta Description</label>
                 <textarea
                   required
                   rows={3}
                   value={config.description}
                   onChange={(e) => setConfig({ ...config, description: e.target.value })}
                   placeholder="Describe your youth fellowship page..."
-                  className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 resize-none animate-none"
+                  className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100 resize-none animate-none"
                 />
-                <p className="text-[10px] text-stone-400">A clear, short summary of what the page is about. Used by Google and chat applications for link descriptions. Recommended: under 160 characters.</p>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">A clear, short summary of what the page is about. Used by Google and chat applications for link descriptions. Recommended: under 160 characters.</p>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-600 block">Meta Keywords</label>
+                <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Meta Keywords</label>
                 <input
                   type="text"
                   value={config.keywords}
                   onChange={(e) => setConfig({ ...config, keywords: e.target.value })}
                   placeholder="e.g. Shalom Youth, MZP, Fellowship, Mizo Presbyterian"
-                  className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                  className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                 />
-                <p className="text-[10px] text-stone-400">Comma-separated list of keywords relevant to your website.</p>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">Comma-separated list of keywords relevant to your website.</p>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-600 block">Open Graph (OG) Image URL</label>
+                <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Open Graph (OG) Image URL</label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
@@ -439,15 +439,15 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                       value={config.ogImage}
                       onChange={(e) => setConfig({ ...config, ogImage: e.target.value })}
                       placeholder="e.g. /og-image.png or https://..."
-                      className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                      className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                     />
-                    <ImageIcon className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
+                    <ImageIcon className="w-4 h-4 text-stone-400 dark:text-stone-500 absolute left-3 top-3.5" />
                   </div>
                 </div>
                 
                 {/* File Upload zone for OG Image */}
                 <div className="mt-2 py-1 flex flex-col sm:flex-row sm:items-center gap-3">
-                  <label className="relative flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl border border-purple-200 cursor-pointer transition-all self-start">
+                  <label className="relative flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-xl border border-purple-200 dark:border-purple-800/60 cursor-pointer transition-all self-start">
                     <Upload className="w-3.5 h-3.5" />
                     <span>{isOgUploading ? `Uploading (${ogUploadProgress}%)` : 'Upload Custom OG Image'}</span>
                     <input
@@ -459,20 +459,20 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                     />
                   </label>
                   {isOgUploading && (
-                    <div className="w-24 bg-stone-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-purple-600 h-full transition-all" style={{ width: `${ogUploadProgress}%` }}></div>
+                    <div className="w-24 bg-stone-100 dark:bg-stone-800 rounded-full h-1.5 overflow-hidden">
+                      <div className="bg-purple-600 dark:bg-purple-500 h-full transition-all" style={{ width: `${ogUploadProgress}%` }}></div>
                     </div>
                   )}
                   {ogUploadError && (
-                    <p className="text-[10px] text-red-650 font-bold">{ogUploadError}</p>
+                    <p className="text-[10px] text-red-650 dark:text-rose-400 font-bold">{ogUploadError}</p>
                   )}
                 </div>
                 
-                <p className="text-[10px] text-stone-400">Direct URL to an image shown when the website is shared on social networks (WhatsApp, Facebook, Discord). Optimal size: 1200 x 630 pixels.</p>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">Direct URL to an image shown when the website is shared on social networks (WhatsApp, Facebook, Discord). Optimal size: 1200 x 630 pixels.</p>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-600 block">Favicon URL (Browser Tab Icon)</label>
+                <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Favicon URL (Browser Tab Icon)</label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
@@ -481,15 +481,15 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                       value={config.favicon}
                       onChange={(e) => setConfig({ ...config, favicon: e.target.value })}
                       placeholder="e.g. /favicon.ico or https://..."
-                      className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                      className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                     />
-                    <Sparkles className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
+                    <Sparkles className="w-4 h-4 text-stone-400 dark:text-stone-500 absolute left-3 top-3.5" />
                   </div>
                 </div>
 
                 {/* File Upload zone for Favicon */}
                 <div className="mt-2 py-1 flex flex-col sm:flex-row sm:items-center gap-3">
-                  <label className="relative flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl border border-purple-200 cursor-pointer transition-all self-start">
+                  <label className="relative flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-xl border border-purple-200 dark:border-purple-800/60 cursor-pointer transition-all self-start">
                     <Upload className="w-3.5 h-3.5" />
                     <span>{isFaviconUploading ? `Uploading (${faviconUploadProgress}%)` : 'Upload Custom Favicon'}</span>
                     <input
@@ -501,20 +501,20 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                     />
                   </label>
                   {isFaviconUploading && (
-                    <div className="w-24 bg-stone-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-purple-600 h-full transition-all" style={{ width: `${faviconUploadProgress}%` }}></div>
+                    <div className="w-24 bg-stone-100 dark:bg-stone-800 rounded-full h-1.5 overflow-hidden">
+                      <div className="bg-purple-600 dark:bg-purple-500 h-full transition-all" style={{ width: `${faviconUploadProgress}%` }}></div>
                     </div>
                   )}
                   {faviconUploadError && (
-                    <p className="text-[10px] text-red-650 font-bold">{faviconUploadError}</p>
+                    <p className="text-[10px] text-red-650 dark:text-rose-400 font-bold">{faviconUploadError}</p>
                   )}
                 </div>
 
-                <p className="text-[10px] text-stone-400">The shortcut icon displayed in browser tabs. You can use standard local path `/favicon.ico` or any external image URL.</p>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">The shortcut icon displayed in browser tabs. You can use standard local path `/favicon.ico` or any external image URL.</p>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-600 block">Website Domain / URL</label>
+                <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Website Domain / URL</label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
@@ -523,15 +523,15 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                       value={config.siteUrl}
                       onChange={(e) => setConfig({ ...config, siteUrl: e.target.value })}
                       placeholder="e.g. https://shalomyouthfellowship.mzp"
-                      className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                      className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                     />
-                    <LinkIcon className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
+                    <LinkIcon className="w-4 h-4 text-stone-400 dark:text-stone-500 absolute left-3 top-3.5" />
                   </div>
                 </div>
-                <p className="text-[10px] text-stone-400">The canonical address or public domain of this application, used for metadata schemas and search engines.</p>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">The canonical address or public domain of this application, used for metadata schemas and search engines.</p>
               </div>
 
-              <div className="pt-4 border-t border-stone-100 flex justify-end">
+              <div className="pt-4 border-t border-stone-100 dark:border-stone-800 flex justify-end">
                 <button
                   type="submit"
                   disabled={saving}
@@ -547,41 +547,41 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
           {/* Social Live Preview - Right Column */}
           <div className="lg:col-span-5 space-y-6">
             {/* WhatsApp / Chat App Link Preview */}
-            <div className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs space-y-3">
-              <div className="flex items-center gap-2 border-b border-stone-100 pb-2.5">
-                <Eye className="w-4 h-4 text-stone-500" />
-                <h4 className="font-extrabold text-stone-800 text-xs uppercase tracking-wide">WhatsApp / Messenger Preview</h4>
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-850 shadow-xs space-y-3">
+              <div className="flex items-center gap-2 border-b border-stone-100 dark:border-stone-800 pb-2.5">
+                <Eye className="w-4 h-4 text-stone-500 dark:text-stone-400" />
+                <h4 className="font-extrabold text-stone-800 dark:text-stone-200 text-xs uppercase tracking-wide">WhatsApp / Messenger Preview</h4>
               </div>
 
-              <div className="bg-[#e5ddd5] p-4 rounded-xl space-y-2">
-                <div className="bg-white rounded-xl overflow-hidden shadow-xs border border-stone-150 max-w-xs ml-auto">
+              <div className="bg-[#e5ddd5] dark:bg-stone-950/80 p-4 rounded-xl space-y-2">
+                <div className="bg-white dark:bg-stone-900 rounded-xl overflow-hidden shadow-xs border border-stone-150 dark:border-stone-800 max-w-xs ml-auto">
                   {config.ogImage ? (
-                    <img src={config.ogImage} alt="OG Share Preview" className="w-full h-40 object-cover border-b border-stone-100" referrerPolicy="no-referrer" />
+                    <img src={config.ogImage} alt="OG Share Preview" className="w-full h-40 object-cover border-b border-stone-100 dark:border-stone-800" referrerPolicy="no-referrer" />
                   ) : (
-                    <div className="w-full h-40 bg-stone-100 flex items-center justify-center text-stone-400">
+                    <div className="w-full h-40 bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-400 dark:text-stone-500">
                       <ImageIcon className="w-8 h-8" />
                     </div>
                   )}
-                  <div className="p-3 space-y-1 bg-[#f0f2f5]">
-                    <div className="text-xs font-bold text-stone-800 truncate">{config.title || 'Shalom Youth Fellowship - MZP'}</div>
-                    <div className="text-[10px] text-stone-500 line-clamp-2 leading-relaxed">{config.description || 'Describe your youth fellowship page...'}</div>
-                    <div className="text-[9px] text-stone-400 uppercase tracking-wider truncate">{config.siteUrl ? config.siteUrl.replace(/^https?:\/\//i, '') : 'shalomyouthfellowship.mzp'}</div>
+                  <div className="p-3 space-y-1 bg-[#f0f2f5] dark:bg-stone-850">
+                    <div className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{config.title || 'Shalom Youth Fellowship - MZP'}</div>
+                    <div className="text-[10px] text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">{config.description || 'Describe your youth fellowship page...'}</div>
+                    <div className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider truncate">{config.siteUrl ? config.siteUrl.replace(/^https?:\/\//i, '') : 'shalomyouthfellowship.mzp'}</div>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Google Search Result Preview */}
-            <div className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs space-y-3">
-              <div className="flex items-center gap-2 border-b border-stone-100 pb-2.5">
-                <Globe className="w-4 h-4 text-stone-500" />
-                <h4 className="font-extrabold text-stone-800 text-xs uppercase tracking-wide">Google Search Snippet</h4>
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-850 shadow-xs space-y-3">
+              <div className="flex items-center gap-2 border-b border-stone-100 dark:border-stone-800 pb-2.5">
+                <Globe className="w-4 h-4 text-stone-500 dark:text-stone-400" />
+                <h4 className="font-extrabold text-stone-800 dark:text-stone-200 text-xs uppercase tracking-wide">Google Search Snippet</h4>
               </div>
 
-              <div className="p-4 bg-stone-50 rounded-xl space-y-1 border border-stone-200/60">
-                <div className="text-xs text-stone-500 truncate">{config.siteUrl || 'https://shalomyouthfellowship.mzp'}</div>
-                <div className="text-base font-medium text-[#1a0dab] hover:underline cursor-pointer leading-tight line-clamp-1">{config.title || 'Shalom Youth Fellowship - MZP'}</div>
-                <div className="text-xs text-[#4d5156] line-clamp-2 leading-relaxed">{config.description || 'Describe your youth fellowship page...'}</div>
+              <div className="p-4 bg-stone-50 dark:bg-stone-950/50 rounded-xl space-y-1 border border-stone-200/60 dark:border-stone-800">
+                <div className="text-xs text-stone-500 dark:text-stone-400 truncate">{config.siteUrl || 'https://shalomyouthfellowship.mzp'}</div>
+                <div className="text-base font-medium text-[#1a0dab] dark:text-[#8ab4f8] hover:underline cursor-pointer leading-tight line-clamp-1">{config.title || 'Shalom Youth Fellowship - MZP'}</div>
+                <div className="text-xs text-[#4d5156] dark:text-[#bdc1c6] line-clamp-2 leading-relaxed">{config.description || 'Describe your youth fellowship page...'}</div>
               </div>
             </div>
           </div>

@@ -482,7 +482,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               placeholder="Search members by name, email, phone, blood group..."
-              className="w-full pl-9 pr-4 py-2.5 text-xs bg-stone-50 dark:bg-stone-950/20 text-stone-900 border border-stone-200 dark:border-stone-850 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:bg-white"
+              className="w-full pl-9 pr-4 py-2.5 text-xs bg-stone-50 dark:bg-stone-950/40 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 border border-stone-200 dark:border-stone-800 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-stone-900"
             />
           </div>
           
@@ -538,7 +538,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                   className={`px-3 py-1.5 rounded-lg border font-semibold transition-all uppercase tracking-wide text-[10px] cursor-pointer ${
                     statusFilter === status
                       ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                      : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                      : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-750'
                   }`}
                 >
                   {status === 'All' ? 'All Members' : status}
@@ -558,7 +558,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                   className={`px-3 py-1.5 rounded-lg border font-semibold transition-all uppercase tracking-wide text-[10px] cursor-pointer ${
                     roleGroupFilter === group
                       ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                      : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                      : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-750'
                   }`}
                 >
                   {group === 'All' ? 'All Roles' : group === 'standard' ? 'Standard Only' : group === 'ECM' ? 'ECM Committee' : 'OB Officers'}
@@ -669,11 +669,11 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
       {/* Empty States */}
       {filteredMembers.length === 0 && (
-        <div className="p-12 text-center bg-white border border-stone-150 rounded-2xl space-y-3">
-          <ShieldAlert className="w-8 h-8 text-stone-300 mx-auto" />
+        <div className="p-12 text-center bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-850 rounded-2xl space-y-3 shadow-xs">
+          <ShieldAlert className="w-8 h-8 text-stone-300 dark:text-stone-600 mx-auto" />
           <div>
-            <p className="font-bold text-stone-800 text-sm">No Members Match the Criteria</p>
-            <p className="text-xs text-stone-500">Try loosening your search filters or check pending applications</p>
+            <p className="font-bold text-stone-800 dark:text-stone-100 text-sm">No Members Match the Criteria</p>
+            <p className="text-xs text-stone-500 dark:text-stone-400">Try loosening your search filters or check pending applications</p>
           </div>
         </div>
       )}

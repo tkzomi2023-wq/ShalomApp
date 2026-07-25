@@ -4,38 +4,43 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", sans-serif;
+  --color-stone-105: #f7f6f4;
+  --color-stone-150: #e7e4e0;
+  --color-stone-750: #24211e;
+  --color-stone-850: #171513;
 }
 
 @variant dark (&:where(.dark, .dark *));
 
-.dark {
+html {
+  transition: background-color 0.25s ease, color 0.25s ease;
+  background-color: #fafaf9;
+  color: #1c1917;
+}
+
+html.dark {
   color-scheme: dark;
-  --color-white: #1c1917;
-  --color-stone-50: #0c0a09;
-  --color-stone-100: #141211;
-  --color-stone-150: #1a1817;
-  --color-stone-200: #292524;
-  --color-stone-250: #332f2e;
-  --color-stone-300: #44403c;
-  --color-stone-400: #a8a29e;
-  --color-stone-500: #d6d3d1;
-  --color-stone-600: #e7e5e4;
-  --color-stone-700: #f5f5f4;
-  --color-stone-800: #fafaf9;
-  --color-stone-900: #ffffff;
-  --color-stone-950: #ffffff;
-  
-  --color-neutral-50: #0c0a09;
-  --color-neutral-100: #141211;
-  --color-neutral-200: #292524;
-  --color-neutral-300: #44403c;
-  --color-neutral-400: #a8a29e;
-  --color-neutral-500: #d6d3d1;
-  --color-neutral-600: #e7e5e4;
-  --color-neutral-700: #f5f5f4;
-  --color-neutral-800: #fafaf9;
-  --color-neutral-900: #ffffff;
-  --color-neutral-950: #ffffff;
+  background-color: #0c0a09;
+  color: #f5f5f4;
+}
+
+/* Custom scrollbars for dark mode */
+html.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html.dark ::-webkit-scrollbar-track {
+  background: #171513;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #292524;
+  border-radius: 4px;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #44403c;
 }
 
 body {
@@ -93,4 +98,5 @@ body {
 .animate-dot-pulse {
   animation: dotPulse 1.4s infinite ease-in-out;
 }
+
 

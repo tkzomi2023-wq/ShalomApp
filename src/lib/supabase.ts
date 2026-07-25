@@ -1865,9 +1865,25 @@ class HybridDatabaseManager {
         };
       });
 
-      const finalMessages = [...merged, ...localOnly].sort(
+      let finalMessages = [...merged, ...localOnly].sort(
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       );
+
+      // Read local chat cleared timestamp if present
+      try {
+        const chatClearedAt = localStorage.getItem('sy_chat_cleared_at');
+        if (chatClearedAt) {
+          const clearedTime = new Date(chatClearedAt).getTime();
+          if (!isNaN(clearedTime)) {
+            finalMessages = finalMessages.filter(m => {
+              const msgTime = new Date(m.created_at).getTime();
+              return msgTime > clearedTime || (m.user_id === 'system' && msgTime > clearedTime - 1000);
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to filter by chatClearedAt:', e);
+      }
 
       try {
         localStorage.setItem('sy_global_chat_messages', JSON.stringify(finalMessages));
@@ -1881,7 +1897,15 @@ class HybridDatabaseManager {
       try {
         const localData = localStorage.getItem('sy_global_chat_messages');
         if (localData) {
-          return JSON.parse(localData) as ChatMessage[];
+          let list = JSON.parse(localData) as ChatMessage[];
+          const chatClearedAt = localStorage.getItem('sy_chat_cleared_at');
+          if (chatClearedAt) {
+            const clearedTime = new Date(chatClearedAt).getTime();
+            if (!isNaN(clearedTime)) {
+              list = list.filter(m => new Date(m.created_at).getTime() > clearedTime || m.user_id === 'system');
+            }
+          }
+          return list;
         }
       } catch (e) {
         console.error('Failed to parse local chat messages:', e);
@@ -2131,7 +2155,11 @@ class HybridDatabaseManager {
   }
 
   async clearAllChatMessages(): Promise<void> {
+    const nowIso = new Date().toISOString();
     try {
+      localStorage.setItem('sy_chat_cleared_at', nowIso);
+      localStorage.removeItem('sy_global_chat_messages');
+
       const { error } = await supabase
         .from('global_chat_messages')
         .delete()
@@ -2151,11 +2179,9 @@ class HybridDatabaseManager {
         reactions: {},
         created_at: new Date().toISOString()
       });
-
-      // Clear local cache
-      localStorage.removeItem('sy_global_chat_messages');
     } catch (err: any) {
       console.warn('Supabase clearAllChatMessages failed, clearing local storage:', err.message || err);
+      localStorage.setItem('sy_chat_cleared_at', nowIso);
       localStorage.removeItem('sy_global_chat_messages');
     }
   }

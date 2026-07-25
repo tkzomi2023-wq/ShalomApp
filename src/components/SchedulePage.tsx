@@ -1096,28 +1096,28 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
       </header>
 
       {/* Control Area: Tab-Swappers, Search, and Status Info */}
-      <section className="bg-white rounded-3xl p-5 border border-stone-150 shadow-xs space-y-4">
+      <section className="bg-white dark:bg-stone-900 rounded-3xl p-5 border border-stone-150 dark:border-stone-850 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Tab switches */}
-          <div className="flex gap-1.5 bg-stone-100 p-1 rounded-2xl border border-stone-200/60 max-w-md shrink-0">
+          <div className="flex gap-1.5 bg-stone-100 dark:bg-stone-850 p-1 rounded-2xl border border-stone-200/60 dark:border-stone-800 max-w-md shrink-0">
             <button
               id="filter-tab-upcoming"
               onClick={() => setFilterType('upcoming')}
-              className={`py-2 px-4 rounded-xl font-bold text-xs transition-all cursor-pointer ${filterType === 'upcoming' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-550 hover:text-stone-800'}`}
+              className={`py-2 px-4 rounded-xl font-bold text-xs transition-all cursor-pointer ${filterType === 'upcoming' ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-xs' : 'text-stone-550 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'}`}
             >
               Upcoming Services
             </button>
             <button
               id="filter-tab-past"
               onClick={() => setFilterType('past')}
-              className={`py-2 px-4 rounded-xl font-bold text-xs transition-all cursor-pointer ${filterType === 'past' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-550 hover:text-stone-800'}`}
+              className={`py-2 px-4 rounded-xl font-bold text-xs transition-all cursor-pointer ${filterType === 'past' ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-xs' : 'text-stone-550 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'}`}
             >
               Past Services
             </button>
             <button
               id="filter-tab-all"
               onClick={() => setFilterType('all')}
-              className={`py-2 px-4 rounded-xl font-bold text-xs transition-all cursor-pointer ${filterType === 'all' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-550 hover:text-stone-800'}`}
+              className={`py-2 px-4 rounded-xl font-bold text-xs transition-all cursor-pointer ${filterType === 'all' ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-white shadow-xs' : 'text-stone-550 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'}`}
             >
               All
             </button>
@@ -1125,21 +1125,21 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
           {/* High utility search input */}
           <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-stone-400 dark:text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search by speaker, leader, title, or topic..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-medium"
+              className="w-full pl-10 pr-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-800 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-medium"
             />
           </div>
         </div>
 
         {/* Warning Badge for standard users */}
         {!canManageSchedules && (
-          <div className="flex items-center gap-2 bg-amber-50 text-amber-850 p-3.5 rounded-2xl border border-amber-150 text-[11px] leading-relaxed">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+          <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/40 text-amber-850 dark:text-amber-200 p-3.5 rounded-2xl border border-amber-150 dark:border-amber-900/40 text-[11px] leading-relaxed">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <span>
               <strong>View-only Clearance:</strong> You have active reader clearance. Only members registered as <strong>Secretary</strong> or <strong>Assistant Secretary</strong> can perform CRUD (create, update, delete) mutations. Please request administrators to log new schedules.
             </span>
@@ -1149,15 +1149,15 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
       {/* Main Schedule Container */}
       {loading ? (
-        <div className="bg-white rounded-3xl p-16 text-center border border-stone-150 shadow-xs flex flex-col items-center justify-center gap-3">
-          <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin" />
-          <p className="text-xs text-stone-500 font-bold">Synchronizing youth schedules database...</p>
+        <div className="bg-white dark:bg-stone-900 rounded-3xl p-16 text-center border border-stone-150 dark:border-stone-850 shadow-xs flex flex-col items-center justify-center gap-3">
+          <RefreshCw className="w-6 h-6 text-emerald-600 dark:text-emerald-400 animate-spin" />
+          <p className="text-xs text-stone-500 dark:text-stone-400 font-bold">Synchronizing youth schedules database...</p>
         </div>
       ) : filteredSchedules.length === 0 ? (
-        <div className="bg-white rounded-3xl p-16 text-center border border-stone-150 shadow-xs space-y-3">
-          <Calendar className="w-10 h-10 text-stone-300 mx-auto" />
-          <h3 className="text-sm font-bold text-stone-800">No Fellowship Schedules Found</h3>
-          <p className="text-xs text-stone-450 max-w-sm mx-auto">
+        <div className="bg-white dark:bg-stone-900 rounded-3xl p-16 text-center border border-stone-150 dark:border-stone-850 shadow-xs space-y-3">
+          <Calendar className="w-10 h-10 text-stone-300 dark:text-stone-600 mx-auto" />
+          <h3 className="text-sm font-bold text-stone-800 dark:text-stone-100">No Fellowship Schedules Found</h3>
+          <p className="text-xs text-stone-450 dark:text-stone-400 max-w-sm mx-auto">
             {searchQuery 
               ? "We couldn't find any schedules that match your active search filter. Try clearing or editing the keyword."
               : `There are currently no services listed under "${filterType}" filter category.`}
@@ -1165,7 +1165,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="text-xs font-bold text-emerald-600 hover:underline cursor-pointer"
+              className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
             >
               Clear Search Query
             </button>

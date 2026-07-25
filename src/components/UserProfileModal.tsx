@@ -653,17 +653,41 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         try {
           const recs = await financialsDb.getFinancialRecords();
           const filtered = recs.filter(rec => {
-            const rName = rec.name.trim().toLowerCase();
-            const mName = member.name.trim().toLowerCase();
-            const fmName = formatMemberName(member.name, member.gender, member.marital_status).trim().toLowerCase();
-            
-            const stripPrefix = (s: string) => {
+            // 1. Direct ID match
+            if (rec.user_id && member.id && rec.user_id === member.id) {
+              return true;
+            }
+
+            // 2. Helper to normalize strings for comparison
+            const normalize = (s: string | undefined | null) => {
+              if (!s) return '';
               return s
+                .toLowerCase()
                 .replace(/^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)/gi, '')
+                .replace(/\s+/g, ' ')
                 .trim();
             };
-            
-            return rName === mName || rName === fmName || stripPrefix(rName) === stripPrefix(mName);
+
+            const recNorm = normalize(rec.name);
+            if (!recNorm) return false;
+
+            const mNameNorm = normalize(member.name);
+            const mUsernameNorm = normalize(member.username);
+            const fmNameNorm = normalize(formatMemberName(member.name, member.gender, member.marital_status));
+            const fmUsernameNorm = normalize(formatMemberName(member.username || member.name, member.gender, member.marital_status));
+
+            if (
+              recNorm === mNameNorm ||
+              (mUsernameNorm && recNorm === mUsernameNorm) ||
+              recNorm === fmNameNorm ||
+              recNorm === fmUsernameNorm ||
+              recNorm.includes(mNameNorm) ||
+              mNameNorm.includes(recNorm)
+            ) {
+              return true;
+            }
+
+            return false;
           });
           setUserRecords(filtered);
         } catch (e) {
@@ -688,8 +712,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   const monthlySumMap = activeMonths.map(monthName => {
     const monthRecords = userRecords.filter(r => {
-      const recordYear = new Date(r.payment_date).getFullYear();
-      return r.payment_month === monthName && recordYear === currentYear;
+      if (r.payment_month !== monthName) return false;
+      if (!r.payment_date) return true;
+      const yearStr = r.payment_date.split('-')[0];
+      if (yearStr && !isNaN(Number(yearStr))) {
+        return Number(yearStr) === currentYear;
+      }
+      const d = new Date(r.payment_date.includes('T') ? r.payment_date : `${r.payment_date}T12:00:00`);
+      const recordYear = !isNaN(d.getTime()) ? d.getFullYear() : currentYear;
+      return recordYear === currentYear;
     });
     const total = monthRecords.reduce((sum, r) => sum + r.amount, 0);
     return { month: monthName, total };

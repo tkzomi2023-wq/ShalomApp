@@ -101,7 +101,8 @@ import {
   ChevronsDown,
   Trophy,
   Heart,
-  RefreshCw
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 
 const isBirthdayToday = (dobString?: string, todayDate: Date = new Date()): boolean => {
@@ -197,13 +198,24 @@ const getChatDateHeader = (dateString: string): string => {
 function AppContent() {
   const { user, loading, loadingStatus, retryInit, signOut, refreshProfile } = useAuth();
   const isCurrentUserAdmin = user ? (user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || isOBUser(user.role)) : false;
-  const theme = 'light';
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('sy_theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
 
-  // Force light mode exclusively and strip any trace of dark theme from root element
   useEffect(() => {
-    document.documentElement.classList.remove('dark');
-    localStorage.setItem('sy_theme', 'light');
-  }, []);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('sy_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   const applyMetaToDom = (data: {
     title?: string;
@@ -765,51 +777,114 @@ function AppContent() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Format mentions helper for chat message bubbles
-  const renderFormattedMessage = (text: string) => {
-    if (!text.includes('@')) return <span>{text}</span>;
-    
+  // Format mentions and URLs helper for chat message bubbles
+  const renderFormattedMessage = (text: string, isOwn: boolean = false) => {
+    if (!text) return null;
+
+    // Helper to format URLs and mentions within a substring
+    const processSegment = (segment: string) => {
+      // Regex to capture http/https/www URLs and file path URLs (like ctnk0szi54/Shalom_Youth_App_v2.4.apk/file)
+      const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]{2,}\/[^\s]*|[a-zA-Z0-9_-]+\.[a-zA-Z0-9_\-.]+\/[^\s]+)/gi;
+
+      const subParts = [];
+      let lastSubIndex = 0;
+      let match;
+
+      while ((match = urlRegex.exec(segment)) !== null) {
+        const matchIdx = match.index;
+        const matchedUrl = match[0];
+
+        if (matchIdx > lastSubIndex) {
+          subParts.push(
+            <span key={`txt-${lastSubIndex}`} className="break-words [overflow-wrap:anywhere] [word-break:break-word]">
+              {segment.substring(lastSubIndex, matchIdx)}
+            </span>
+          );
+        }
+
+        let href = matchedUrl;
+        if (!href.startsWith('http://') && !href.startsWith('https://')) {
+          href = `https://${href}`;
+        }
+
+        subParts.push(
+          <a
+            key={`url-${matchIdx}`}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 my-0.5 rounded-md text-[11px] font-bold border transition-all break-all [overflow-wrap:anywhere] max-w-full ${
+              isOwn
+                ? 'bg-white/20 hover:bg-white/30 text-white border-white/30 underline underline-offset-2'
+                : 'bg-violet-50 dark:bg-violet-950/50 hover:bg-violet-100 text-violet-700 dark:text-violet-300 border-violet-200/60 dark:border-violet-800/50 underline underline-offset-2'
+            }`}
+            title={`Open link: ${matchedUrl}`}
+          >
+            <ExternalLink className="w-3 h-3 shrink-0 opacity-85" />
+            <span className="break-all [overflow-wrap:anywhere] line-clamp-1 max-w-[180px] sm:max-w-[220px] inline-block align-bottom">{matchedUrl}</span>
+          </a>
+        );
+
+        lastSubIndex = urlRegex.lastIndex;
+      }
+
+      if (lastSubIndex < segment.length) {
+        subParts.push(
+          <span key={`txt-${lastSubIndex}`} className="break-words [overflow-wrap:anywhere] [word-break:break-word]">
+            {segment.substring(lastSubIndex)}
+          </span>
+        );
+      }
+
+      return subParts;
+    };
+
     const approvedNames = members
       .filter(m => m.status === 'approved')
       .map(m => m.name);
     
     const sortedNames = [...approvedNames].sort((a, b) => b.length - a.length);
     const escapedNames = sortedNames.map(name => name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
-    
-    if (escapedNames.length === 0) return <span>{text}</span>;
-    
-    const regex = new RegExp(`@(${escapedNames.join('|')})\\b`, 'gi');
-    
-    const parts = [];
+
+    if (escapedNames.length === 0 || !text.includes('@')) {
+      return <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] min-w-0 max-w-full">{processSegment(text)}</span>;
+    }
+
+    const mentionRegex = new RegExp(`@(${escapedNames.join('|')})\\b`, 'gi');
+    const mainParts = [];
     let lastIndex = 0;
     let match;
-    
-    while ((match = regex.exec(text)) !== null) {
+
+    while ((match = mentionRegex.exec(text)) !== null) {
       const matchIndex = match.index;
-      const matchText = match[0];
       const nameOnly = match[1];
-      
+
       if (matchIndex > lastIndex) {
-        parts.push(text.substring(lastIndex, matchIndex));
+        mainParts.push(...processSegment(text.substring(lastIndex, matchIndex)));
       }
-      
-      parts.push(
+
+      mainParts.push(
         <span 
-          key={matchIndex} 
-          className="bg-violet-100/80 dark:bg-violet-900/45 text-violet-700 dark:text-violet-300 font-extrabold px-1.5 py-0.5 rounded-md mx-0.5 border border-violet-200/50 dark:border-violet-800/40 inline-block align-baseline select-all"
+          key={`mention-${matchIndex}`} 
+          className={`font-extrabold px-1.5 py-0.5 rounded-md mx-0.5 border inline-flex items-center gap-0.5 text-[11px] align-baseline shadow-xxs ${
+            isOwn
+              ? 'bg-white/25 text-white border-white/40'
+              : 'bg-violet-100/90 dark:bg-violet-900/60 text-violet-800 dark:text-violet-200 border-violet-200/80 dark:border-violet-700/60'
+          }`}
         >
           @{nameOnly}
         </span>
       );
-      
-      lastIndex = regex.lastIndex;
+
+      lastIndex = mentionRegex.lastIndex;
     }
-    
+
     if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
+      mainParts.push(...processSegment(text.substring(lastIndex)));
     }
-    
-    return <span className="whitespace-pre-wrap">{parts}</span>;
+
+    return <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] min-w-0 max-w-full">{mainParts}</span>;
   };
 
   // Mark messages as read when chat window is open
@@ -894,6 +969,23 @@ function AppContent() {
   useEffect(() => {
     if (!user) return;
     loadDatabase();
+
+    // Auto sync background interval (every 45 seconds)
+    const autoSyncInterval = setInterval(() => {
+      loadDatabase();
+    }, 45000);
+
+    // Auto sync when tab regains focus
+    const handleFocusSync = () => {
+      loadDatabase();
+    };
+
+    window.addEventListener('focus', handleFocusSync);
+
+    return () => {
+      clearInterval(autoSyncInterval);
+      window.removeEventListener('focus', handleFocusSync);
+    };
   }, [user?.id]);
 
   // Online status listener and auto-reconnect background retry sequence
@@ -1301,16 +1393,30 @@ function AppContent() {
   };
 
   const handleClearChatHistory = async () => {
-    if (!user || !isCurrentUserAdmin) return;
-    if (!window.confirm('Are you sure you want to clear the entire chat history for everyone? This action is permanent.')) {
+    if (!user) return;
+    const confirmMsg = isCurrentUserAdmin
+      ? 'Are you sure you want to clear the entire chat history for everyone? This action is permanent.'
+      : 'Are you sure you want to clear your chat history view?';
+
+    if (!window.confirm(confirmMsg)) {
       return;
     }
     try {
-      await db.clearAllChatMessages();
-      setChatMessages([]);
+      const nowIso = new Date().toISOString();
+      localStorage.setItem('sy_chat_cleared_at', nowIso);
+      localStorage.removeItem('sy_global_chat_messages');
+
+      if (isCurrentUserAdmin) {
+        await db.clearAllChatMessages();
+      }
+
+      const freshMsgs = await db.getChatMessages();
+      setChatMessages(freshMsgs);
       setIsChatHeaderMenuOpen(false);
     } catch (err) {
       console.error('Failed to clear chat history:', err);
+      setChatMessages([]);
+      setIsChatHeaderMenuOpen(false);
     }
   };
 
@@ -2111,6 +2217,27 @@ function AppContent() {
               )}
             </button>
 
+            {/* Dark/Light Theme Toggle Button */}
+            <button
+              id="sy-theme-toggle-btn"
+              onClick={toggleTheme}
+              className="p-1.5 sm:p-2 bg-emerald-950/50 hover:bg-emerald-800/80 text-emerald-100 hover:text-white rounded-xl transition-all cursor-pointer border border-emerald-800/60 shadow-xs shrink-0 flex items-center justify-center gap-1.5"
+              title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+              aria-label="Toggle Theme"
+            >
+              {theme === 'dark' ? (
+                <>
+                  <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300 animate-pulse" />
+                  <span className="hidden xl:inline text-[10px] font-extrabold text-amber-200">Light</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-200" />
+                  <span className="hidden xl:inline text-[10px] font-extrabold text-emerald-100">Dark</span>
+                </>
+              )}
+            </button>
+
             <button
               id="tour-edit-profile-btn"
               onClick={() => {
@@ -2743,6 +2870,8 @@ function AppContent() {
                 onOpenSQLModal={() => setIsSQLModalOpen(true)}
                 onOpenBialModal={() => setIsBialDiagnosticOpen(true)}
                 onOpenRetentionModal={() => setIsRetentionModalOpen(true)}
+                onRefresh={loadDatabase}
+                setLogs={setLogs}
                 isFootballEnabled={isFootballEnabled}
                 setIsFootballEnabled={setIsFootballEnabled}
                 isPrayerRequestsEnabled={isPrayerRequestsEnabled}
@@ -2862,129 +2991,6 @@ function AppContent() {
               setIsCallingEnabled={setIsCallingEnabled}
             />
 
-            {/* Administrative / Manual register slider form */}
-            {isCurrentUserAdmin && addNewMemberOpen && (
-              <section className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xl space-y-4 max-w-xl mx-auto w-full transition-all">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <h4 className="font-extrabold text-stone-900 text-sm">Manually Provision New Youth Member</h4>
-                  <button onClick={() => setAddNewMemberOpen(false)} className="text-stone-400 hover:text-stone-700 text-xs font-semibold cursor-pointer">
-                    Cancel
-                  </button>
-                </div>
-
-                {adminFormError && (
-                  <div className="p-3 bg-rose-50 text-rose-800 text-xs rounded-xl border border-rose-100">
-                    {adminFormError}
-                  </div>
-                )}
-
-                <form onSubmit={handleAdminAddMember} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-stone-600">
-                  <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1">Username (Legal Name)</label>
-                    <input
-                      type="text"
-                      required
-                      value={newMemberName}
-                      onChange={e => setNewMemberName(e.target.value)}
-                      placeholder="e.g. Samuel Kipgen"
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-hidden focus:ring-1"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1">Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      value={newMemberEmail}
-                      onChange={e => setNewMemberEmail(e.target.value)}
-                      placeholder="email@shalomyouth.org"
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-hidden focus:ring-1"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1 flex items-center justify-between">
-                      <span>Phone Number</span>
-                      <span className="text-[9px] text-emerald-600 lowercase tracking-normal font-medium">Required for phone login</span>
-                    </label>
-                    <input
-                      type="tel"
-                      value={newMemberPhone}
-                      onChange={e => setNewMemberPhone(e.target.value)}
-                      placeholder="+919876543210"
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-hidden focus:ring-1"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1 flex items-center justify-between">
-                      <span>Login Password</span>
-                      <span className="text-[9px] text-stone-450 lowercase tracking-normal font-medium">Temporary password</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={newMemberPassword}
-                      onChange={e => setNewMemberPassword(e.target.value)}
-                      placeholder="e.g. shalomyouth"
-                      className="w-full px-3 py-2 border border-emerald-200 rounded-lg focus:outline-hidden focus:ring-1 bg-emerald-50/25 text-emerald-950 font-mono font-medium"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1">Assigned Role</label>
-                    <select
-                      value={newMemberRole}
-                      onChange={e => setNewMemberRole(e.target.value as UserRole)}
-                      disabled={user?.email?.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()}
-                      className="w-full px-3 py-2 border rounded-lg bg-white disabled:bg-stone-50 disabled:text-stone-400 disabled:cursor-not-allowed"
-                    >
-                      {ALL_ROLES.map(r => (
-                        <option key={r} value={r}>
-                          {r === 'standard' ? 'standard (Member)' : r}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1">Direct Status</label>
-                    <select
-                      value={newMemberStatus}
-                      onChange={e => setNewMemberStatus(e.target.value as any)}
-                      className="w-full px-3 py-2 border rounded-lg bg-white"
-                    >
-                      <option value="approved">Approved Immediately</option>
-                      <option value="pending">Awaiting Review</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-[10px] text-stone-450 uppercase mb-1">Gender</label>
-                    <select
-                      value={newMemberGender}
-                      onChange={e => setNewMemberGender(e.target.value as 'Male' | 'Female' | '')}
-                      className="w-full px-3 py-2 border rounded-lg bg-white cursor-pointer"
-                    >
-                      <option value="">Select Gender</option>
-                      <option value="Male">Male (Tg.)</option>
-                      <option value="Female">Female (Lia)</option>
-                    </select>
-                  </div>
-
-                  <div className="sm:col-span-2 pt-2">
-                    <button
-                      type="submit"
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl cursor-pointer shadow-xs text-xs"
-                    >
-                      Verify & Add Member Record
-                    </button>
-                  </div>
-                </form>
-              </section>
-            )}
-
             {/* Core Member Lookup Spreadsheet table */}
             <section className="space-y-3">
               <div className="flex items-center justify-between">
@@ -2994,10 +3000,12 @@ function AppContent() {
                 </div>
                 <button
                   onClick={() => loadDatabase()}
-                  className="p-1.5 hover:bg-stone-100 rounded-lg text-stone-450 hover:text-stone-800 transition-colors cursor-pointer text-xs font-semibold flex items-center gap-1 bg-white border border-stone-200"
-                  title="Force DB synchronization"
+                  disabled={isTestingConnection}
+                  className="p-1.5 px-3 bg-white dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white border border-stone-200 dark:border-stone-750 rounded-xl transition-all cursor-pointer text-xs font-semibold flex items-center gap-1.5 shadow-2xs disabled:opacity-60"
+                  title="Automatic database background synchronization"
                 >
-                  Sync Database
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingConnection ? 'animate-spin text-emerald-600 dark:text-emerald-400' : ''}`} />
+                  <span>{isTestingConnection ? 'Syncing...' : 'Sync Database'}</span>
                 </button>
               </div>
 
@@ -3511,27 +3519,25 @@ function AppContent() {
                           </div>
 
                           {isCurrentUserAdmin && (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setIsRetentionModalOpen(true);
-                                  setIsChatHeaderMenuOpen(false);
-                                }}
-                                className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800/50 hover:text-stone-900 transition-colors flex items-center gap-2 cursor-pointer border-b border-stone-100 dark:border-stone-800"
-                              >
-                                <SlidersHorizontal className="w-3.5 h-3.5 text-violet-500 shrink-0" />
-                                <span>Message Retention Policy</span>
-                              </button>
-
-                              <button
-                                onClick={handleClearChatHistory}
-                                className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:text-rose-700 transition-colors flex items-center gap-2 cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                                <span>Clear Chat History</span>
-                              </button>
-                            </>
+                            <button
+                              onClick={() => {
+                                setIsRetentionModalOpen(true);
+                                setIsChatHeaderMenuOpen(false);
+                              }}
+                              className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800/50 hover:text-stone-900 transition-colors flex items-center gap-2 cursor-pointer border-b border-stone-100 dark:border-stone-800"
+                            >
+                              <SlidersHorizontal className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                              <span>Message Retention Policy</span>
+                            </button>
                           )}
+
+                          <button
+                            onClick={handleClearChatHistory}
+                            className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:text-rose-700 transition-colors flex items-center gap-2 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>Clear Chat History</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -3715,7 +3721,7 @@ function AppContent() {
 
                             <div
                               data-message-id={msg.id}
-                              className={`flex items-start gap-2 ${
+                              className={`flex items-start gap-2 max-w-full min-w-0 ${
                                 isOwnMessage ? 'justify-start' : 'justify-end flex-row-reverse'
                               }`}
                             >
@@ -3740,10 +3746,10 @@ function AppContent() {
                           </div>
 
                           {/* Message Bubble Column */}
-                          <div className={`flex flex-col max-w-[75%] relative ${isOwnMessage ? 'items-start' : 'items-end'}`}>
+                          <div className={`flex flex-col max-w-[80%] min-w-0 relative ${isOwnMessage ? 'items-start' : 'items-end'}`}>
                             {/* Sender Name */}
                             {!isOwnMessage && (
-                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px] truncate">
                                 <span className="truncate">{msg.user_name}</span>
                                 <span 
                                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -3756,7 +3762,7 @@ function AppContent() {
                               </span>
                             )}
                             {isOwnMessage && (
-                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px] truncate">
                                 <span className="truncate">You</span>
                                 <span 
                                   className="w-1.5 h-1.5 rounded-full shrink-0 bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"
@@ -3815,14 +3821,16 @@ function AppContent() {
                                   e.preventDefault();
                                   setActiveReactionMsgId(msg.id);
                                 }}
-                                className={`px-3 py-1.5 text-xs shadow-xs leading-snug transition-all cursor-pointer select-none active:scale-98 ${
+                                className={`px-3 py-1.5 text-xs shadow-xs leading-snug transition-all cursor-pointer select-none active:scale-98 max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] [word-break:break-word] ${
                                   isOwnMessage
                                     ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-2xl rounded-tl-none'
                                     : 'bg-white dark:bg-stone-850 text-stone-850 dark:text-stone-150 rounded-2xl rounded-tr-none border border-stone-100 dark:border-stone-800'
                                 }`}
                                 title="Hold or right-click to react"
                               >
-                                <p className="break-words font-medium text-left">{renderFormattedMessage(msg.message)}</p>
+                                <div className="break-words [overflow-wrap:anywhere] [word-break:break-word] whitespace-pre-wrap font-medium text-left min-w-0 max-w-full">
+                                  {renderFormattedMessage(msg.message, isOwnMessage)}
+                                </div>
                               </div>
                             )}
 
@@ -4179,7 +4187,7 @@ function AppContent() {
                           <div
                             key={msg.id}
                             data-message-id={msg.id}
-                            className={`flex items-start gap-2 ${
+                            className={`flex items-start gap-2 max-w-full min-w-0 ${
                               isOwnReply ? 'justify-start' : 'justify-end flex-row-reverse'
                             }`}
                           >
@@ -4202,10 +4210,10 @@ function AppContent() {
                             </div>
 
                             {/* Message Bubble Column */}
-                            <div className={`flex flex-col max-w-[75%] relative ${isOwnReply ? 'items-start' : 'items-end'}`}>
+                            <div className={`flex flex-col max-w-[80%] min-w-0 relative ${isOwnReply ? 'items-start' : 'items-end'}`}>
                               {/* Sender Name */}
                               {!isOwnReply && (
-                                <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                                <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px] truncate">
                                   <span className="truncate">{msg.user_name}</span>
                                   <span 
                                     className={`w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -4218,7 +4226,7 @@ function AppContent() {
                                 </span>
                               )}
                               {isOwnReply && (
-                                <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px]">
+                                <span className="text-[9px] text-stone-400 dark:text-stone-500 font-bold mb-0.5 px-1 flex items-center gap-1.5 max-w-[150px] truncate">
                                   <span className="truncate">You</span>
                                   <span 
                                     className="w-1.5 h-1.5 rounded-full shrink-0 bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"
@@ -4277,14 +4285,16 @@ function AppContent() {
                                     e.preventDefault();
                                     setActiveReactionMsgId(msg.id);
                                   }}
-                                  className={`px-3 py-1.5 text-xs shadow-xs leading-snug transition-all cursor-pointer select-none active:scale-98 ${
+                                  className={`px-3 py-1.5 text-xs shadow-xs leading-snug transition-all cursor-pointer select-none active:scale-98 max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] [word-break:break-word] ${
                                     isOwnReply
                                       ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-2xl rounded-tl-none'
                                       : 'bg-white dark:bg-stone-850 text-stone-850 dark:text-stone-150 rounded-2xl rounded-tr-none border border-stone-100 dark:border-stone-800'
                                   }`}
                                   title="Hold or right-click to react"
                                 >
-                                  <p className="break-words font-medium text-left">{renderFormattedMessage(msg.message)}</p>
+                                  <div className="break-words [overflow-wrap:anywhere] [word-break:break-word] whitespace-pre-wrap font-medium text-left min-w-0 max-w-full">
+                                    {renderFormattedMessage(msg.message, isOwnReply)}
+                                  </div>
                                 </div>
                               )}
 

@@ -1115,28 +1115,28 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* CONTROL CARD */}
-        <div className="bg-white rounded-3xl p-6 border border-stone-150 shadow-2xs space-y-5 lg:col-span-1 flex flex-col justify-between">
+        <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-150 dark:border-stone-850 shadow-2xs lg:col-span-1 flex flex-col justify-between">
           <div className="space-y-4">
-            <h3 className="font-extrabold text-stone-900 text-sm tracking-tight flex items-center gap-2">
+            <h3 className="font-extrabold text-stone-900 dark:text-white text-sm tracking-tight flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-purple-500"></span>
               System Control & Settings
             </h3>
             
             {/* SMTP Config Badge */}
-            <div className="p-4 rounded-2xl bg-stone-50 border border-stone-100 space-y-3">
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-950/40 border border-stone-100 dark:border-stone-800 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-stone-500">SMTP Integration Status</span>
+                <span className="text-xs font-bold text-stone-500 dark:text-stone-400">SMTP Integration Status</span>
                 {statusData?.smtpConfigured ? (
-                  <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black p-1 px-2.5 rounded-full border border-emerald-200">
+                  <span className="bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-black p-1 px-2.5 rounded-full border border-emerald-200 dark:border-emerald-800">
                     Active
                   </span>
                 ) : (
-                  <span className="bg-amber-100 text-amber-800 text-[10px] font-black p-1 px-2.5 rounded-full border border-amber-200">
+                  <span className="bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-black p-1 px-2.5 rounded-full border border-amber-200 dark:border-amber-800">
                     Simulator Mode
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-stone-450 leading-relaxed">
+              <p className="text-[11px] text-stone-450 dark:text-stone-400 leading-relaxed">
                 {statusData?.smtpConfigured 
                   ? "Real emails are sent via your configured SMTP host (SMTP_HOST env) to all approved members."
                   : "SMTP credentials are not supplied. Daily checks still run and emails are fully generated and saved to history logs for visual inspection."}
@@ -1144,10 +1144,10 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
             </div>
 
             {/* Last checked indicator */}
-            <div className="flex items-center gap-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50 text-indigo-950">
-              <Calendar className="w-5 h-5 text-indigo-600 shrink-0" />
+            <div className="flex items-center gap-3 p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-100/50 dark:border-indigo-900/40 text-indigo-950 dark:text-indigo-200">
+              <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <div>
-                <div className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Last Run Check Date</div>
+                <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Last Run Check Date</div>
                 <div className="text-xs font-black">
                   {statusData?.lastRunDate ? statusData.lastRunDate : 'No runs recorded today yet'}
                 </div>
@@ -1155,12 +1155,12 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
             </div>
 
             {/* Manual Dispatcher Option */}
-            <div className="p-4 rounded-2xl bg-purple-50/40 border border-purple-100/50 space-y-3">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-purple-900">
-                <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+            <div className="p-4 rounded-2xl bg-purple-50/40 dark:bg-purple-950/20 border border-purple-100/50 dark:border-purple-900/30 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-purple-900 dark:text-purple-200">
+                <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
                 <span>Manual Birthday Dispatcher</span>
               </div>
-              <p className="text-[10px] text-purple-700/85 leading-relaxed font-medium">
+              <p className="text-[10px] text-purple-700/85 dark:text-purple-300/85 leading-relaxed font-medium">
                 Want to send a birthday greeting to a specific member now? Select them below to draft and dispatch their personalized birthday card.
               </p>
               
@@ -1168,7 +1168,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                 <select
                   value={selectedManualMemberId}
                   onChange={(e) => setSelectedManualMemberId(e.target.value)}
-                  className="w-full text-xs p-2.5 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white"
+                  className="w-full text-xs p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white dark:bg-stone-950 text-stone-900 dark:text-stone-100"
                 >
                   <option value="">-- Select Approved Member --</option>
                   {members
@@ -1184,8 +1184,8 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                   const selectedMember = members.find((m) => m.id === selectedManualMemberId);
                   if (!selectedMember) return null;
                   return (
-                    <div className="flex items-center gap-2.5 p-2 bg-white/85 rounded-xl border border-purple-100">
-                      <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 bg-purple-200 flex items-center justify-center text-xs font-extrabold text-purple-700">
+                    <div className="flex items-center gap-2.5 p-2 bg-white/85 dark:bg-stone-950/85 rounded-xl border border-purple-100 dark:border-purple-900/40">
+                      <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 bg-purple-200 dark:bg-purple-900 flex items-center justify-center text-xs font-extrabold text-purple-700 dark:text-purple-300">
                         {selectedMember.avatar ? (
                           <img
                             src={selectedMember.avatar}
@@ -1198,8 +1198,8 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                         )}
                       </div>
                       <div className="min-w-0">
-                        <div className="text-[11px] font-black text-stone-800 truncate">{selectedMember.name}</div>
-                        <div className="text-[9px] font-bold text-stone-500 truncate">{selectedMember.role || 'Member'}</div>
+                        <div className="text-[11px] font-black text-stone-800 dark:text-stone-200 truncate">{selectedMember.name}</div>
+                        <div className="text-[9px] font-bold text-stone-500 dark:text-stone-400 truncate">{selectedMember.role || 'Member'}</div>
                       </div>
                     </div>
                   );
@@ -1223,13 +1223,13 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
               {manualFeedback && (
                 <div className={`p-2.5 rounded-xl border text-[10px] font-bold flex gap-1.5 ${
                   manualFeedback.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
-                    : 'bg-rose-50 border-rose-100 text-rose-800'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-rose-50 dark:bg-rose-950/40 border-rose-100 dark:border-rose-900/40 text-rose-800 dark:text-rose-300'
                 }`}>
                   {manualFeedback.type === 'success' ? (
-                    <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   ) : (
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
                   )}
                   <span>{manualFeedback.message}</span>
                 </div>
@@ -1238,7 +1238,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
           </div>
 
           {/* Trigger check button */}
-          <div className="pt-4 border-t border-stone-100 space-y-3">
+          <div className="pt-4 border-t border-stone-100 dark:border-stone-800 space-y-3">
             <div className="space-y-2">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -1247,9 +1247,9 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                   onChange={(e) => setForceRerun(e.target.checked)}
                   className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
                 />
-                <span className="text-xs font-bold text-stone-600">Force rerun if already run today</span>
+                <span className="text-xs font-bold text-stone-600 dark:text-stone-300">Force rerun if already run today</span>
               </label>
-              <p className="text-[10px] text-stone-400 pl-6 leading-relaxed">
+              <p className="text-[10px] text-stone-400 dark:text-stone-500 pl-6 leading-relaxed">
                 By default, checking runs once daily. Tick this box to manually trigger a rerun and send another email.
               </p>
             </div>
@@ -1266,13 +1266,13 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
             {apiFeedback && (
               <div className={`p-3 rounded-xl border flex gap-2 text-xs ${
                 apiFeedback.type === 'success' 
-                  ? 'bg-emerald-50 border-emerald-100 text-emerald-800' 
-                  : 'bg-rose-50 border-rose-100 text-rose-800'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300' 
+                  : 'bg-rose-50 dark:bg-rose-950/40 border-rose-100 dark:border-rose-900/40 text-rose-800 dark:text-rose-300'
               }`}>
                 {apiFeedback.type === 'success' ? (
-                  <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
                 )}
                 <span>{apiFeedback.message}</span>
               </div>
@@ -1281,69 +1281,69 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
         </div>
 
         {/* LOGS LIST CARD */}
-        <div className="bg-white rounded-3xl p-6 border border-stone-150 shadow-2xs lg:col-span-2 space-y-4">
-          <h3 className="font-extrabold text-stone-900 text-sm tracking-tight flex items-center gap-2">
+        <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-150 dark:border-stone-850 shadow-2xs lg:col-span-2 space-y-4">
+          <h3 className="font-extrabold text-stone-900 dark:text-white text-sm tracking-tight flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
             Birthday Dispatch Logs History
           </h3>
 
           {loading ? (
-            <div className="py-12 text-center text-stone-400 text-xs flex flex-col items-center justify-center gap-3">
-              <RefreshCw className="w-6 h-6 animate-spin text-stone-300" />
+            <div className="py-12 text-center text-stone-400 dark:text-stone-500 text-xs flex flex-col items-center justify-center gap-3">
+              <RefreshCw className="w-6 h-6 animate-spin text-stone-300 dark:text-stone-600" />
               <span>Fetching dispatch logs...</span>
             </div>
           ) : !statusData || !Array.isArray(statusData.logs) || statusData.logs.length === 0 ? (
-            <div className="py-12 text-center bg-stone-50 rounded-2xl border border-stone-100 text-stone-400 text-xs flex flex-col items-center justify-center gap-2">
-              <Info className="w-8 h-8 text-stone-300" />
-              <span className="font-bold text-stone-500">No logs found</span>
+            <div className="py-12 text-center bg-stone-50 dark:bg-stone-950/40 rounded-2xl border border-stone-100 dark:border-stone-800 text-stone-400 dark:text-stone-500 text-xs flex flex-col items-center justify-center gap-2">
+              <Info className="w-8 h-8 text-stone-300 dark:text-stone-600" />
+              <span className="font-bold text-stone-500 dark:text-stone-400">No logs found</span>
               <span>Daily checks will log detailed reports here once triggered.</span>
             </div>
           ) : (
             <div className="space-y-3.5 max-h-[480px] overflow-y-auto pr-1">
               {(statusData.logs || []).map((log) => (
-                <div key={log.id} className="p-4 rounded-2xl border border-stone-150 hover:border-stone-250 transition-colors bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div key={log.id} className="p-4 rounded-2xl border border-stone-150 dark:border-stone-800 hover:border-stone-250 dark:hover:border-stone-700 transition-colors bg-white dark:bg-stone-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold text-stone-400">
+                      <span className="text-[10px] font-bold text-stone-400 dark:text-stone-500">
                         {formatTime(log.timestamp)}
                       </span>
                       {log.status === 'sent' && (
-                        <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black p-0.5 px-2 rounded-full border border-emerald-200">
+                        <span className="bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[9px] font-black p-0.5 px-2 rounded-full border border-emerald-200 dark:border-emerald-800">
                           Sent (SMTP)
                         </span>
                       )}
                       {log.status === 'simulated' && (
-                        <span className="bg-sky-100 text-sky-800 text-[9px] font-black p-0.5 px-2 rounded-full border border-sky-200">
+                        <span className="bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 text-[9px] font-black p-0.5 px-2 rounded-full border border-sky-200 dark:border-sky-800">
                           Simulated
                         </span>
                       )}
                       {log.status === 'checked_no_birthdays' && (
-                        <span className="bg-amber-100 text-amber-800 text-[9px] font-black p-0.5 px-2 rounded-full border border-amber-200">
+                        <span className="bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-black p-0.5 px-2 rounded-full border border-amber-200 dark:border-amber-800">
                           System Scan
                         </span>
                       )}
                       {log.status === 'failed' && (
-                        <span className="bg-rose-100 text-rose-800 text-[9px] font-black p-0.5 px-2 rounded-full border border-rose-200">
+                        <span className="bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 text-[9px] font-black p-0.5 px-2 rounded-full border border-rose-200 dark:border-rose-800">
                           Failed
                         </span>
                       )}
                     </div>
                     
-                    <div className="font-extrabold text-xs text-stone-800">
+                    <div className="font-extrabold text-xs text-stone-800 dark:text-stone-200">
                       {log.status === 'checked_no_birthdays' ? (
-                        <span className="text-stone-500 font-bold">Database Checked: No birthdays found today</span>
+                        <span className="text-stone-500 dark:text-stone-400 font-bold">Database Checked: No birthdays found today</span>
                       ) : (
-                        <>Celebrants: <span className="text-purple-600 text-sm">{log.celebrants.join(', ')}</span> 🎂</>
+                        <>Celebrants: <span className="text-purple-600 dark:text-purple-400 text-sm">{log.celebrants.join(', ')}</span> 🎂</>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
-                      <Users className="w-3.5 h-3.5 text-stone-400" />
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500 dark:text-stone-400">
+                      <Users className="w-3.5 h-3.5 text-stone-400 dark:text-stone-500" />
                       <span>{log.status === 'checked_no_birthdays' ? 'Verified active members profiles' : `Emailed to ${log.recipientCount} approved members`}</span>
                     </div>
 
                     {log.errorMessage && (
-                      <p className="text-[10px] text-rose-600 font-bold bg-rose-50 p-1.5 px-2 rounded-lg border border-rose-100">
+                      <p className="text-[10px] text-rose-600 dark:text-rose-400 font-bold bg-rose-50 dark:bg-rose-950/40 p-1.5 px-2 rounded-lg border border-rose-100 dark:border-rose-900/40">
                         Error: {log.errorMessage}
                       </p>
                     )}
@@ -1351,9 +1351,9 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
 
                   <button
                     onClick={() => setSelectedLogForPreview(log)}
-                    className="flex items-center justify-center gap-1.5 border border-stone-200 hover:border-stone-300 bg-stone-50 hover:bg-stone-100 text-stone-700 font-bold text-[11px] p-2 px-3.5 rounded-xl cursor-pointer transition-all self-start sm:self-auto"
+                    className="flex items-center justify-center gap-1.5 border border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-750 text-stone-700 dark:text-stone-200 font-bold text-[11px] p-2 px-3.5 rounded-xl cursor-pointer transition-all self-start sm:self-auto"
                   >
-                    <Eye className="w-3.5 h-3.5 text-stone-500" />
+                    <Eye className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400" />
                     <span>View Template</span>
                   </button>
                 </div>
@@ -1365,15 +1365,15 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
 
       {/* SMTP CONFIGURATION FOR tkpaite2016@gmail.com */}
       {currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com' && (
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-150 shadow-2xs space-y-6" id="smtp-configurations-admin">
-          <div className="border-b border-stone-100 pb-4">
-            <h3 className="font-extrabold text-stone-900 text-base tracking-tight flex items-center gap-2">
-              <span className="p-1.5 bg-purple-100 text-purple-700 rounded-lg">
+        <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 sm:p-8 border border-stone-150 dark:border-stone-850 shadow-2xs space-y-6" id="smtp-configurations-admin">
+          <div className="border-b border-stone-100 dark:border-stone-800 pb-4">
+            <h3 className="font-extrabold text-stone-900 dark:text-white text-base tracking-tight flex items-center gap-2">
+              <span className="p-1.5 bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-lg">
                 <Mail className="w-4 h-4" />
               </span>
               <span>Secure SMTP Credentials Setup (Restricted to TK Paite)</span>
             </h3>
-            <p className="text-xs text-stone-500 mt-1">
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">
               Configure your mail transfer protocol credentials here. This panel is secure and strictly visible to <strong>tkpaite2016@gmail.com</strong>.
             </p>
           </div>
@@ -1383,45 +1383,45 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
             <form onSubmit={handleSaveSmtpConfig} className="lg:col-span-2 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-stone-600 block">SMTP Host</label>
+                  <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">SMTP Host</label>
                   <input
                     type="text"
                     required
                     value={smtpHost}
                     onChange={(e) => setSmtpHost(e.target.value)}
                     placeholder="e.g., smtp.gmail.com"
-                    className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                    className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-stone-600 block">SMTP Port</label>
+                  <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">SMTP Port</label>
                   <input
                     type="text"
                     required
                     value={smtpPort}
                     onChange={(e) => setSmtpPort(e.target.value)}
                     placeholder="e.g., 587 or 465"
-                    className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                    className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-stone-600 block">SMTP User / Email</label>
+                  <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">SMTP User / Email</label>
                   <input
                     type="email"
                     required
                     value={smtpUser}
                     onChange={(e) => setSmtpUser(e.target.value)}
                     placeholder="e.g., yourname@gmail.com"
-                    className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                    className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-stone-600 block">SMTP Password / App Password</label>
+                  <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">SMTP Password / App Password</label>
                   <div className="relative flex items-center">
                     <input
                       type={showPassword ? "text" : "password"}
@@ -1430,7 +1430,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                       onChange={(e) => setSmtpPass(e.target.value)}
                       placeholder="Enter SMTP password or app password"
                       autoComplete="new-password"
-                      className="w-full text-xs p-3 pr-20 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                      className="w-full text-xs p-3 pr-20 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                     />
                     <div className="absolute right-2 flex items-center gap-1.5">
                       <button
@@ -1443,10 +1443,10 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                         }}
                         disabled={!smtpPass || smtpPass === '••••••••••••'}
                         title={smtpPass === '••••••••••••' ? "Password cannot be copied while fully masked" : "Copy password to clipboard"}
-                        className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-200 disabled:opacity-40 disabled:hover:bg-transparent transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-800 disabled:opacity-40 disabled:hover:bg-transparent transition-colors cursor-pointer"
                       >
                         {copiedPassword ? (
-                          <Check className="w-4 h-4 text-emerald-600" />
+                          <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                         ) : (
                           <Copy className="w-4 h-4" />
                         )}
@@ -1454,7 +1454,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-200 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-800 transition-colors cursor-pointer"
                         title={showPassword ? "Hide password" : "Show password"}
                       >
                         {showPassword ? (
@@ -1469,14 +1469,14 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-600 block">Sender Header (From)</label>
+                <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Sender Header (From)</label>
                 <input
                   type="text"
                   required
                   value={smtpFrom}
                   onChange={(e) => setSmtpFrom(e.target.value)}
                   placeholder='e.g., "Shalom Youth Fellowship" <tkpaite2016@gmail.com>'
-                  className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50"
+                  className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                 />
               </div>
 
@@ -1484,7 +1484,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
                 <button
                   type="submit"
                   disabled={smtpLoading || previewLoading}
-                  className="flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-extrabold text-xs p-3 px-6 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 dark:bg-stone-800 dark:hover:bg-stone-700 text-white font-extrabold text-xs p-3 px-6 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
                   <span>{smtpLoading ? "Saving..." : "Save SMTP Configuration"}</span>
@@ -1508,13 +1508,13 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
               {smtpFeedback && (
                 <div className={`p-3 rounded-xl border text-xs font-bold flex gap-2 ${
                   smtpFeedback.type === 'success' 
-                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800' 
-                    : 'bg-rose-50 border-rose-100 text-rose-800'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300' 
+                    : 'bg-rose-50 dark:bg-rose-950/40 border-rose-100 dark:border-rose-900/40 text-rose-800 dark:text-rose-300'
                 }`}>
                   {smtpFeedback.type === 'success' ? (
-                    <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   ) : (
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
                   )}
                   <span>{smtpFeedback.message}</span>
                 </div>
@@ -1522,22 +1522,22 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
             </form>
 
             {/* Instruction Guide */}
-            <div className="bg-stone-50 border border-stone-150 p-5 rounded-2xl space-y-3 text-xs leading-relaxed">
-              <h4 className="font-extrabold text-stone-800 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
-                <Info className="w-4 h-4 text-purple-600" />
+            <div className="bg-stone-50 dark:bg-stone-950/40 border border-stone-150 dark:border-stone-800 p-5 rounded-2xl space-y-3 text-xs leading-relaxed">
+              <h4 className="font-extrabold text-stone-800 dark:text-stone-200 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
+                <Info className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 SMTP Credentials Guide
               </h4>
-              <p className="text-stone-500">
+              <p className="text-stone-500 dark:text-stone-400">
                 To connect your standard email dispatcher (such as Gmail), follow these steps to secure credentials:
               </p>
-              <ol className="list-decimal pl-4 space-y-1.5 text-stone-600 font-medium">
-                <li>Go to your <a href="https://myaccount.google.com" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline font-bold">Google Account Security page</a>.</li>
+              <ol className="list-decimal pl-4 space-y-1.5 text-stone-600 dark:text-stone-300 font-medium">
+                <li>Go to your <a href="https://myaccount.google.com" target="_blank" rel="noopener noreferrer" className="text-purple-600 dark:text-purple-400 hover:underline font-bold">Google Account Security page</a>.</li>
                 <li>Turn on <strong>2-Step Verification</strong> if not already configured.</li>
                 <li>Search for <strong>App Passwords</strong> in the top search bar.</li>
                 <li>Create an App Password (name it e.g., <em>Shalom Youth App</em>).</li>
                 <li>Copy the generated <strong>16-character key</strong>.</li>
                 <li>Paste it in the SMTP Password field here.</li>
-                <li>Use <code className="font-mono bg-stone-200 px-1 py-0.5 rounded">smtp.gmail.com</code> as Host, and <code className="font-mono bg-stone-200 px-1 py-0.5 rounded">587</code> as Port.</li>
+                <li>Use <code className="font-mono bg-stone-200 dark:bg-stone-800 px-1 py-0.5 rounded">smtp.gmail.com</code> as Host, and <code className="font-mono bg-stone-200 dark:bg-stone-800 px-1 py-0.5 rounded">587</code> as Port.</li>
               </ol>
             </div>
           </div>
@@ -1547,43 +1547,43 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       {/* MODAL PREVIEW */}
       {selectedLogForPreview && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
-            <div className="p-5 border-b border-stone-100 bg-stone-50/50 flex items-center justify-between">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl border border-stone-200 dark:border-stone-800 flex flex-col max-h-[85vh]">
+            <div className="p-5 border-b border-stone-100 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-950/50 flex items-center justify-between">
               <div>
-                <h4 className="font-black text-stone-950 text-sm tracking-tight flex items-center gap-2">
+                <h4 className="font-black text-stone-950 dark:text-white text-sm tracking-tight flex items-center gap-2">
                   <span>Birthday Email Preview</span>
                 </h4>
-                <p className="text-[11px] font-bold text-stone-450 mt-0.5">
+                <p className="text-[11px] font-bold text-stone-450 dark:text-stone-400 mt-0.5">
                   Subject: {selectedLogForPreview.subject}
                 </p>
               </div>
               <button
                 onClick={() => setSelectedLogForPreview(null)}
-                className="p-1.5 px-2.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 text-xs font-black transition-colors cursor-pointer"
+                className="p-1.5 px-2.5 rounded-xl text-stone-400 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 text-xs font-black transition-colors cursor-pointer"
               >
                 ✕ Close
               </button>
             </div>
             
-            <div className="flex-grow overflow-y-auto bg-stone-100 p-4 sm:p-6">
+            <div className="flex-grow overflow-y-auto bg-stone-100 dark:bg-stone-950 p-4 sm:p-6">
               {/* Using srcDoc inside iframe to completely sand-box style rendering of HTML email */}
               <iframe
                 ref={iframeRef}
                 title="Email Preview"
                 srcDoc={selectedLogForPreview.body}
-                className="w-full h-[450px] bg-white rounded-2xl shadow-xs border border-stone-200"
+                className="w-full h-[450px] bg-white rounded-2xl shadow-xs border border-stone-200 dark:border-stone-800"
               />
             </div>
 
             {/* SEND REAL BIRTHDAY WISH BUTTON AREA */}
-            <div className="p-4 border-t border-stone-100 bg-purple-50/30 flex flex-col gap-3">
+            <div className="p-4 border-t border-stone-100 dark:border-stone-800 bg-purple-50/30 dark:bg-purple-950/20 flex flex-col gap-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-0.5">
-                  <span className="text-xs font-extrabold text-stone-800 block">
+                  <span className="text-xs font-extrabold text-stone-800 dark:text-stone-200 block">
                     🎁 Direct Email Birthday wish to celebrant(s):
                   </span>
-                  <span className="text-[10px] text-stone-500 font-bold block leading-normal">
-                    Emails the custom-designed celebration greeting card to: <span className="text-purple-600">{selectedLogForPreview.celebrants.join(', ')}</span>.
+                  <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block leading-normal">
+                    Emails the custom-designed celebration greeting card to: <span className="text-purple-600 dark:text-purple-400">{selectedLogForPreview.celebrants.join(', ')}</span>.
                   </span>
                 </div>
                 <button
@@ -1607,27 +1607,27 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
               {wishFeedback && (
                 <div className={`p-2.5 rounded-xl border text-[11px] font-bold flex gap-1.5 ${
                   wishFeedback.type === 'success' 
-                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800' 
-                    : 'bg-rose-50 border-rose-100 text-rose-800'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300' 
+                    : 'bg-rose-50 dark:bg-rose-950/40 border-rose-100 dark:border-rose-900/40 text-rose-800 dark:text-rose-300'
                 }`}>
                   {wishFeedback.type === 'success' ? (
-                    <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   ) : (
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
                   )}
                   <span>{wishFeedback.message}</span>
                 </div>
               )}
             </div>
             
-            <div className="p-4 border-t border-stone-100 bg-stone-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-[10px] text-stone-450">
+            <div className="p-4 border-t border-stone-100 dark:border-stone-800 bg-stone-50 dark:bg-stone-950/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-[10px] text-stone-450 dark:text-stone-400">
               <div>
-                <span className="font-black text-stone-600 block">Recipients BCC List:</span>
+                <span className="font-black text-stone-600 dark:text-stone-300 block">Recipients BCC List:</span>
                 <span className="break-all font-mono">{selectedLogForPreview.recipients.join(', ')}</span>
               </div>
               <button
                 onClick={() => setSelectedLogForPreview(null)}
-                className="w-full sm:w-auto bg-stone-900 text-white font-extrabold text-xs p-2.5 px-5 rounded-xl cursor-pointer hover:bg-stone-800 text-center"
+                className="w-full sm:w-auto bg-stone-900 hover:bg-stone-800 dark:bg-stone-800 dark:hover:bg-stone-700 text-white font-extrabold text-xs p-2.5 px-5 rounded-xl cursor-pointer text-center"
               >
                 Done
               </button>

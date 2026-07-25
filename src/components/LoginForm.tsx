@@ -79,7 +79,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onToggleRegister, onSucces
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-stone-100 p-1 rounded-xl">
+      <div className="flex bg-stone-100 dark:bg-stone-850 p-1 rounded-xl">
         <button
           type="button"
           onClick={() => {
@@ -88,8 +88,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onToggleRegister, onSucces
           }}
           className={`flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
             loginMethod === 'email'
-              ? 'bg-white shadow-xs text-stone-900'
-              : 'text-stone-500 hover:text-stone-800'
+              ? 'bg-white dark:bg-stone-800 shadow-xs text-stone-900 dark:text-stone-100'
+              : 'text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'
           }`}
         >
           <Mail className="w-3.5 h-3.5" /> Email Address
@@ -102,8 +102,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onToggleRegister, onSucces
           }}
           className={`flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
             loginMethod === 'phone'
-              ? 'bg-white shadow-xs text-stone-900'
-              : 'text-stone-500 hover:text-stone-800'
+              ? 'bg-white dark:bg-stone-800 shadow-xs text-stone-900 dark:text-stone-100'
+              : 'text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'
           }`}
         >
           <Phone className="w-3.5 h-3.5" /> Phone Number

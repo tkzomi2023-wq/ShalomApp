@@ -172,17 +172,55 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     }
   }, [isAddFormOpen, editingRecord]);
 
-  const getContributorLegalName = (rec: { user_id?: string; name: string }) => {
-    if (rec.user_id) {
-      const match = members.find(m => m.id === rec.user_id);
-      if (match) return formatMemberName(match.username || match.name, match.gender, match.marital_status);
+  const stripPrefix = (s: string | undefined | null): string => {
+    if (!s) return '';
+    return s
+      .toLowerCase()
+      .replace(/^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const getMemberForRecord = (r: { user_id?: string; name: string }, membersList: Member[]): Member | undefined => {
+    if (r.user_id) {
+      const match = membersList.find(m => m.id === r.user_id);
+      if (match) return match;
     }
-    // Fallback: search members by name or username
-    const nameMatch = members.find(m => 
-      m.name.trim().toLowerCase() === rec.name.trim().toLowerCase() || 
-      (m.username && m.username.trim().toLowerCase() === rec.name.trim().toLowerCase())
-    );
-    if (nameMatch) return formatMemberName(nameMatch.username || nameMatch.name, nameMatch.gender, nameMatch.marital_status);
+    const normRecName = stripPrefix(r.name);
+    if (!normRecName) return undefined;
+
+    return membersList.find(m => {
+      const normName = stripPrefix(m.name);
+      const normUsername = stripPrefix(m.username);
+      const normFmtName = stripPrefix(formatMemberName(m.name, m.gender, m.marital_status));
+      const normFmtUsername = stripPrefix(formatMemberName(m.username || m.name, m.gender, m.marital_status));
+
+      return (
+        normRecName === normName ||
+        (normUsername && normRecName === normUsername) ||
+        normRecName === normFmtName ||
+        normRecName === normFmtUsername ||
+        (normName.length > 3 && normRecName.includes(normName)) ||
+        (normRecName.length > 3 && normName.includes(normRecName))
+      );
+    });
+  };
+
+  const getContributorKey = (r: { user_id?: string; name: string; area?: string }, membersList: Member[]): string => {
+    const member = getMemberForRecord(r, membersList);
+    if (member) {
+      return `member_${member.id}`;
+    }
+    const normName = stripPrefix(r.name);
+    const normArea = r.area ? r.area.trim().toLowerCase() : 'bial';
+    return `nonmember_${normName}_${normArea}`;
+  };
+
+  const getContributorLegalName = (rec: { user_id?: string; name: string }) => {
+    const member = getMemberForRecord(rec, members);
+    if (member) {
+      return formatMemberName(member.username || member.name, member.gender, member.marital_status);
+    }
     return rec.name;
   };
 
@@ -201,15 +239,16 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
   const setupBulkEditMode = (name: string, address: string, area: string) => {
     // Attempt to resolve the contributor from members to find user_id
-    const matchedMember = members.find(m => m.name.trim().toLowerCase() === name.trim().toLowerCase() || (m.username && m.username.trim().toLowerCase() === name.trim().toLowerCase()));
+    const dummyRec = { name, address, area };
+    const matchedMember = getMemberForRecord(dummyRec, members);
     const targetUserId = matchedMember ? matchedMember.id : undefined;
 
-    // Find all records for this contributor (by user_id if available, or by name as fallback)
+    // Find all records for this contributor
     const contributorRecords = records.filter(r => {
-      if (targetUserId && r.user_id) {
-        return r.user_id === targetUserId;
+      if (matchedMember) {
+        return getMemberForRecord(r, members)?.id === matchedMember.id;
       }
-      return r.name.trim().toLowerCase() === name.trim().toLowerCase();
+      return stripPrefix(r.name) === stripPrefix(name);
     });
     const latestRec = contributorRecords[contributorRecords.length - 1];
     
@@ -251,6 +290,41 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     });
     setBulkEntries(updatedBulk);
     setIsAddFormOpen(true);
+  };
+
+  const syncBulkEntriesForUser = (userName: string, userId?: string) => {
+    const dummyRec = { user_id: userId, name: userName };
+    const matchedMember = getMemberForRecord(dummyRec, members);
+
+    const contributorRecords = records.filter(r => {
+      if (matchedMember) {
+        return getMemberForRecord(r, members)?.id === matchedMember.id;
+      }
+      return stripPrefix(r.name) === stripPrefix(userName);
+    });
+
+    const updatedBulk: { [month: string]: { selected: boolean; amount: number | ''; date: string; id?: string } } = {};
+    MONTHS.forEach(m => {
+      updatedBulk[m] = { 
+        selected: false, 
+        amount: formAmount !== '' ? Number(formAmount) : '', 
+        date: formDate || new Date().toISOString().split('T')[0], 
+        id: undefined 
+      };
+    });
+
+    contributorRecords.forEach(r => {
+      if (MONTHS.includes(r.payment_month)) {
+        updatedBulk[r.payment_month] = {
+          selected: true,
+          amount: r.amount,
+          date: r.payment_date,
+          id: r.id
+        };
+      }
+    });
+
+    setBulkEntries(updatedBulk);
   };
 
   const closeForm = () => {
@@ -571,17 +645,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   // Compute calculated values
   const totalFinancialCollection = records.reduce((sum, r) => sum + r.amount, 0);
   const countOfTransactions = records.length;
-  const uniqueContributors = new Set(records.map(r => r.name.toLowerCase().trim())).size;
+  const uniqueContributors = new Set(records.map(r => getContributorKey(r, members))).size;
 
   // Helper to determine if a member/name is already assigned to a Bial
   const getMemberBial = (memberName: string, memberAddress?: string, excludeRecordId?: string): string | null => {
     const normalizedName = memberName.trim().toLowerCase();
-    
-    const stripPrefix = (s: string) => {
-      return s
-        .replace(/^(tg\.|tg\s+|lia\s+|lia\.|pa\s+|pa\.|sia\s+|sia\.)/gi, '')
-        .trim();
-    };
     const strippedMember = stripPrefix(normalizedName);
     
     // First, check if there is a registered approved member with this name and they have an assigned bial
@@ -664,13 +732,19 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     const groups: { [key: string]: AggregatedUserRecord } = {};
 
     recordsList.forEach(r => {
-      const legalName = getContributorLegalName(r);
-      const key = r.user_id ? `${r.user_id}||${r.area.trim().toLowerCase()}` : `${legalName.trim().toLowerCase()}||${r.area.trim().toLowerCase()}`;
+      const member = getMemberForRecord(r, members);
+      const legalName = member 
+        ? formatMemberName(member.username || member.name, member.gender, member.marital_status)
+        : r.name;
+      
+      const key = getContributorKey(r, members);
+      const bialArea = member?.bial || r.area;
+
       if (!groups[key]) {
         groups[key] = {
           name: legalName,
-          bial: r.area,
-          address: r.address || '',
+          bial: bialArea,
+          address: (member?.address) || r.address || '',
           records: [],
           totalAmount: 0,
           paymentPeriod: '',
@@ -763,15 +837,21 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
   const topDonorsOfYear = React.useMemo(() => {
     const contributorMap = new Map<string, { name: string; area: string; total: number; count: number }>();
     records.forEach(r => {
-      const key = r.name.toLowerCase().trim();
+      const member = getMemberForRecord(r, members);
+      const legalName = member 
+        ? formatMemberName(member.username || member.name, member.gender, member.marital_status)
+        : r.name;
+      const key = getContributorKey(r, members);
+      const bialArea = member?.bial || r.area;
+
       const existing = contributorMap.get(key);
       if (existing) {
         existing.total += r.amount;
         existing.count += 1;
       } else {
         contributorMap.set(key, {
-          name: r.name.trim(),
-          area: r.area,
+          name: legalName,
+          area: bialArea,
           total: r.amount,
           count: 1
         });
@@ -781,11 +861,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     return Array.from(contributorMap.values())
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
-  }, [records]);
+  }, [records, members]);
 
   // Active Bial Specific Scope values
   const currentBialConfig = bialConfigs.find(c => c.id === activeTab);
-  const currentBialRecords = records.filter(r => r.area === activeTab);
+  const currentBialRecords = records.filter(r => r.area.trim().toLowerCase() === activeTab.trim().toLowerCase());
   const aggregatedBialRecords = React.useMemo(() => {
     return getAggregatedRecords(currentBialRecords);
   }, [currentBialRecords]);
@@ -794,7 +874,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     return aggregatedBialRecords.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   }, [aggregatedBialRecords, currentPage, itemsPerPage]);
   const currentBialCollection = currentBialRecords.reduce((s, r) => s + r.amount, 0);
-  const currentBialContributorsCount = new Set(currentBialRecords.map(r => r.name.toLowerCase().trim())).size;
+  const currentBialContributorsCount = new Set(currentBialRecords.map(r => getContributorKey(r, members))).size;
 
   const generatePDFReport = () => {
     if (!isOBUser(currentUser.role)) {
@@ -838,7 +918,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       const pdfRecords = records.filter(r => pdfSelectedMonthsList.includes(r.payment_month));
       const pdfTotalCollection = pdfRecords.reduce((sum, r) => sum + r.amount, 0);
       const pdfCountOfTransactions = pdfRecords.length;
-      const pdfUniqueContributors = new Set(pdfRecords.map(r => r.name.toLowerCase().trim())).size;
+      const pdfUniqueContributors = new Set(pdfRecords.map(r => getContributorKey(r, members))).size;
 
       // 1. OVERALL SUMMARY PAGE
       if (pdfIncludeSummary) {
@@ -1019,19 +1099,24 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
         }
         isFirstPage = false;
 
-        // Group pdfRecords by name (case-insensitive) and sum amounts
+        // Group pdfRecords by contributor key and sum amounts
         const contributorMap = new Map<string, { name: string; area: string; total: number; count: number }>();
         pdfRecords.forEach(r => {
-          const resolvedName = getContributorLegalName(r);
-          const key = resolvedName.toLowerCase().trim();
+          const member = getMemberForRecord(r, members);
+          const legalName = member 
+            ? formatMemberName(member.username || member.name, member.gender, member.marital_status)
+            : r.name;
+          const key = getContributorKey(r, members);
+          const bialArea = member?.bial || r.area;
+
           const existing = contributorMap.get(key);
           if (existing) {
             existing.total += r.amount;
             existing.count += 1;
           } else {
             contributorMap.set(key, {
-              name: resolvedName,
-              area: r.area,
+              name: legalName,
+              area: bialArea,
               total: r.amount,
               count: 1
             });
@@ -1543,19 +1628,19 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
     <div className="space-y-6" id="finance_records_root">
       
       {/* Access Permission Block Header */}
-      <div className="bg-white p-4.5 rounded-2xl border border-stone-150 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-white dark:bg-stone-900 p-4.5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-xl ${canManageFinance ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : 'bg-amber-50 text-amber-800 border border-amber-100'}`}>
+          <div className={`p-2.5 rounded-xl ${canManageFinance ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-100 dark:border-amber-800'}`}>
             {canManageFinance ? <Unlock className="w-5 h-5 animate-pulse" /> : <Lock className="w-5 h-5" />}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-extrabold text-stone-900 uppercase tracking-widest leading-none">Financial Record System (Fundbawm)</h2>
-              <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded-md uppercase border ${canManageFinance ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
+              <h2 className="text-sm font-extrabold text-stone-900 dark:text-stone-100 uppercase tracking-widest leading-none">Financial Record System (Fundbawm)</h2>
+              <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded-md uppercase border ${canManageFinance ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700'}`}>
                 {canManageFinance ? 'Administrator Access' : 'Read-Only Clearance'}
               </span>
             </div>
-            <p className="text-[11px] text-stone-450 mt-1">
+            <p className="text-[11px] text-stone-450 dark:text-stone-400 mt-1">
               {canManageFinance 
                 ? 'Authorized as Admin/Founder or Treasurer/Financial Secretary. You possess complete CRUD access over Bial configurations, monthly record additions, and ledger alterations.'
                 : 'Officer Bearer / Executive Committee view clearance. Transaction editing, addition, or deletions are deactivated.'
@@ -1586,14 +1671,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       </div>
 
       {/* Main Bial-wise + Overall Tab list switcher */}
-      <div className="bg-white p-1 rounded-2xl border border-stone-150 shadow-xs overflow-x-auto">
+      <div className="bg-white dark:bg-stone-900 p-1 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs overflow-x-auto">
         <div className="flex items-center gap-1 min-w-max">
           <button
             onClick={() => {
               setActiveTab('Overall');
               setIsEditingBialConfig(false);
             }}
-            className={`px-3 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${activeTab === 'Overall' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-50'}`}
+            className={`px-3 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${activeTab === 'Overall' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-100 hover:bg-stone-50 dark:hover:bg-stone-800'}`}
           >
             Overall Status
           </button>
@@ -1604,7 +1689,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 setActiveTab(bialId);
                 setIsEditingBialConfig(false);
               }}
-              className={`px-3 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${activeTab === bialId ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-50'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${activeTab === bialId ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-100 hover:bg-stone-50 dark:hover:bg-stone-800'}`}
             >
               {bialId}
             </button>
@@ -1618,46 +1703,46 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           
           {/* Quick Metrics */}
           <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex items-center justify-between">
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs flex items-center justify-between">
               <div className="space-y-1">
-                <span className="text-[10px] text-stone-400 font-extrabold uppercase tracking-widest">Total Fundbawm Collection</span>
-                <div className="text-2xl font-black text-stone-900">₹{totalFinancialCollection.toLocaleString('en-IN')}</div>
-                <p className="text-[10px] text-emerald-600 font-bold">Sum accumulated over all bials</p>
+                <span className="text-[10px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-widest">Total Fundbawm Collection</span>
+                <div className="text-2xl font-black text-stone-900 dark:text-stone-100">₹{totalFinancialCollection.toLocaleString('en-IN')}</div>
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Sum accumulated over all bials</p>
               </div>
-              <div className="p-3 bg-emerald-50 text-emerald-700 rounded-xl">
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 rounded-xl">
                 <Coins className="w-6 h-6 animate-pulse" />
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex items-center justify-between">
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs flex items-center justify-between">
               <div className="space-y-1">
-                <span className="text-[10px] text-stone-400 font-extrabold uppercase tracking-widest">Active Contributors</span>
-                <div className="text-2xl font-black text-stone-900">{uniqueContributors}</div>
-                <p className="text-[10px] text-stone-450 font-bold">Unique member accounts donating</p>
+                <span className="text-[10px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-widest">Active Contributors</span>
+                <div className="text-2xl font-black text-stone-900 dark:text-stone-100">{uniqueContributors}</div>
+                <p className="text-[10px] text-stone-450 dark:text-stone-400 font-bold">Unique member accounts donating</p>
               </div>
-              <div className="p-3 bg-blue-50 text-blue-700 rounded-xl">
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 rounded-xl">
                 <Users className="w-6 h-6" />
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex items-center justify-between">
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs flex items-center justify-between">
               <div className="space-y-1">
-                <span className="text-[10px] text-stone-400 font-extrabold uppercase tracking-widest">Audit Registry Length</span>
-                <div className="text-2xl font-black text-stone-900">{countOfTransactions}</div>
-                <p className="text-[10px] text-stone-450 font-bold">Chronological receipts stored</p>
+                <span className="text-[10px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-widest">Audit Registry Length</span>
+                <div className="text-2xl font-black text-stone-900 dark:text-stone-100">{countOfTransactions}</div>
+                <p className="text-[10px] text-stone-450 dark:text-stone-400 font-bold">Chronological receipts stored</p>
               </div>
-              <div className="p-3 bg-amber-50 text-amber-700 rounded-xl">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 rounded-xl">
                 <TrendingUp className="w-6 h-6" />
               </div>
             </div>
           </section>
 
           {/* SPREADSHEET MATRIX VIEW: "how bials are doing every month" */}
-          <section className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-stone-100">
+          <section className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-stone-100 dark:border-stone-800">
               <div>
-                <h3 className="text-sm font-extrabold text-stone-900 uppercase tracking-wider">Bial Monthly Collection Sheet</h3>
-                <p className="text-xs text-stone-450">Comprehensive matrix layout tracking receipts across all 12 Bials</p>
+                <h3 className="text-sm font-extrabold text-stone-900 dark:text-stone-100 uppercase tracking-wider">Bial Monthly Collection Sheet</h3>
+                <p className="text-xs text-stone-450 dark:text-stone-400">Comprehensive matrix layout tracking receipts across all 12 Bials</p>
               </div>
               <div className="flex items-center gap-2 self-start sm:self-center">
                 {isOBUser(currentUser.role) && (
@@ -1670,27 +1755,27 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                     <span>Download PDF Report</span>
                   </button>
                 )}
-                <span className="bg-stone-50 border border-stone-200 text-stone-500 font-mono text-[9px] font-bold px-2.5 py-1.5 rounded-lg">
+                <span className="bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-500 dark:text-stone-400 font-mono text-[9px] font-bold px-2.5 py-1.5 rounded-lg">
                   Financial Year: 2026
                 </span>
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-stone-100 bg-stone-50">
+            <div className="overflow-x-auto rounded-xl border border-stone-100 dark:border-stone-800 bg-stone-50 dark:bg-stone-950">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-stone-100 text-stone-700 uppercase font-black text-[9px] tracking-wider border-b border-stone-200">
-                    <th className="p-3.5 sticky left-0 bg-stone-100 z-10 border-r border-stone-200 shadow-sm">Bial Area Name</th>
+                  <tr className="bg-stone-100 dark:bg-stone-850 text-stone-700 dark:text-stone-300 uppercase font-black text-[9px] tracking-wider border-b border-stone-200 dark:border-stone-750">
+                    <th className="p-3.5 sticky left-0 bg-stone-100 dark:bg-stone-850 z-10 border-r border-stone-200 dark:border-stone-750 shadow-sm">Bial Area Name</th>
                     {MONTHS.map(mon => (
                       <th key={mon} className="p-3 text-center min-w-20 font-bold">{mon.slice(0, 3)}</th>
                     ))}
-                    <th className="p-3.5 text-right font-black border-l border-stone-200 bg-stone-150">Bial Sum</th>
+                    <th className="p-3.5 text-right font-black border-l border-stone-200 dark:border-stone-750 bg-stone-150 dark:bg-stone-800">Bial Sum</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-100 bg-white">
+                <tbody className="divide-y divide-stone-100 dark:divide-stone-800 bg-white dark:bg-stone-900">
                   {matrixData.map(row => (
-                    <tr key={row.label} className="hover:bg-stone-50/80 transition-colors">
-                      <td className="p-3.5 font-extrabold text-stone-800 sticky left-0 bg-white border-r border-stone-150 shadow-xs">
+                    <tr key={row.label} className="hover:bg-stone-50/80 dark:hover:bg-stone-800/80 transition-colors">
+                      <td className="p-3.5 font-extrabold text-stone-800 dark:text-stone-200 sticky left-0 bg-white dark:bg-stone-900 border-r border-stone-150 dark:border-stone-800 shadow-xs">
                         {row.label}
                       </td>
                       {MONTHS.map(mon => {
@@ -1698,23 +1783,23 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         return (
                           <td key={mon} className="p-3 text-center font-mono">
                             {cellVal > 0 ? (
-                              <span className="font-bold text-emerald-85 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md text-[11px]">
+                              <span className="font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-800 px-1.5 py-0.5 rounded-md text-[11px]">
                                 ₹{cellVal}
                               </span>
                             ) : (
-                              <span className="text-stone-300">-</span>
+                              <span className="text-stone-300 dark:text-stone-600">-</span>
                             )}
                           </td>
                         );
                       })}
-                      <td className="p-3.5 text-right font-extrabold font-mono text-stone-900 border-l border-stone-150 bg-stone-50/50">
+                      <td className="p-3.5 text-right font-extrabold font-mono text-stone-900 dark:text-stone-100 border-l border-stone-150 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/50">
                         ₹{row.total.toLocaleString('en-IN')}
                       </td>
                     </tr>
                   ))}
                   {/* Totals row */}
-                  <tr className="bg-stone-50 font-black text-stone-900 uppercase text-[9px] tracking-wider border-t-2 border-stone-200">
-                    <td className="p-3.5 sticky left-0 bg-stone-50 border-r border-stone-200 shadow-sm">Overall Monthly Total</td>
+                  <tr className="bg-stone-50 dark:bg-stone-850 font-black text-stone-900 dark:text-stone-100 uppercase text-[9px] tracking-wider border-t-2 border-stone-200 dark:border-stone-750">
+                    <td className="p-3.5 sticky left-0 bg-stone-50 dark:bg-stone-850 border-r border-stone-200 dark:border-stone-750 shadow-sm">Overall Monthly Total</td>
                     {MONTHS.map(mon => {
                       const colSum = records
                         .filter(r => r.payment_month === mon)
@@ -1722,14 +1807,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                       return (
                         <td key={mon} className="p-3 text-center font-mono">
                           {colSum > 0 ? (
-                            <span className="text-stone-900 font-extrabold text-[11px]">₹{colSum}</span>
+                            <span className="text-stone-900 dark:text-stone-100 font-extrabold text-[11px]">₹{colSum}</span>
                           ) : (
-                            <span className="text-stone-400">-</span>
+                            <span className="text-stone-400 dark:text-stone-500">-</span>
                           )}
                         </td>
                       );
                     })}
-                    <td className="p-3.5 text-right font-black text-emerald-700 bg-stone-100/80 border-l border-stone-200 text-[11px]">
+                    <td className="p-3.5 text-right font-black text-emerald-700 dark:text-emerald-400 bg-stone-100/80 dark:bg-stone-800/80 border-l border-stone-200 dark:border-stone-750 text-[11px]">
                       ₹{totalFinancialCollection.toLocaleString('en-IN')}
                     </td>
                   </tr>
@@ -1741,10 +1826,10 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           {/* Graphical Analytics Charts */}
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <div className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-3">
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs flex flex-col justify-between space-y-3">
               <div>
-                <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Monthly Progress Trend</h4>
-                <p className="text-[10px] text-stone-400">Funds aggregated chronologically over calendar months</p>
+                <h4 className="font-bold text-stone-900 dark:text-stone-100 text-xs uppercase tracking-wider">Monthly Progress Trend</h4>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">Funds aggregated chronologically over calendar months</p>
               </div>
               <div className="h-56 w-full pt-2">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1755,7 +1840,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#88888822" />
                     <XAxis dataKey="name" tick={{ fontSize: 9 }} stroke="#888888" />
                     <YAxis tick={{ fontSize: 9 }} stroke="#888888" />
                     <ChartTooltip 
@@ -1768,15 +1853,15 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs flex flex-col justify-between space-y-3">
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs flex flex-col justify-between space-y-3">
               <div>
-                <h4 className="font-bold text-stone-900 text-xs uppercase tracking-wider">Bial Share Comparison</h4>
-                <p className="text-[10px] text-stone-400">Total fund contribution allocated per administrative Bial</p>
+                <h4 className="font-bold text-stone-900 dark:text-stone-100 text-xs uppercase tracking-wider">Bial Share Comparison</h4>
+                <p className="text-[10px] text-stone-400 dark:text-stone-500">Total fund contribution allocated per administrative Bial</p>
               </div>
               <div className="h-56 w-full pt-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartBialData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#88888822" />
                     <XAxis dataKey="name" tick={{ fontSize: 8 }} stroke="#888888" />
                     <YAxis tick={{ fontSize: 9 }} stroke="#888888" />
                     <ChartTooltip 
@@ -1792,28 +1877,28 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           </section>
 
           {/* Top Donors / Contributors Leaderboard of the Year */}
-          <section className="bg-white p-6 rounded-2xl border border-stone-150 shadow-xs space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 border-stone-100">
+          <section className="bg-white dark:bg-stone-900 p-6 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 border-stone-100 dark:border-stone-800">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                <div className="p-2 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 rounded-xl">
                   <Trophy className="w-5 h-5 animate-bounce" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-extrabold text-stone-900 uppercase tracking-wider flex items-center gap-2">
+                  <h3 className="text-sm font-extrabold text-stone-900 dark:text-stone-100 uppercase tracking-wider flex items-center gap-2">
                     Top 10 Contributors of the Year
-                    <span className="bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase px-2 py-0.5 rounded-full border border-emerald-100">Jan - Dec 2026</span>
+                    <span className="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[9px] font-black uppercase px-2 py-0.5 rounded-full border border-emerald-100 dark:border-emerald-800">Jan - Dec 2026</span>
                   </h3>
-                  <p className="text-xs text-stone-450 mt-0.5">Honour roll recognizing members with the highest cumulative contributions across all 12 Bials</p>
+                  <p className="text-xs text-stone-450 dark:text-stone-400 mt-0.5">Honour roll recognizing members with the highest cumulative contributions across all 12 Bials</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 self-start sm:self-auto bg-stone-50 border border-stone-150 px-3 py-1.5 rounded-xl">
+              <div className="flex items-center gap-1.5 self-start sm:self-auto bg-stone-50 dark:bg-stone-800 border border-stone-150 dark:border-stone-700 px-3 py-1.5 rounded-xl">
                 <Crown className="w-3.5 h-3.5 text-amber-500" />
-                <span className="text-[10px] font-bold text-stone-600 font-mono">Community Honour Roll</span>
+                <span className="text-[10px] font-bold text-stone-600 dark:text-stone-300 font-mono">Community Honour Roll</span>
               </div>
             </div>
 
             {topDonorsOfYear.length === 0 ? (
-              <div className="text-center py-8 text-stone-400 text-xs">
+              <div className="text-center py-8 text-stone-400 dark:text-stone-500 text-xs">
                 No financial records registered yet for the current year.
               </div>
             ) : (
@@ -1824,24 +1909,24 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   
                   // Rank badge design
                   let rankIcon = null;
-                  let rankBg = 'bg-stone-100 text-stone-600 border-stone-200';
+                  let rankBg = 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700';
                   let rankLabel = `${index + 1}`;
                   
                   if (index === 0) {
                     rankIcon = <Crown className="w-3 h-3 text-amber-500" />;
-                    rankBg = 'bg-amber-50 text-amber-700 border-amber-200 font-black shadow-xs';
+                    rankBg = 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 font-black shadow-xs';
                   } else if (index === 1) {
                     rankIcon = <Medal className="w-3 h-3 text-stone-400" />;
-                    rankBg = 'bg-slate-50 text-slate-700 border-slate-200 font-black';
+                    rankBg = 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 font-black';
                   } else if (index === 2) {
                     rankIcon = <Medal className="w-3 h-3 text-amber-600" />;
-                    rankBg = 'bg-amber-50/55 text-amber-800 border-amber-100 font-black';
+                    rankBg = 'bg-amber-50/55 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-100 dark:border-amber-900 font-black';
                   }
 
                   return (
                     <div 
                       key={donor.name} 
-                      className="p-3.5 rounded-2xl bg-stone-50/50 hover:bg-stone-50 border border-stone-100 hover:border-stone-200 transition-all flex items-center justify-between gap-4 group"
+                      className="p-3.5 rounded-2xl bg-stone-50/50 dark:bg-stone-850/50 hover:bg-stone-50 dark:hover:bg-stone-800 border border-stone-100 dark:border-stone-800 hover:border-stone-200 dark:hover:border-stone-700 transition-all flex items-center justify-between gap-4 group"
                     >
                       {/* Left: Rank & Member Info */}
                       <div className="flex items-center gap-3 min-w-0">
@@ -1856,10 +1941,10 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                           )}
                         </div>
                         <div className="min-w-0 space-y-0.5">
-                          <span className="block text-xs font-black text-stone-800 truncate group-hover:text-emerald-700 transition-colors">
+                          <span className="block text-xs font-black text-stone-800 dark:text-stone-200 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
                             {donor.name}
                           </span>
-                          <span className="inline-flex items-center gap-1 bg-white border border-stone-150 text-[9px] text-stone-500 px-1.5 py-0.5 rounded-md font-medium">
+                          <span className="inline-flex items-center gap-1 bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-750 text-[9px] text-stone-500 dark:text-stone-400 px-1.5 py-0.5 rounded-md font-medium">
                             <MapPin className="w-2.5 h-2.5 text-stone-400" />
                             {donor.area}
                           </span>
@@ -1869,17 +1954,17 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                       {/* Right: Stats & Progress Bar */}
                       <div className="text-right shrink-0 space-y-1.5 w-32">
                         <div>
-                          <span className="block text-xs font-black text-emerald-700 font-mono">
+                          <span className="block text-xs font-black text-emerald-700 dark:text-emerald-400 font-mono">
                             ₹{donor.total.toLocaleString('en-IN')}
                           </span>
-                          <span className="block text-[9px] text-stone-400 font-bold uppercase tracking-wider">
+                          <span className="block text-[9px] text-stone-400 dark:text-stone-500 font-bold uppercase tracking-wider">
                             {donor.count} {donor.count === 1 ? 'Contribution' : 'Contributions'}
                           </span>
                         </div>
                         {/* Relative donation bar */}
-                        <div className="w-full bg-stone-200/60 h-1 rounded-full overflow-hidden">
+                        <div className="w-full bg-stone-200/60 dark:bg-stone-700 h-1 rounded-full overflow-hidden">
                           <div 
-                            className="bg-emerald-600 h-full rounded-full transition-all duration-500" 
+                            className="bg-emerald-600 dark:bg-emerald-500 h-full rounded-full transition-all duration-500" 
                             style={{ width: `${relativePercentage}%` }}
                           />
                         </div>
@@ -1892,16 +1977,16 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           </section>
 
           {/* Bial Directory & Leaders Configuration (1-12) */}
-          <section className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs space-y-4" id="bial_directory_panel">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-stone-100">
+          <section className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-4" id="bial_directory_panel">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 border-stone-100 dark:border-stone-800">
               <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-emerald-600" />
+                <Settings className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                 <div>
-                  <h3 className="text-sm font-extrabold text-stone-900 uppercase tracking-wider">Bial Leaders & Area Locations Directory (1-12)</h3>
-                  <p className="text-xs text-stone-450">Administrative panel for updating leaders, assigned organizers, and geographic boundaries</p>
+                  <h3 className="text-sm font-extrabold text-stone-900 dark:text-stone-100 uppercase tracking-wider">Bial Leaders & Area Locations Directory (1-12)</h3>
+                  <p className="text-xs text-stone-450 dark:text-stone-400">Administrative panel for updating leaders, assigned organizers, and geographic boundaries</p>
                 </div>
               </div>
-              <span className="self-start sm:self-center bg-stone-50 border border-stone-200 text-stone-550 font-mono text-[9px] font-bold px-2.5 py-1 rounded-lg">
+              <span className="self-start sm:self-center bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-550 dark:text-stone-400 font-mono text-[9px] font-bold px-2.5 py-1 rounded-lg">
                 Founder / Admin Permissions Required to Edit
               </span>
             </div>
@@ -1912,11 +1997,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 const isEditingThis = editingBialId === bialId;
 
                 return (
-                  <div key={bialId} className="p-4 bg-stone-50/60 border border-stone-150 rounded-xl space-y-3.5 flex flex-col justify-between">
+                  <div key={bialId} className="p-4 bg-stone-50/60 dark:bg-stone-850/60 border border-stone-150 dark:border-stone-800 rounded-xl space-y-3.5 flex flex-col justify-between">
                     <div>
-                      <div className="flex items-center justify-between border-b pb-1.5 border-stone-200/60 mb-2">
-                        <span className="font-extrabold text-stone-900 text-xs flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <div className="flex items-center justify-between border-b pb-1.5 border-stone-200/60 dark:border-stone-700/60 mb-2">
+                        <span className="font-extrabold text-stone-900 dark:text-stone-100 text-xs flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           {bialId}
                         </span>
                         {!isEditingThis && canManageFinance && (
@@ -1927,7 +2012,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                               setEditingBialLeaders(conf.leaders);
                               setEditingBialArea(conf.area);
                             }}
-                            className="px-2 py-0.5 bg-white hover:bg-emerald-50 text-emerald-700 hover:text-emerald-800 border border-stone-250 hover:border-emerald-200 rounded-md text-[10px] font-bold transition-all cursor-pointer shadow-3xs"
+                            className="px-2 py-0.5 bg-white dark:bg-stone-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-200 border border-stone-250 dark:border-stone-700 hover:border-emerald-200 rounded-md text-[10px] font-bold transition-all cursor-pointer shadow-3xs"
                           >
                             Edit Config
                           </button>
@@ -1937,42 +2022,42 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                       {isEditingThis ? (
                         <div className="space-y-2.5 text-xs">
                           <div>
-                            <label className="block text-[9px] font-bold text-stone-450 uppercase mb-0.5">Leaders / Organizers</label>
+                            <label className="block text-[9px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-0.5">Leaders / Organizers</label>
                             <input
                               type="text"
                               value={editingBialLeaders}
                               onChange={e => setEditingBialLeaders(e.target.value)}
                               placeholder="Leaders"
-                              className="w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white font-medium text-stone-800"
+                              className="w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 font-medium text-stone-800 dark:text-stone-200"
                             />
                           </div>
                           <div>
-                            <label className="block text-[9px] font-bold text-stone-450 uppercase mb-0.5">Geographic Location Area</label>
+                            <label className="block text-[9px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-0.5">Geographic Location Area</label>
                             <input
                               type="text"
                               value={editingBialArea}
                               onChange={e => setEditingBialArea(e.target.value)}
                               placeholder="Geographic scope"
-                              className="w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white font-medium text-stone-800"
+                              className="w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 font-medium text-stone-800 dark:text-stone-200"
                             />
                           </div>
                         </div>
                       ) : (
                         <div className="space-y-2 text-xs">
                           <div>
-                            <span className="block text-[9px] text-stone-400 font-bold uppercase tracking-wider">Bial Organizers (Leaders):</span>
-                            <span className="font-extrabold text-stone-750">{conf.leaders || 'TBD'}</span>
+                            <span className="block text-[9px] text-stone-400 dark:text-stone-500 font-bold uppercase tracking-wider">Bial Organizers (Leaders):</span>
+                            <span className="font-extrabold text-stone-750 dark:text-stone-250">{conf.leaders || 'TBD'}</span>
                           </div>
                           <div>
-                            <span className="block text-[9px] text-stone-400 font-bold uppercase tracking-wider">Geographic Area Location:</span>
-                            <span className="font-semibold text-stone-600">{conf.area || 'TBD'}</span>
+                            <span className="block text-[9px] text-stone-400 dark:text-stone-500 font-bold uppercase tracking-wider">Geographic Area Location:</span>
+                            <span className="font-semibold text-stone-600 dark:text-stone-400">{conf.area || 'TBD'}</span>
                           </div>
                         </div>
                       )}
                     </div>
 
                     {isEditingThis && (
-                      <div className="flex items-center gap-1.5 pt-1 border-t border-stone-200/50">
+                      <div className="flex items-center gap-1.5 pt-1 border-t border-stone-200/50 dark:border-stone-700/50">
                         <button
                           type="button"
                           onClick={() => saveBialConfigFromOverall(bialId)}
@@ -1983,7 +2068,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         <button
                           type="button"
                           onClick={() => setEditingBialId(null)}
-                          className="py-1 px-2.5 border border-stone-250 hover:bg-stone-100 text-stone-500 font-bold rounded-lg text-[10px] transition-all cursor-pointer"
+                          className="py-1 px-2.5 border border-stone-250 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400 font-bold rounded-lg text-[10px] transition-all cursor-pointer"
                         >
                           Cancel
                         </button>
@@ -1999,33 +2084,33 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           <section className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h4 className="text-base font-extrabold text-stone-900">Comprehensive Transactions Audit</h4>
-                <p className="text-xs text-stone-450">Search, filter, and audit all transaction entries chronologically</p>
+                <h4 className="text-base font-extrabold text-stone-900 dark:text-stone-100">Comprehensive Transactions Audit</h4>
+                <p className="text-xs text-stone-450 dark:text-stone-400">Search, filter, and audit all transaction entries chronologically</p>
               </div>
             </div>
 
             {/* Filter Control Board */}
-            <div className="bg-white p-4 rounded-xl border border-stone-150 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="bg-white dark:bg-stone-900 p-4 rounded-xl border border-stone-150 dark:border-stone-800 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
               <div className="md:col-span-5">
-                <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1.5">Search Name / Location</label>
+                <label className="block text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase mb-1.5">Search Name / Location</label>
                 <div className="relative">
-                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-3" />
+                  <Search className="w-4 h-4 text-stone-400 dark:text-stone-500 absolute left-3 top-3" />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                     placeholder="Search by contributor name or address details..."
-                    className="w-full text-xs pl-9 pr-3.5 py-2.5 border rounded-xl bg-stone-50 focus:outline-hidden focus:bg-white focus:ring-1 focus:ring-emerald-500 transition-all font-medium text-stone-800"
+                    className="w-full text-xs pl-9 pr-3.5 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl bg-stone-50 dark:bg-stone-800 focus:outline-hidden focus:bg-white dark:focus:bg-stone-900 focus:ring-1 focus:ring-emerald-500 transition-all font-medium text-stone-800 dark:text-stone-200"
                   />
                 </div>
               </div>
 
               <div className="md:col-span-3">
-                <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1.5">Filter Area (Bial)</label>
+                <label className="block text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase mb-1.5">Filter Area (Bial)</label>
                 <select
                   value={filterBial}
                   onChange={e => setFilterBial(e.target.value)}
-                  className="w-full text-xs px-3 py-2.5 border rounded-xl bg-stone-50 focus:outline-hidden focus:bg-white focus:ring-1 focus:ring-emerald-500 transition-all font-semibold text-stone-750"
+                  className="w-full text-xs px-3 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl bg-stone-50 dark:bg-stone-800 focus:outline-hidden focus:bg-white dark:focus:bg-stone-900 focus:ring-1 focus:ring-emerald-500 transition-all font-semibold text-stone-750 dark:text-stone-250"
                 >
                   <option value="All">All Bials (1 to 12)</option>
                   {BIAL_IDS.map(b => (
@@ -2035,11 +2120,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               </div>
 
               <div className="md:col-span-3">
-                <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1.5">Filter Month</label>
+                <label className="block text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase mb-1.5">Filter Month</label>
                 <select
                   value={filterMonth}
                   onChange={e => setFilterMonth(e.target.value)}
-                  className="w-full text-xs px-3 py-2.5 border rounded-xl bg-stone-50 focus:outline-hidden focus:bg-white focus:ring-1 focus:ring-emerald-500 transition-all font-semibold text-stone-750"
+                  className="w-full text-xs px-3 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl bg-stone-50 dark:bg-stone-800 focus:outline-hidden focus:bg-white dark:focus:bg-stone-900 focus:ring-1 focus:ring-emerald-500 transition-all font-semibold text-stone-750 dark:text-stone-250"
                 >
                   <option value="All">All Months (Jan - Dec)</option>
                   {MONTHS.map(m => (
@@ -2055,7 +2140,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                     setFilterBial('All');
                     setFilterMonth('All');
                   }}
-                  className="w-full py-2.5 border border-stone-200 hover:bg-stone-50 text-stone-500 rounded-xl cursor-pointer text-xs font-bold leading-tight"
+                  className="w-full py-2.5 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400 rounded-xl cursor-pointer text-xs font-bold leading-tight"
                   title="Reset Filter Form"
                 >
                   Clear
@@ -2064,11 +2149,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
             </div>
 
             {/* List Table */}
-            <div className="bg-white rounded-2xl border border-stone-150 shadow-xs overflow-hidden">
+            <div className="bg-white dark:bg-stone-900 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-stone-50 text-stone-400 uppercase font-bold text-[10px] border-b border-stone-100">
+                    <tr className="bg-stone-50 dark:bg-stone-850 text-stone-400 dark:text-stone-500 uppercase font-bold text-[10px] border-b border-stone-100 dark:border-stone-800">
                       <th className="p-4">Paid Contributor</th>
                       <th className="p-4">Geographic Area</th>
                       <th className="p-4">Payment Period</th>
@@ -2077,10 +2162,10 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                       <th className="p-4 text-center">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-stone-100">
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
                     {paginatedOverallRecords.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="text-center py-10 text-stone-400 italic">
+                        <td colSpan={6} className="text-center py-10 text-stone-400 dark:text-stone-500 italic">
                           No financial records match the current filter selection.
                         </td>
                       </tr>
@@ -2099,25 +2184,25 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                   setExpandedUserKeys(prev => [...prev, key]);
                                 }
                               }}
-                              className="hover:bg-stone-50/50 active:bg-stone-100/40 transition-colors border-b border-stone-100 cursor-pointer select-none"
+                              className="hover:bg-stone-50/50 dark:hover:bg-stone-800/50 active:bg-stone-100/40 dark:active:bg-stone-800/70 transition-colors border-b border-stone-100 dark:border-stone-800 cursor-pointer select-none"
                             >
                               <td className="p-4">
-                                <span className="block font-bold text-stone-900 leading-tight">{getContributorLegalName(rec)}</span>
-                                <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
+                                <span className="block font-bold text-stone-900 dark:text-stone-100 leading-tight">{getContributorLegalName(rec)}</span>
+                                <span className="block text-[10px] text-stone-400 dark:text-stone-500 mt-0.5">{rec.address}</span>
                               </td>
-                              <td className="p-4 font-bold text-stone-700">
+                              <td className="p-4 font-bold text-stone-700 dark:text-stone-300">
                                 {rec.bial}
                               </td>
                               <td className="p-4">
-                                <span className="px-2 py-0.5 bg-stone-100 text-stone-700 border border-stone-200/80 rounded-md text-[10px] font-bold uppercase">
+                                <span className="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200/80 dark:border-stone-700/80 rounded-md text-[10px] font-bold uppercase">
                                   {rec.paymentPeriod || 'None'}
                                 </span>
                               </td>
-                              <td className="p-4 font-black text-stone-800 font-mono text-[13px]">
+                              <td className="p-4 font-black text-stone-800 dark:text-stone-200 font-mono text-[13px]">
                                 ₹{rec.totalAmount.toLocaleString('en-IN')}
                               </td>
-                              <td className="p-4 text-stone-400">
-                                <span className="block font-medium text-stone-550 leading-none">{rec.latestRecord.created_by_name}</span>
+                              <td className="p-4 text-stone-400 dark:text-stone-500">
+                                <span className="block font-medium text-stone-600 dark:text-stone-300 leading-none">{rec.latestRecord.created_by_name}</span>
                                 <span className="block text-[9px] mt-0.5">{rec.latestRecord.created_by_email}</span>
                               </td>
                               <td className="p-4 text-center">
@@ -2128,7 +2213,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                       e.stopPropagation();
                                       generateContributorPDF(rec);
                                     }}
-                                    className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg font-bold transition-all text-[11px] cursor-pointer inline-flex items-center justify-center border border-rose-100/30 bg-rose-50/10"
+                                    className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 rounded-lg font-bold transition-all text-[11px] cursor-pointer inline-flex items-center justify-center border border-rose-100/30 dark:border-rose-900/30 bg-rose-50/10"
                                     title="Download Contributor Statement PDF"
                                   >
                                     <FileText className="w-3.5 h-3.5" />
@@ -2154,7 +2239,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setDeleteConfirmId(null);
                                             }}
-                                            className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold transition-all text-[9px] cursor-pointer"
+                                            className="px-2 py-1 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-lg font-bold transition-all text-[9px] cursor-pointer"
                                             title="Cancel Deletion"
                                           >
                                             Cancel
@@ -2167,7 +2252,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setupEditMode(rec.latestRecord);
                                             }}
-                                            className="p-1 px-2 hover:bg-stone-100 rounded-lg text-emerald-65 hover:text-emerald-800 font-extrabold transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            className="p-1 px-2 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg text-emerald-650 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 font-extrabold transition-all text-[11px] cursor-pointer border border-stone-100 dark:border-stone-800"
                                             title="Edit latest payment"
                                           >
                                             Edit
@@ -2177,7 +2262,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setupBulkEditMode(rec.name, rec.address, rec.bial);
                                             }}
-                                            className="p-1 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-900 font-extrabold transition-all text-[11px] rounded-lg cursor-pointer border border-emerald-200/60"
+                                            className="p-1 px-2 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 font-extrabold transition-all text-[11px] rounded-lg cursor-pointer border border-emerald-200/60 dark:border-emerald-800/60"
                                             title="Bulk manage payments for this contributor"
                                           >
                                             Bulk Edit
@@ -2187,7 +2272,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setDeleteConfirmId(rec.latestRecord.id);
                                             }}
-                                            className="p-1 px-2 hover:bg-rose-50 rounded-lg text-stone-400 hover:text-rose-605 font-medium transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            className="p-1 px-2 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg text-stone-400 dark:text-stone-500 hover:text-rose-600 dark:hover:text-rose-400 font-medium transition-all text-[11px] cursor-pointer border border-stone-100 dark:border-stone-800"
                                             title="Delete latest payment"
                                           >
                                             Delete
@@ -2203,7 +2288,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                             <AnimatePresence initial={false}>
                               {isExpanded && (
                                 <tr>
-                                  <td colSpan={6} className="p-0 bg-stone-50/20">
+                                  <td colSpan={6} className="p-0 bg-stone-50/20 dark:bg-stone-900/20">
                                     <motion.div
                                       initial={{ height: 0, opacity: 0 }}
                                       animate={{ height: "auto", opacity: 1 }}
@@ -2211,23 +2296,23 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                       transition={{ duration: 0.25, ease: "easeInOut" }}
                                       className="overflow-hidden"
                                     >
-                                      <div className="p-4 bg-stone-50/60 border-b border-stone-150/80 space-y-4">
+                                      <div className="p-4 bg-stone-50/60 dark:bg-stone-850/60 border-b border-stone-150/80 dark:border-stone-800/80 space-y-4">
                                         {/* 12-Month Payment Matrix Grid */}
                                         <div className="space-y-1.5">
-                                          <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                          <h5 className="text-[10px] font-extrabold text-stone-400 dark:text-stone-500 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
                                             🗓️ Monthly Contributions Matrix
                                           </h5>
-                                          <div className="overflow-x-auto rounded-xl border border-stone-150 shadow-3xs bg-white p-3">
+                                          <div className="overflow-x-auto rounded-xl border border-stone-150 dark:border-stone-800 shadow-3xs bg-white dark:bg-stone-900 p-3">
                                             <div className="min-w-[800px]">
                                               <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
                                                 {/* Headers */}
                                                 {MONTHS.map(m => (
-                                                  <div key={m} className="p-1.5 bg-stone-50 rounded-lg text-center border border-stone-100">
-                                                    <span className="block text-[10px] font-black text-stone-400 uppercase">{m.slice(0, 3)}</span>
+                                                  <div key={m} className="p-1.5 bg-stone-50 dark:bg-stone-800 rounded-lg text-center border border-stone-100 dark:border-stone-700">
+                                                    <span className="block text-[10px] font-black text-stone-400 dark:text-stone-400 uppercase">{m.slice(0, 3)}</span>
                                                   </div>
                                                 ))}
-                                                <div className="p-1.5 bg-emerald-50 rounded-lg text-center border border-emerald-100">
-                                                  <span className="block text-[10px] font-black text-emerald-600 uppercase">Total Sum</span>
+                                                <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/60 rounded-lg text-center border border-emerald-100 dark:border-emerald-800">
+                                                  <span className="block text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase">Total Sum</span>
                                                 </div>
 
                                                 {/* Values */}
@@ -2235,26 +2320,26 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                   const recordsForMonth = rec.records.filter(r => r.payment_month === m);
                                                   const totalForMonth = recordsForMonth.reduce((sum, r) => sum + r.amount, 0);
                                                   return (
-                                                    <div key={m} className="p-2 flex flex-col items-center justify-center min-h-[48px] text-center border border-dashed border-stone-100 rounded-lg">
+                                                    <div key={m} className="p-2 flex flex-col items-center justify-center min-h-[48px] text-center border border-dashed border-stone-100 dark:border-stone-800 rounded-lg">
                                                       {totalForMonth > 0 ? (
                                                         <>
-                                                          <span className="text-xs font-extrabold text-stone-800 font-mono">
+                                                          <span className="text-xs font-extrabold text-stone-800 dark:text-stone-200 font-mono">
                                                             ₹{totalForMonth.toLocaleString('en-IN')}
                                                           </span>
                                                           {recordsForMonth.length > 1 && (
-                                                            <span className="text-[8px] px-1 py-0.2 bg-stone-100 text-stone-500 rounded font-bold mt-0.5">
+                                                            <span className="text-[8px] px-1 py-0.2 bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400 rounded font-bold mt-0.5">
                                                               {recordsForMonth.length} recs
                                                             </span>
                                                           )}
                                                         </>
                                                       ) : (
-                                                        <span className="text-xs text-stone-300 font-bold">-</span>
+                                                        <span className="text-xs text-stone-300 dark:text-stone-600 font-bold">-</span>
                                                       )}
                                                     </div>
                                                   );
                                                 })}
-                                                <div className="p-2 flex items-center justify-center bg-emerald-50/50 rounded-lg border border-emerald-100/50 font-mono text-center">
-                                                  <span className="text-xs font-black text-emerald-700">
+                                                <div className="p-2 flex items-center justify-center bg-emerald-50/50 dark:bg-emerald-950/40 rounded-lg border border-emerald-100/50 dark:border-emerald-800/50 font-mono text-center">
+                                                  <span className="text-xs font-black text-emerald-700 dark:text-emerald-400">
                                                     ₹{rec.totalAmount.toLocaleString('en-IN')}
                                                   </span>
                                                 </div>
@@ -2266,7 +2351,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                         {/* Individual Receipts Breakdown list */}
                                         <div className="space-y-2">
                                           <div className="flex items-center justify-between">
-                                            <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                            <h5 className="text-[10px] font-extrabold text-stone-400 dark:text-stone-500 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
                                               📄 Detailed Transaction Receipts ({rec.records.length})
                                             </h5>
                                             <button
@@ -2274,37 +2359,37 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                 e.stopPropagation();
                                                 generateContributorPDF(rec);
                                               }}
-                                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border border-rose-100 shadow-3xs"
+                                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border border-rose-100 dark:border-rose-900 shadow-3xs"
                                               title="Download Contributor Statement PDF"
                                             >
                                               <FileText className="w-3.5 h-3.5" />
                                               <span>Download Statement PDF</span>
                                             </button>
                                           </div>
-                                          <div className="divide-y divide-stone-150/60 rounded-xl border border-stone-200 bg-white overflow-hidden shadow-3xs">
+                                          <div className="divide-y divide-stone-150/60 dark:divide-stone-800 rounded-xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 overflow-hidden shadow-3xs">
                                             {rec.records.map((item, idx) => (
-                                              <div key={item.id} className="p-3.5 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-50/30 transition-colors">
+                                              <div key={item.id} className="p-3.5 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-50/30 dark:hover:bg-stone-800/30 transition-colors">
                                                 <div className="flex items-center gap-3">
-                                                  <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center text-[10px] font-extrabold font-mono">
+                                                  <span className="w-5 h-5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400 flex items-center justify-center text-[10px] font-extrabold font-mono">
                                                     {idx + 1}
                                                   </span>
                                                   <div>
                                                     <div className="flex items-center gap-2 flex-wrap">
-                                                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-750 border border-emerald-100 rounded-md font-bold text-[9px] uppercase">
+                                                      <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-750 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800 rounded-md font-bold text-[9px] uppercase">
                                                         {item.payment_month}
                                                       </span>
-                                                      <span className="text-xs font-bold text-stone-700">
+                                                      <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
                                                         Paid on {item.payment_date}
                                                       </span>
                                                     </div>
-                                                    <p className="text-[10px] text-stone-400 mt-0.5">
-                                                      Registered by: <span className="font-semibold text-stone-500">{item.created_by_name}</span> ({item.created_by_email})
+                                                    <p className="text-[10px] text-stone-400 dark:text-stone-500 mt-0.5">
+                                                      Registered by: <span className="font-semibold text-stone-500 dark:text-stone-400">{item.created_by_name}</span> ({item.created_by_email})
                                                     </p>
                                                   </div>
                                                 </div>
 
                                                 <div className="flex items-center gap-4">
-                                                  <span className="text-sm font-black text-stone-800 font-mono">
+                                                  <span className="text-sm font-black text-stone-800 dark:text-stone-200 font-mono">
                                                     ₹{item.amount.toLocaleString('en-IN')}
                                                   </span>
 
@@ -2328,7 +2413,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                               e.stopPropagation();
                                                               setDeleteConfirmId(null);
                                                             }}
-                                                            className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold text-[10px] cursor-pointer"
+                                                            className="px-2.5 py-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-lg font-bold text-[10px] cursor-pointer"
                                                             title="Cancel Deletion"
                                                           >
                                                             Cancel
@@ -2341,7 +2426,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                               e.stopPropagation();
                                                               setupEditMode(item);
                                                             }}
-                                                            className="px-2 py-1.5 hover:bg-stone-100 text-stone-500 hover:text-emerald-700 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                            className="px-2 py-1.5 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
                                                           >
                                                             Edit
                                                           </button>
@@ -2350,7 +2435,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                               e.stopPropagation();
                                                               setDeleteConfirmId(item.id);
                                                             }}
-                                                            className="px-2 py-1.5 hover:bg-rose-50 text-stone-400 hover:text-rose-600 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                            className="px-2 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-stone-400 dark:text-stone-500 hover:text-rose-600 dark:hover:text-rose-400 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
                                                           >
                                                             Delete
                                                           </button>
@@ -2379,29 +2464,29 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
               {/* Pagination Controls */}
               {totalPagesOverall > 1 && (
-                <div className="flex items-center justify-between border-t border-stone-150 bg-stone-50 px-4 py-3.5 sm:px-6">
+                <div className="flex items-center justify-between border-t border-stone-150 dark:border-stone-800 bg-stone-50 dark:bg-stone-850 px-4 py-3.5 sm:px-6">
                   <div className="flex flex-1 justify-between sm:hidden">
                     <button
                       onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                       disabled={currentPage === 1}
-                      className="relative inline-flex items-center rounded-xl border border-stone-250 bg-white px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      className="relative inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-900 px-4 py-2 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       Previous
                     </button>
                     <button
                       onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPagesOverall))}
                       disabled={currentPage === totalPagesOverall}
-                      className="relative ml-3 inline-flex items-center rounded-xl border border-stone-250 bg-white px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      className="relative ml-3 inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-900 px-4 py-2 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       Next
                     </button>
                   </div>
                   <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-xs text-stone-500">
-                        Showing <span className="font-extrabold text-stone-800">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
-                        <span className="font-extrabold text-stone-800">{Math.min(currentPage * itemsPerPage, filteredRecords.length)}</span> of{' '}
-                        <span className="font-extrabold text-stone-800">{filteredRecords.length}</span> records
+                      <p className="text-xs text-stone-500 dark:text-stone-400">
+                        Showing <span className="font-extrabold text-stone-800 dark:text-stone-200">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                        <span className="font-extrabold text-stone-800 dark:text-stone-200">{Math.min(currentPage * itemsPerPage, aggregatedRecords.length)}</span> of{' '}
+                        <span className="font-extrabold text-stone-800 dark:text-stone-200">{aggregatedRecords.length}</span> contributors ({filteredRecords.length} entries)
                       </p>
                     </div>
                     <div>
@@ -2409,14 +2494,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         <button
                           onClick={() => setCurrentPage(1)}
                           disabled={currentPage === 1}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           First
                         </button>
                         <button
                           onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                           disabled={currentPage === 1}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           Prev
                         </button>
@@ -2439,7 +2524,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                               className={`relative inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-black transition-all cursor-pointer ${
                                 currentPage === pageNum
                                   ? 'z-10 bg-emerald-600 text-white shadow-xs'
-                                  : 'text-stone-700 hover:bg-stone-100'
+                                  : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
                               }`}
                             >
                               {pageNum}
@@ -2450,14 +2535,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         <button
                           onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPagesOverall))}
                           disabled={currentPage === totalPagesOverall}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           Next
                         </button>
                         <button
                           onClick={() => setCurrentPage(totalPagesOverall)}
                           disabled={currentPage === totalPagesOverall}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           Last
                         </button>
@@ -2475,13 +2560,13 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
         <div className="space-y-6 animate-fade-in">
           
           {/* Bial Core Configurations Info Card */}
-          <section className="bg-white p-5 rounded-2xl border border-stone-150 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-3 border-stone-100">
+          <section className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-3 border-stone-100 dark:border-stone-800">
               <div className="flex items-center gap-2">
-                <MapPin className="w-5 h-5 text-emerald-65" />
+                <MapPin className="w-5 h-5 text-emerald-65 dark:text-emerald-400" />
                 <div>
-                  <h3 className="text-base font-extrabold text-stone-900">{activeTab} Administration Board</h3>
-                  <p className="text-xs text-stone-450">Configure headers and track specific contributors parameters</p>
+                  <h3 className="text-base font-extrabold text-stone-900 dark:text-stone-100">{activeTab} Administration Board</h3>
+                  <p className="text-xs text-stone-450 dark:text-stone-400">Configure headers and track specific contributors parameters</p>
                 </div>
               </div>
 
@@ -2498,31 +2583,31 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
             {/* Bial Metadata Display / Edit form */}
             {isEditingBialConfig ? (
-              <form onSubmit={(e) => { e.preventDefault(); saveBialConfigSubmit(activeTab); }} className="p-4 bg-stone-50 border border-stone-200 rounded-xl space-y-3.5">
-                <h4 className="text-xs font-black text-stone-700 uppercase tracking-widest">Edit {activeTab} Leaders & Area parameters</h4>
+              <form onSubmit={(e) => { e.preventDefault(); saveBialConfigSubmit(activeTab); }} className="p-4 bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 rounded-xl space-y-3.5">
+                <h4 className="text-xs font-black text-stone-700 dark:text-stone-300 uppercase tracking-widest">Edit {activeTab} Leaders & Area parameters</h4>
                 
                 <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Administrative Bial Leaders List</label>
+                    <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">Administrative Bial Leaders List</label>
                     <input
                       type="text"
                       required
                       value={bialLeadersInput}
                       onChange={e => setBialLeadersInput(e.target.value)}
                       placeholder="e.g. Pastor Jospeh, Tg. Kapa, Lia Elizabeth te"
-                      className="w-full text-xs px-3.5 py-2 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white text-stone-800"
+                      className="w-full text-xs px-3.5 py-2 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Assigned Geographic Area coverage</label>
+                    <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">Assigned Geographic Area coverage</label>
                     <input
                       type="text"
                       required
                       value={bialAreaInput}
                       onChange={e => setBialAreaInput(e.target.value)}
                       placeholder="e.g. Zemabawk Sector B, near church building"
-                      className="w-full text-xs px-3.5 py-2 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white text-stone-800"
+                      className="w-full text-xs px-3.5 py-2 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100"
                     />
                   </div>
                 </div>
@@ -2538,7 +2623,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   <button
                     type="button"
                     onClick={() => setIsEditingBialConfig(false)}
-                    className="px-4 py-2 border hover:bg-stone-100 text-stone-500 rounded-lg text-xs font-bold cursor-pointer"
+                    className="px-4 py-2 border border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400 rounded-lg text-xs font-bold cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -2546,14 +2631,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               </form>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4.5 bg-stone-50 border border-stone-100 rounded-xl space-y-1">
-                  <span className="block text-[10px] text-stone-400 font-extrabold uppercase tracking-widest leading-none">Bial Organizers (Leaders)</span>
-                  <p className="text-xs font-extrabold text-stone-800 leading-snug">{currentBialConfig?.leaders || 'TBD'}</p>
+                <div className="p-4.5 bg-stone-50 dark:bg-stone-800/40 border border-stone-100 dark:border-stone-800 rounded-xl space-y-1">
+                  <span className="block text-[10px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-widest leading-none">Bial Organizers (Leaders)</span>
+                  <p className="text-xs font-extrabold text-stone-800 dark:text-stone-200 leading-snug">{currentBialConfig?.leaders || 'TBD'}</p>
                 </div>
 
-                <div className="p-4.5 bg-stone-50 border border-stone-100 rounded-xl space-y-1">
-                  <span className="block text-[10px] text-stone-400 font-extrabold uppercase tracking-widest leading-none">Geographic Scope (Area Location)</span>
-                  <p className="text-xs font-semibold text-stone-650 leading-snug">{currentBialConfig?.area || 'TBD'}</p>
+                <div className="p-4.5 bg-stone-50 dark:bg-stone-800/40 border border-stone-100 dark:border-stone-800 rounded-xl space-y-1">
+                  <span className="block text-[10px] text-stone-400 dark:text-stone-500 font-extrabold uppercase tracking-widest leading-none">Geographic Scope (Area Location)</span>
+                  <p className="text-xs font-semibold text-stone-650 dark:text-stone-300 leading-snug">{currentBialConfig?.area || 'TBD'}</p>
                 </div>
               </div>
             )}
@@ -2561,24 +2646,24 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
           {/* Specific Bial Mini Stats Cards */}
           <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-4.5 rounded-xl border border-stone-150 shadow-xs space-y-1">
-              <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">Total Collection</span>
-              <div className="text-xl font-extrabold text-emerald-800">₹{currentBialCollection.toLocaleString('en-IN')}</div>
+            <div className="bg-white dark:bg-stone-900 p-4.5 rounded-xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-1">
+              <span className="text-[10px] text-stone-400 dark:text-stone-500 font-semibold uppercase tracking-wider">Total Collection</span>
+              <div className="text-xl font-extrabold text-emerald-800 dark:text-emerald-400">₹{currentBialCollection.toLocaleString('en-IN')}</div>
             </div>
 
-            <div className="bg-white p-4.5 rounded-xl border border-stone-150 shadow-xs space-y-1">
-              <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">Records count</span>
-              <div className="text-xl font-extrabold text-stone-800">{currentBialRecords.length} entries</div>
+            <div className="bg-white dark:bg-stone-900 p-4.5 rounded-xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-1">
+              <span className="text-[10px] text-stone-400 dark:text-stone-500 font-semibold uppercase tracking-wider">Records count</span>
+              <div className="text-xl font-extrabold text-stone-800 dark:text-stone-100">{currentBialRecords.length} entries</div>
             </div>
 
-            <div className="bg-white p-4.5 rounded-xl border border-stone-150 shadow-xs space-y-1">
-              <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">Contributors</span>
-              <div className="text-xl font-extrabold text-stone-800">{currentBialContributorsCount} accounts</div>
+            <div className="bg-white dark:bg-stone-900 p-4.5 rounded-xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-1">
+              <span className="text-[10px] text-stone-400 dark:text-stone-500 font-semibold uppercase tracking-wider">Contributors</span>
+              <div className="text-xl font-extrabold text-stone-800 dark:text-stone-100">{currentBialContributorsCount} accounts</div>
             </div>
 
-            <div className="bg-white p-4.5 rounded-xl border border-stone-150 shadow-xs space-y-1">
-              <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">Bial Area No.</span>
-              <div className="text-xl font-extrabold text-stone-800">{activeTab}</div>
+            <div className="bg-white dark:bg-stone-900 p-4.5 rounded-xl border border-stone-150 dark:border-stone-800 shadow-xs space-y-1">
+              <span className="text-[10px] text-stone-400 dark:text-stone-500 font-semibold uppercase tracking-wider">Bial Area No.</span>
+              <div className="text-xl font-extrabold text-stone-800 dark:text-stone-100">{activeTab}</div>
             </div>
           </section>
 
@@ -2586,8 +2671,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
           <section className="space-y-3.5">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="text-sm font-extrabold text-stone-900 uppercase tracking-wide">Stored receipts for {activeTab}</h4>
-                <p className="text-xs text-stone-450">Filtered catalog specifically registered inside {activeTab}</p>
+                <h4 className="text-sm font-extrabold text-stone-900 dark:text-stone-100 uppercase tracking-wide">Stored receipts for {activeTab}</h4>
+                <p className="text-xs text-stone-450 dark:text-stone-400">Filtered catalog specifically registered inside {activeTab}</p>
               </div>
 
               {canManageFinance && (
@@ -2612,12 +2697,12 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
             {/* Bulk Actions Header Alert / Utility Bar */}
             {canManageFinance && selectedRecordIds.length > 0 && (
-              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3.5 animate-slide-down">
+              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3.5 animate-slide-down">
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center text-[10px] font-black">
                     {selectedRecordIds.length}
                   </span>
-                  <span className="text-xs font-bold text-stone-700">
+                  <span className="text-xs font-bold text-stone-700 dark:text-amber-200">
                     Selected {selectedRecordIds.length} payment {selectedRecordIds.length === 1 ? 'record' : 'records'} from {activeTab}
                   </span>
                 </div>
@@ -2642,7 +2727,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   </button>
                   <button
                     onClick={() => setSelectedRecordIds([])}
-                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                    className="px-3 py-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-lg text-xs font-bold transition-all cursor-pointer"
                   >
                     Deselect All
                   </button>
@@ -2650,11 +2735,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               </div>
             )}
 
-            <div className="bg-white rounded-2xl border border-stone-150 shadow-xs overflow-hidden">
+            <div className="bg-white dark:bg-stone-900 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-stone-50 text-stone-400 uppercase font-bold text-[10px] border-b border-stone-100">
+                    <tr className="bg-stone-50 dark:bg-stone-800/80 text-stone-400 dark:text-stone-400 uppercase font-bold text-[10px] border-b border-stone-100 dark:border-stone-800">
                       {canManageFinance && (
                         <th className="p-4 w-12 text-center">
                           <input
@@ -2670,21 +2755,21 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                 setSelectedRecordIds([]);
                               }
                             }}
-                            className="w-3.5 h-3.5 rounded-md text-emerald-600 border-stone-300 focus:ring-emerald-500 cursor-pointer"
+                            className="w-3.5 h-3.5 rounded-md text-emerald-600 border-stone-300 dark:border-stone-700 focus:ring-emerald-500 cursor-pointer"
                           />
                         </th>
                       )}
                       <th className="p-4">Paid Contributor</th>
                       <th className="p-4">Payment Period</th>
-                      <th className="p-4 font-bold text-stone-400">Total Amount</th>
-                      <th className="p-4 font-bold text-stone-400">Registered By</th>
+                      <th className="p-4 font-bold text-stone-400 dark:text-stone-400">Total Amount</th>
+                      <th className="p-4 font-bold text-stone-400 dark:text-stone-400">Registered By</th>
                       <th className="p-4 text-center">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-stone-100">
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
                     {currentBialRecords.length === 0 ? (
                       <tr>
-                        <td colSpan={canManageFinance ? 6 : 5} className="text-center py-12 text-stone-400 italic bg-stone-50/20">
+                        <td colSpan={canManageFinance ? 6 : 5} className="text-center py-12 text-stone-400 dark:text-stone-500 italic bg-stone-50/20 dark:bg-stone-800/20">
                           No financial records stored yet for {activeTab}. Click "Add {activeTab} Entry" to save a new record.
                         </td>
                       </tr>
@@ -2703,7 +2788,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                   setExpandedUserKeys(prev => [...prev, key]);
                                 }
                               }}
-                              className="hover:bg-stone-50/50 active:bg-stone-100/40 transition-colors border-b border-stone-100 cursor-pointer select-none"
+                              className="hover:bg-stone-50/50 dark:hover:bg-stone-800/50 active:bg-stone-100/40 dark:active:bg-stone-800/80 transition-colors border-b border-stone-100 dark:border-stone-800 cursor-pointer select-none"
                             >
                               {canManageFinance && (
                                 <td className="p-4 text-center" onClick={e => e.stopPropagation()}>
@@ -2721,25 +2806,25 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                         setSelectedRecordIds(prev => prev.filter(id => !allUserRecordIds.includes(id)));
                                       }
                                     }}
-                                    className="w-3.5 h-3.5 rounded-md text-emerald-600 border-stone-300 focus:ring-emerald-500 cursor-pointer"
+                                    className="w-3.5 h-3.5 rounded-md text-emerald-600 border-stone-300 dark:border-stone-700 focus:ring-emerald-500 cursor-pointer"
                                   />
                                 </td>
                               )}
                               <td className="p-4">
-                                <span className="block font-bold text-stone-900 leading-tight">{getContributorLegalName(rec)}</span>
-                                <span className="block text-[10px] text-stone-400 mt-0.5">{rec.address}</span>
+                                <span className="block font-bold text-stone-900 dark:text-stone-100 leading-tight">{getContributorLegalName(rec)}</span>
+                                <span className="block text-[10px] text-stone-400 dark:text-stone-500 mt-0.5">{rec.address}</span>
                               </td>
                               <td className="p-4">
-                                <span className="px-2 py-0.5 bg-stone-100 text-stone-700 border border-stone-200/80 rounded-md text-[10px] font-bold uppercase">
+                                <span className="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200/80 dark:border-stone-700/80 rounded-md text-[10px] font-bold uppercase">
                                   {rec.paymentPeriod || 'None'}
                                 </span>
                               </td>
-                              <td className="p-4 font-black text-stone-850 font-mono text-[13px]">
+                              <td className="p-4 font-black text-stone-850 dark:text-stone-100 font-mono text-[13px]">
                                 ₹{rec.totalAmount.toLocaleString('en-IN')}
                               </td>
-                              <td className="p-4 text-stone-450">
-                                <span className="block font-medium text-stone-700 leading-none">{rec.latestRecord.created_by_name}</span>
-                                <span className="block text-[9px] mt-0.5">{rec.latestRecord.created_by_email}</span>
+                              <td className="p-4 text-stone-450 dark:text-stone-400">
+                                <span className="block font-medium text-stone-700 dark:text-stone-300 leading-none">{rec.latestRecord.created_by_name}</span>
+                                <span className="block text-[9px] dark:text-stone-500 mt-0.5">{rec.latestRecord.created_by_email}</span>
                               </td>
                               <td className="p-4 text-center">
                                 <div className="inline-flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
@@ -2749,7 +2834,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                       e.stopPropagation();
                                       generateContributorPDF(rec);
                                     }}
-                                    className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg font-bold transition-all text-[11px] cursor-pointer inline-flex items-center justify-center border border-rose-100/30 bg-rose-50/10"
+                                    className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-lg font-bold transition-all text-[11px] cursor-pointer inline-flex items-center justify-center border border-rose-100/30 dark:border-rose-900/30 bg-rose-50/10 dark:bg-rose-950/20"
                                     title="Download Contributor Statement PDF"
                                   >
                                     <FileText className="w-3.5 h-3.5" />
@@ -2775,7 +2860,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setDeleteConfirmId(null);
                                             }}
-                                            className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold transition-all text-[9px] cursor-pointer"
+                                            className="px-2 py-1 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-lg font-bold transition-all text-[9px] cursor-pointer"
                                             title="Cancel Deletion"
                                           >
                                             Cancel
@@ -2788,7 +2873,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setupEditMode(rec.latestRecord);
                                             }}
-                                            className="p-1 px-2 hover:bg-stone-100 rounded-lg text-emerald-65 hover:text-emerald-800 font-extrabold transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            className="p-1 px-2 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg text-emerald-65 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 font-extrabold transition-all text-[11px] cursor-pointer border border-stone-100 dark:border-stone-800"
                                             title="Edit latest payment"
                                           >
                                             Edit
@@ -2798,7 +2883,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setupBulkEditMode(rec.name, rec.address, rec.bial);
                                             }}
-                                            className="p-1 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-900 font-extrabold transition-all text-[11px] rounded-lg cursor-pointer border border-emerald-200/60"
+                                            className="p-1 px-2 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-extrabold transition-all text-[11px] rounded-lg cursor-pointer border border-emerald-200/60 dark:border-emerald-800/60"
                                             title="Bulk manage payments for this contributor"
                                           >
                                             Bulk Edit
@@ -2808,7 +2893,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                               e.stopPropagation();
                                               setDeleteConfirmId(rec.latestRecord.id);
                                             }}
-                                            className="p-1 px-2 hover:bg-rose-50 rounded-lg text-stone-400 hover:text-rose-605 font-medium transition-all text-[11px] cursor-pointer border border-stone-100"
+                                            className="p-1 px-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-stone-400 hover:text-rose-605 dark:hover:text-rose-400 font-medium transition-all text-[11px] cursor-pointer border border-stone-100 dark:border-stone-800"
                                             title="Delete latest payment"
                                           >
                                             Delete
@@ -2824,7 +2909,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                             <AnimatePresence initial={false}>
                               {isExpanded && (
                                 <tr>
-                                  <td colSpan={canManageFinance ? 6 : 5} className="p-0 bg-stone-50/20">
+                                  <td colSpan={canManageFinance ? 6 : 5} className="p-0 bg-stone-50/20 dark:bg-stone-800/20">
                                     <motion.div
                                       initial={{ height: 0, opacity: 0 }}
                                       animate={{ height: "auto", opacity: 1 }}
@@ -2832,23 +2917,23 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                       transition={{ duration: 0.25, ease: "easeInOut" }}
                                       className="overflow-hidden"
                                     >
-                                      <div className="p-4 bg-stone-50/60 border-b border-stone-150/80 space-y-4">
+                                      <div className="p-4 bg-stone-50/60 dark:bg-stone-850/60 border-b border-stone-150/80 dark:border-stone-800 space-y-4">
                                         {/* 12-Month Payment Matrix Grid */}
                                         <div className="space-y-1.5">
-                                          <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                          <h5 className="text-[10px] font-extrabold text-stone-400 dark:text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
                                             🗓️ Monthly Contributions Matrix
                                           </h5>
-                                          <div className="overflow-x-auto rounded-xl border border-stone-150 shadow-3xs bg-white p-3">
+                                          <div className="overflow-x-auto rounded-xl border border-stone-150 dark:border-stone-800 shadow-3xs bg-white dark:bg-stone-900 p-3">
                                             <div className="min-w-[800px]">
                                               <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
                                                 {/* Headers */}
                                                 {MONTHS.map(m => (
-                                                  <div key={m} className="p-1.5 bg-stone-50 rounded-lg text-center border border-stone-100">
-                                                    <span className="block text-[10px] font-black text-stone-400 uppercase">{m.slice(0, 3)}</span>
+                                                  <div key={m} className="p-1.5 bg-stone-50 dark:bg-stone-800/80 rounded-lg text-center border border-stone-100 dark:border-stone-750">
+                                                    <span className="block text-[10px] font-black text-stone-400 dark:text-stone-400 uppercase">{m.slice(0, 3)}</span>
                                                   </div>
                                                 ))}
-                                                <div className="p-1.5 bg-emerald-50 rounded-lg text-center border border-emerald-100">
-                                                  <span className="block text-[10px] font-black text-emerald-600 uppercase">Total Sum</span>
+                                                <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/60 rounded-lg text-center border border-emerald-100 dark:border-emerald-800/80">
+                                                  <span className="block text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase">Total Sum</span>
                                                 </div>
 
                                                 {/* Values */}
@@ -2856,26 +2941,26 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                   const recordsForMonth = rec.records.filter(r => r.payment_month === m);
                                                   const totalForMonth = recordsForMonth.reduce((sum, r) => sum + r.amount, 0);
                                                   return (
-                                                    <div key={m} className="p-2 flex flex-col items-center justify-center min-h-[48px] text-center border border-dashed border-stone-100 rounded-lg">
+                                                    <div key={m} className="p-2 flex flex-col items-center justify-center min-h-[48px] text-center border border-dashed border-stone-100 dark:border-stone-800 rounded-lg">
                                                       {totalForMonth > 0 ? (
                                                         <>
-                                                          <span className="text-xs font-extrabold text-stone-800 font-mono">
+                                                          <span className="text-xs font-extrabold text-stone-800 dark:text-stone-200 font-mono">
                                                             ₹{totalForMonth.toLocaleString('en-IN')}
                                                           </span>
                                                           {recordsForMonth.length > 1 && (
-                                                            <span className="text-[8px] px-1 py-0.2 bg-stone-100 text-stone-500 rounded font-bold mt-0.5">
+                                                            <span className="text-[8px] px-1 py-0.2 bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400 rounded font-bold mt-0.5">
                                                               {recordsForMonth.length} recs
                                                             </span>
                                                           )}
                                                         </>
                                                       ) : (
-                                                        <span className="text-xs text-stone-300 font-bold">-</span>
+                                                        <span className="text-xs text-stone-300 dark:text-stone-600 font-bold">-</span>
                                                       )}
                                                     </div>
                                                   );
                                                 })}
-                                                <div className="p-2 flex items-center justify-center bg-emerald-50/50 rounded-lg border border-emerald-100/50 font-mono text-center">
-                                                  <span className="text-xs font-black text-emerald-700">
+                                                <div className="p-2 flex items-center justify-center bg-emerald-50/50 dark:bg-emerald-950/30 rounded-lg border border-emerald-100/50 dark:border-emerald-800/50 font-mono text-center">
+                                                  <span className="text-xs font-black text-emerald-700 dark:text-emerald-400">
                                                     ₹{rec.totalAmount.toLocaleString('en-IN')}
                                                   </span>
                                                 </div>
@@ -2887,7 +2972,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                         {/* Individual Receipts Breakdown list */}
                                         <div className="space-y-2">
                                           <div className="flex items-center justify-between">
-                                            <h5 className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
+                                            <h5 className="text-[10px] font-extrabold text-stone-400 dark:text-stone-400 uppercase tracking-wider pl-1 border-l-2 border-emerald-600 flex items-center gap-1">
                                               📄 Detailed Transaction Receipts ({rec.records.length})
                                             </h5>
                                             <button
@@ -2895,37 +2980,37 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                 e.stopPropagation();
                                                 generateContributorPDF(rec);
                                               }}
-                                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border border-rose-100 shadow-3xs"
+                                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border border-rose-100 dark:border-rose-900/40 shadow-3xs"
                                               title="Download Contributor Statement PDF"
                                             >
                                               <FileText className="w-3.5 h-3.5" />
                                               <span>Download Statement PDF</span>
                                             </button>
                                           </div>
-                                          <div className="divide-y divide-stone-150/60 rounded-xl border border-stone-200 bg-white overflow-hidden shadow-3xs">
+                                          <div className="divide-y divide-stone-150/60 dark:divide-stone-800 rounded-xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 overflow-hidden shadow-3xs">
                                             {rec.records.map((item, idx) => (
-                                              <div key={item.id} className="p-3.5 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-50/30 transition-colors">
+                                              <div key={item.id} className="p-3.5 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-50/30 dark:hover:bg-stone-800/30 transition-colors">
                                                 <div className="flex items-center gap-3">
-                                                  <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center text-[10px] font-extrabold font-mono">
+                                                  <span className="w-5 h-5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400 flex items-center justify-center text-[10px] font-extrabold font-mono">
                                                     {idx + 1}
                                                   </span>
                                                   <div>
                                                     <div className="flex items-center gap-2 flex-wrap">
-                                                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-750 border border-emerald-100 rounded-md font-bold text-[9px] uppercase">
+                                                      <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-750 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800 rounded-md font-bold text-[9px] uppercase">
                                                         {item.payment_month}
                                                       </span>
-                                                      <span className="text-xs font-bold text-stone-700">
+                                                      <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
                                                         Paid on {item.payment_date}
                                                       </span>
                                                     </div>
-                                                    <p className="text-[10px] text-stone-400 mt-0.5">
-                                                      Registered by: <span className="font-semibold text-stone-500">{item.created_by_name}</span> ({item.created_by_email})
+                                                    <p className="text-[10px] text-stone-400 dark:text-stone-500 mt-0.5">
+                                                      Registered by: <span className="font-semibold text-stone-500 dark:text-stone-400">{item.created_by_name}</span> ({item.created_by_email})
                                                     </p>
                                                   </div>
                                                 </div>
 
                                                 <div className="flex items-center gap-4">
-                                                  <span className="text-sm font-black text-stone-800 font-mono">
+                                                  <span className="text-sm font-black text-stone-800 dark:text-stone-200 font-mono">
                                                     ₹{item.amount.toLocaleString('en-IN')}
                                                   </span>
 
@@ -2949,7 +3034,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                               e.stopPropagation();
                                                               setDeleteConfirmId(null);
                                                             }}
-                                                            className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg font-bold text-[10px] cursor-pointer"
+                                                            className="px-2.5 py-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-lg font-bold text-[10px] cursor-pointer"
                                                             title="Cancel Deletion"
                                                           >
                                                             Cancel
@@ -2962,7 +3047,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                               e.stopPropagation();
                                                               setupEditMode(item);
                                                             }}
-                                                            className="px-2 py-1.5 hover:bg-stone-100 text-stone-500 hover:text-emerald-700 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                            className="px-2 py-1.5 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
                                                           >
                                                             Edit
                                                           </button>
@@ -2971,7 +3056,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                                               e.stopPropagation();
                                                               setDeleteConfirmId(item.id);
                                                             }}
-                                                            className="px-2 py-1.5 hover:bg-rose-50 text-stone-400 hover:text-rose-600 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
+                                                            className="px-2 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-stone-400 hover:text-rose-600 dark:hover:text-rose-400 font-bold text-[10px] rounded-lg transition-all cursor-pointer"
                                                           >
                                                             Delete
                                                           </button>
@@ -3000,29 +3085,29 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
               {/* Pagination Controls */}
               {totalPagesBial > 1 && (
-                <div className="flex items-center justify-between border-t border-stone-150 bg-stone-50 px-4 py-3.5 sm:px-6">
+                <div className="flex items-center justify-between border-t border-stone-150 dark:border-stone-800 bg-stone-50 dark:bg-stone-850 px-4 py-3.5 sm:px-6">
                   <div className="flex flex-1 justify-between sm:hidden">
                     <button
                       onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                       disabled={currentPage === 1}
-                      className="relative inline-flex items-center rounded-xl border border-stone-250 bg-white px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      className="relative inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-900 px-4 py-2 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       Previous
                     </button>
                     <button
                       onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPagesBial))}
                       disabled={currentPage === totalPagesBial}
-                      className="relative ml-3 inline-flex items-center rounded-xl border border-stone-250 bg-white px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      className="relative ml-3 inline-flex items-center rounded-xl border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-900 px-4 py-2 text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
                       Next
                     </button>
                   </div>
                   <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-xs text-stone-500">
-                        Showing <span className="font-extrabold text-stone-800">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
-                        <span className="font-extrabold text-stone-800">{Math.min(currentPage * itemsPerPage, currentBialRecords.length)}</span> of{' '}
-                        <span className="font-extrabold text-stone-800">{currentBialRecords.length}</span> records
+                      <p className="text-xs text-stone-500 dark:text-stone-400">
+                        Showing <span className="font-extrabold text-stone-800 dark:text-stone-200">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                        <span className="font-extrabold text-stone-800 dark:text-stone-200">{Math.min(currentPage * itemsPerPage, aggregatedBialRecords.length)}</span> of{' '}
+                        <span className="font-extrabold text-stone-800 dark:text-stone-200">{aggregatedBialRecords.length}</span> contributors ({currentBialRecords.length} entries)
                       </p>
                     </div>
                     <div>
@@ -3030,14 +3115,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         <button
                           onClick={() => setCurrentPage(1)}
                           disabled={currentPage === 1}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           First
                         </button>
                         <button
                           onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                           disabled={currentPage === 1}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           Prev
                         </button>
@@ -3060,7 +3145,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                               className={`relative inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-black transition-all cursor-pointer ${
                                 currentPage === pageNum
                                   ? 'z-10 bg-emerald-600 text-white shadow-xs'
-                                  : 'text-stone-700 hover:bg-stone-100'
+                                  : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
                               }`}
                             >
                               {pageNum}
@@ -3071,14 +3156,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         <button
                           onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPagesBial))}
                           disabled={currentPage === totalPagesBial}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           Next
                         </button>
                         <button
                           onClick={() => setCurrentPage(totalPagesBial)}
                           disabled={currentPage === totalPagesBial}
-                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="relative inline-flex items-center rounded-lg px-2 py-1.5 text-xs font-extrabold text-stone-555 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           Last
                         </button>
@@ -3096,9 +3181,9 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       {/* DYNAMIC RECORD MODAL DIALOG (ADD / EDIT FORM) */}
       {isAddFormOpen && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="record_dialog_stage">
-          <div className="bg-white rounded-3xl border border-stone-150 max-w-lg w-full overflow-hidden shadow-2xl animate-scale-up flex flex-col max-h-[90vh]">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-150 dark:border-stone-800 max-w-lg w-full overflow-hidden shadow-2xl animate-scale-up flex flex-col max-h-[90vh]">
             
-            <header className="p-5 bg-gradient-to-r from-stone-900 to-stone-950 text-white flex items-center justify-between shrink-0">
+            <header className="p-5 bg-gradient-to-r from-stone-900 to-stone-950 dark:from-stone-950 dark:to-stone-900 text-white flex items-center justify-between shrink-0">
               <div className="space-y-1">
                 <h3 className="text-sm font-extrabold uppercase tracking-widest">
                   {editingRecord ? 'Update Payment Audit Log' : 'Create New Payment Audit Entry'}
@@ -3119,16 +3204,16 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
             <form onSubmit={handleRecordSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {formError && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2 font-medium animate-fade-in">
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-800 dark:text-rose-200 text-xs rounded-xl flex items-center gap-2 font-medium animate-fade-in">
                     <AlertTriangle className="w-4 h-4 shrink-0 animate-bounce" />
                     <span>{formError}</span>
                   </div>
                 )}
 
                 {isBialMismatched && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl flex items-center justify-between gap-3 font-semibold">
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-200 text-xs rounded-xl flex items-center justify-between gap-3 font-semibold">
                     <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 animate-pulse" />
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 animate-pulse" />
                       <span>
                         <strong>{formName}</strong> is associated with <strong>{selectedUserAssignedBial}</strong>. You can still save this record under <strong>{formArea}</strong>, but please double check if this is correct.
                       </span>
@@ -3144,7 +3229,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                           }
                         }
                       }}
-                      className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 active:bg-amber-300 text-amber-950 font-bold rounded-lg text-[10px] uppercase tracking-wider shrink-0 transition-colors cursor-pointer border border-amber-200"
+                      className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 dark:hover:bg-amber-800 text-amber-950 dark:text-amber-100 font-bold rounded-lg text-[10px] uppercase tracking-wider shrink-0 transition-colors cursor-pointer border border-amber-200 dark:border-amber-700"
                     >
                       Use Profile Bial
                     </button>
@@ -3154,25 +3239,30 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 
                 <div className="sm:col-span-2 relative">
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Paid Donor / User Name *</label>
+                  <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">Paid Donor / User Name *</label>
                   <div className="relative">
                     <input
                       type="text"
                       required
                       value={formName}
                       onChange={e => {
-                        setFormName(e.target.value);
+                        const newName = e.target.value;
+                        setFormName(newName);
                         setShowUserDropdown(true);
+                        setFormError(null);
+                        if (isBulkMode) {
+                          syncBulkEntriesForUser(newName, formUserId);
+                        }
                       }}
                       onFocus={() => setShowUserDropdown(true)}
                       onBlur={() => setTimeout(() => setShowUserDropdown(false), 250)}
                       placeholder="Enter or search donor's full name"
-                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 font-medium animate-transition"
+                      className="w-full text-xs px-3.5 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-medium animate-transition"
                     />
                     
                     {showUserDropdown && filteredMembersForDropdown.length > 0 && (
-                      <div className="absolute left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-stone-250 rounded-xl shadow-xl z-50 divide-y divide-stone-100">
-                        <div className="p-2 bg-stone-50 text-[9px] font-bold text-stone-400 uppercase tracking-wider sticky top-0 border-b border-stone-150">
+                      <div className="absolute left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white dark:bg-stone-800 border border-stone-250 dark:border-stone-700 rounded-xl shadow-xl z-50 divide-y divide-stone-100 dark:divide-stone-700">
+                        <div className="p-2 bg-stone-50 dark:bg-stone-850 text-[9px] font-bold text-stone-400 dark:text-stone-400 uppercase tracking-wider sticky top-0 border-b border-stone-150 dark:border-stone-700">
                           Select from registered approved members:
                         </div>
                         {filteredMembersForDropdown.map(member => {
@@ -3183,7 +3273,9 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                               type="button"
                               onMouseDown={() => {
                                 setFormName(member.name);
+                                setFormUserId(member.id);
                                 setShowUserDropdown(false);
+                                setFormError(null);
                                 if (assignedBial) {
                                   setFormArea(assignedBial);
                                   const config = bialConfigs.find(c => c.id === assignedBial);
@@ -3196,23 +3288,24 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                     setFormAddress(config.area);
                                   }
                                 }
+                                syncBulkEntriesForUser(member.name, member.id);
                               }}
-                              className="w-full text-left px-3.5 py-2.5 hover:bg-stone-50 transition-colors flex items-center justify-between text-xs cursor-pointer"
+                              className="w-full text-left px-3.5 py-2.5 hover:bg-stone-50 dark:hover:bg-stone-700/60 transition-colors flex items-center justify-between text-xs cursor-pointer"
                             >
                               <div>
-                                <span className="font-extrabold text-stone-850 block">
+                                <span className="font-extrabold text-stone-850 dark:text-stone-100 block">
                                   {member.name}
                                 </span>
-                                <span className="text-[10px] text-stone-450 block">
+                                <span className="text-[10px] text-stone-450 dark:text-stone-400 block">
                                   {member.email} {member.phone ? `• ${member.phone}` : ''}
                                 </span>
                               </div>
                               {assignedBial ? (
-                                <span className="text-[9px] font-extrabold uppercase tracking-widest px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-md">
+                                <span className="text-[9px] font-extrabold uppercase tracking-widest px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800 rounded-md">
                                   {assignedBial}
                                 </span>
                               ) : (
-                                <span className="text-[9px] font-semibold text-stone-400">
+                                <span className="text-[9px] font-semibold text-stone-400 dark:text-stone-500">
                                   No Bial Assigned
                                 </span>
                               )}
@@ -3225,27 +3318,27 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Donor Physical Address (Geographic Area Location) *</label>
+                  <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">Donor Physical Address (Geographic Area Location) *</label>
                   <input
                     type="text"
                     required
                     readOnly
                     value={formAddress}
                     placeholder="Bial configured area location"
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-stone-100 text-stone-600 font-semibold border-stone-200 cursor-not-allowed focus:outline-hidden"
+                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-stone-100 dark:bg-stone-800/60 text-stone-600 dark:text-stone-300 font-semibold border-stone-200 dark:border-stone-700 cursor-not-allowed focus:outline-hidden"
                     title="Automatically pre-filled and locked using the selected Bial's Geographic Scope."
                   />
-                  <p className="text-[9px] text-stone-400 mt-1 font-medium">
+                  <p className="text-[9px] text-stone-400 dark:text-stone-500 mt-1 font-medium">
                     Locked to the selected Bial's configured Area Location. Modify Bial leadership parameters to change.
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">
+                  <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">
                     {isBulkMode ? 'Default Monthly Amount *' : 'Receipt Valuation (Amount in ₹) *'}
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-2.5 text-xs text-stone-400 font-bold">₹</span>
+                    <span className="absolute left-3.5 top-2.5 text-xs text-stone-400 dark:text-stone-500 font-bold">₹</span>
                     <input
                       type="number"
                       required={!isBulkMode}
@@ -3253,13 +3346,13 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                       value={formAmount}
                       onChange={e => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}
                       placeholder={isBulkMode ? "e.g. 1000 (applies to selected months)" : "e.g. 1500"}
-                      className="w-full text-xs pl-8 pr-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 font-bold font-mono"
+                      className="w-full text-xs pl-8 pr-3.5 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold font-mono"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Assigned Administrative Bial *</label>
+                  <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">Assigned Administrative Bial *</label>
                   <select
                     value={formArea}
                     onChange={e => {
@@ -3270,7 +3363,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                         setFormAddress(config.area);
                       }
                     }}
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-stone-50 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-bold"
+                    className="w-full text-xs px-3.5 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-bold"
                   >
                     {BIAL_IDS.map(b => (
                       <option key={b} value={b}>{b}</option>
@@ -3278,12 +3371,12 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                   </select>
                 </div>
 
-                <div className="sm:col-span-2 p-3.5 bg-emerald-50/50 border border-emerald-100 rounded-2xl flex items-center justify-between">
+                <div className="sm:col-span-2 p-3.5 bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-800/60 rounded-2xl flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <span className="text-xs font-black text-emerald-950 block">
+                    <span className="text-xs font-black text-emerald-950 dark:text-emerald-200 block">
                       {editingRecord ? 'Bulk Edit & Payment Mode' : 'Bulk Payment Mode'}
                     </span>
-                    <span className="text-[10px] text-emerald-700 block">
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400 block">
                       {editingRecord 
                         ? 'Manage multiple months of payments for this contributor in a single view' 
                         : 'Record multiple months for this contributor in a single form submit'}
@@ -3294,28 +3387,13 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                     onClick={() => {
                       const newMode = !isBulkMode;
                       setIsBulkMode(newMode);
+                      setFormError(null);
                       if (newMode && formName.trim()) {
-                        // Pre-populate with existing records for this contributor
-                        const contributorRecords = records.filter(r => r.name.trim().toLowerCase() === formName.trim().toLowerCase());
-                        const updatedBulk: { [month: string]: { selected: boolean; amount: number | ''; date: string; id?: string } } = {};
-                        MONTHS.forEach(m => {
-                          updatedBulk[m] = { selected: false, amount: '', date: new Date().toISOString().split('T')[0], id: undefined };
-                        });
-                        contributorRecords.forEach(r => {
-                          if (MONTHS.includes(r.payment_month)) {
-                            updatedBulk[r.payment_month] = {
-                              selected: true,
-                              amount: r.amount,
-                              date: r.payment_date,
-                              id: r.id
-                            };
-                          }
-                        });
-                        setBulkEntries(updatedBulk);
+                        syncBulkEntriesForUser(formName, formUserId);
                       }
                     }}
                     className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                      isBulkMode ? 'bg-emerald-600' : 'bg-stone-300'
+                      isBulkMode ? 'bg-emerald-600' : 'bg-stone-300 dark:bg-stone-700'
                     }`}
                   >
                     <span
@@ -3328,10 +3406,74 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
                 {isBulkMode ? (
                   <div className="sm:col-span-2 space-y-3 pt-2">
-                    <label className="block text-[10px] font-bold text-stone-450 uppercase">
-                      {editingRecord ? 'Manage Months, Amounts & Dates *' : 'Select Months & Customize Amounts *'}
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1 border border-stone-150 p-2.5 rounded-2xl bg-stone-50">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase">
+                        {editingRecord ? 'Manage Months, Amounts & Dates *' : 'Select Months & Customize Amounts *'}
+                      </label>
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormError(null);
+                            setBulkEntries(prev => {
+                              const next = { ...prev };
+                              MONTHS.forEach(m => {
+                                const defaultAmt = formAmount !== '' ? Number(formAmount) : '';
+                                next[m] = { 
+                                  ...next[m], 
+                                  selected: true,
+                                  amount: next[m].amount !== '' ? next[m].amount : defaultAmt
+                                };
+                              });
+                              return next;
+                            });
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-stone-700 dark:text-stone-300 hover:text-emerald-700 dark:hover:text-emerald-300 border border-stone-200 dark:border-stone-700 font-bold transition-colors cursor-pointer"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormError(null);
+                            setBulkEntries(prev => {
+                              const next = { ...prev };
+                              MONTHS.forEach(m => {
+                                if (!next[m].id) {
+                                  const defaultAmt = formAmount !== '' ? Number(formAmount) : '';
+                                  next[m] = { 
+                                    ...next[m], 
+                                    selected: true,
+                                    amount: next[m].amount !== '' ? next[m].amount : defaultAmt
+                                  };
+                                }
+                              });
+                              return next;
+                            });
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-stone-700 dark:text-stone-300 hover:text-emerald-700 dark:hover:text-emerald-300 border border-stone-200 dark:border-stone-700 font-bold transition-colors cursor-pointer"
+                        >
+                          Unpaid Months
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormError(null);
+                            setBulkEntries(prev => {
+                              const next = { ...prev };
+                              MONTHS.forEach(m => {
+                                next[m] = { ...next[m], selected: false };
+                              });
+                              return next;
+                            });
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-stone-600 dark:text-stone-400 hover:text-rose-600 dark:hover:text-rose-400 border border-stone-200 dark:border-stone-700 font-medium transition-colors cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1 border border-stone-150 dark:border-stone-800 p-2.5 rounded-2xl bg-stone-50 dark:bg-stone-850">
                       {MONTHS.map(month => {
                         const entry = bulkEntries[month];
                         return (
@@ -3339,8 +3481,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                             key={month} 
                             className={`p-2 rounded-xl border flex flex-col gap-1.5 transition-all ${
                               entry.selected 
-                                ? 'bg-white border-emerald-300 shadow-xs opacity-100' 
-                                : 'bg-stone-50/50 border-stone-200/60 opacity-60'
+                                ? 'bg-white dark:bg-stone-800 border-emerald-300 dark:border-emerald-700 shadow-xs opacity-100' 
+                                : 'bg-stone-50/50 dark:bg-stone-800/40 border-stone-200/60 dark:border-stone-750 opacity-60'
                             }`}
                           >
                             <div className="flex items-center gap-2">
@@ -3349,16 +3491,22 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                 id={`bulk-month-${month}`}
                                 checked={entry.selected}
                                 onChange={e => {
+                                  const isChecked = e.target.checked;
+                                  setFormError(null);
                                   setBulkEntries(prev => ({
                                     ...prev,
-                                    [month]: { ...prev[month], selected: e.target.checked }
+                                    [month]: { 
+                                      ...prev[month], 
+                                      selected: isChecked,
+                                      amount: isChecked && prev[month].amount === '' ? (formAmount !== '' ? Number(formAmount) : '') : prev[month].amount
+                                    }
                                   }));
                                 }}
-                                className="w-3.5 h-3.5 rounded-sm text-emerald-600 border-stone-300 focus:ring-emerald-500 cursor-pointer"
+                                className="w-3.5 h-3.5 rounded-sm text-emerald-600 border-stone-300 dark:border-stone-700 focus:ring-emerald-500 cursor-pointer"
                               />
                               <label 
                                 htmlFor={`bulk-month-${month}`}
-                                className="text-xs font-black text-stone-800 cursor-pointer select-none"
+                                className="text-xs font-black text-stone-800 dark:text-stone-200 cursor-pointer select-none"
                               >
                                 {month}
                               </label>
@@ -3367,7 +3515,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                             {entry.selected && (
                               <div className="grid grid-cols-2 gap-1.5 pl-5 animate-slide-down">
                                 <div>
-                                  <label className="block text-[9px] font-semibold text-stone-400">Amount (₹)</label>
+                                  <label className="block text-[9px] font-semibold text-stone-400 dark:text-stone-400">Amount (₹)</label>
                                   <input
                                     type="number"
                                     placeholder={formAmount ? `${formAmount}` : "e.g. 1000"}
@@ -3379,11 +3527,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                         [month]: { ...prev[month], amount: val }
                                       }));
                                     }}
-                                    className="w-full text-[11px] px-2 py-1 border rounded-lg bg-white font-bold"
+                                    className="w-full text-[11px] px-2 py-1 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-[9px] font-semibold text-stone-400">Date</label>
+                                  <label className="block text-[9px] font-semibold text-stone-400 dark:text-stone-400">Date</label>
                                   <input
                                     type="date"
                                     value={entry.date}
@@ -3394,7 +3542,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                                         [month]: { ...prev[month], date: val }
                                       }));
                                     }}
-                                    className="w-full text-[11px] px-2 py-1 border rounded-lg bg-white font-bold"
+                                    className="w-full text-[11px] px-2 py-1 border border-stone-200 dark:border-stone-700 rounded-lg bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold"
                                   />
                                 </div>
                               </div>
@@ -3407,11 +3555,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 ) : (
                   <>
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Donation Period (Month) *</label>
+                      <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">Donation Period (Month) *</label>
                       <select
                         value={formMonth}
                         onChange={e => setFormMonth(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-stone-50 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-bold"
+                        className="w-full text-xs px-3.5 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-bold"
                       >
                         {MONTHS.map(m => (
                           <option key={m} value={m}>{m}</option>
@@ -3420,13 +3568,13 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-450 uppercase mb-1">Payment Date *</label>
+                      <label className="block text-[10px] font-bold text-stone-450 dark:text-stone-400 uppercase mb-1">Payment Date *</label>
                       <input
                         type="date"
                         required
                         value={formDate}
                         onChange={e => setFormDate(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 font-bold"
+                        className="w-full text-xs px-3.5 py-2.5 border border-stone-200 dark:border-stone-700 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-emerald-500 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold"
                       />
                     </div>
                   </>
@@ -3435,11 +3583,11 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2.5 p-5 border-t border-stone-150 bg-stone-50/50 shrink-0">
+              <div className="flex items-center justify-end gap-2.5 p-5 border-t border-stone-150 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/50 shrink-0">
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="px-4 py-2.5 border hover:bg-stone-50 text-stone-605 rounded-xl text-xs font-bold cursor-pointer"
+                  className="px-4 py-2.5 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-605 dark:text-stone-300 rounded-xl text-xs font-bold cursor-pointer"
                   disabled={isSubmitting}
                 >
                   Close Panel
@@ -3484,9 +3632,9 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       {/* PDF REPORT CUSTOMIZATION DIALOG */}
       {isPDFModalOpen && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="pdf_customization_modal">
-          <div className="bg-white rounded-3xl border border-stone-150 max-w-xl w-full overflow-hidden shadow-2xl animate-scale-up">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-150 dark:border-stone-800 max-w-xl w-full overflow-hidden shadow-2xl animate-scale-up">
             
-            <header className="p-5 bg-stone-900 text-white flex items-center justify-between">
+            <header className="p-5 bg-stone-900 dark:bg-stone-950 text-white flex items-center justify-between border-b border-stone-800">
               <div className="space-y-1">
                 <h3 className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-rose-500" />
@@ -3511,7 +3659,7 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               <div className="space-y-3">
                 <h4 className="text-[11px] font-extrabold uppercase tracking-widest text-stone-400">Report Contents</h4>
                 
-                <label className="flex items-start gap-3 p-3.5 bg-stone-50 hover:bg-stone-100/70 rounded-2xl border border-stone-150 cursor-pointer transition-all">
+                <label className="flex items-start gap-3 p-3.5 bg-stone-50 dark:bg-stone-800/80 hover:bg-stone-100/70 dark:hover:bg-stone-800 rounded-2xl border border-stone-150 dark:border-stone-750 cursor-pointer transition-all">
                   <input
                     type="checkbox"
                     checked={pdfIncludeSummary}
@@ -3519,14 +3667,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                     className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
                   />
                   <div>
-                    <span className="block text-xs font-extrabold text-stone-900">Include Overall Monthly Summary Sheet</span>
-                    <span className="block text-[10px] text-stone-450 mt-0.5 leading-tight">
+                    <span className="block text-xs font-extrabold text-stone-900 dark:text-stone-100">Include Overall Monthly Summary Sheet</span>
+                    <span className="block text-[10px] text-stone-450 dark:text-stone-400 mt-0.5 leading-tight">
                       A beautiful landscape matrix summarizing Bial-wise monthly totals, total active contributors count, and general audit statistics.
                     </span>
                   </div>
                 </label>
 
-                <label className="flex items-start gap-3 p-3.5 bg-stone-50 hover:bg-stone-100/70 rounded-2xl border border-stone-150 cursor-pointer transition-all">
+                <label className="flex items-start gap-3 p-3.5 bg-stone-50 dark:bg-stone-800/80 hover:bg-stone-100/70 dark:hover:bg-stone-800 rounded-2xl border border-stone-150 dark:border-stone-750 cursor-pointer transition-all">
                   <input
                     type="checkbox"
                     checked={pdfIncludeTopDonors}
@@ -3534,14 +3682,14 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                     className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
                   />
                   <div>
-                    <span className="block text-xs font-extrabold text-stone-900">Include Top 10 Contributors Leaderboard</span>
-                    <span className="block text-[10px] text-stone-450 mt-0.5 leading-tight">
+                    <span className="block text-xs font-extrabold text-stone-900 dark:text-stone-100">Include Top 10 Contributors Leaderboard</span>
+                    <span className="block text-[10px] text-stone-450 dark:text-stone-400 mt-0.5 leading-tight">
                       A beautiful leaderboard honoring the top 10 contributors and donors of the selected time period with custom ranking badges.
                     </span>
                   </div>
                 </label>
 
-                <label className="flex items-start gap-3 p-3.5 bg-stone-50 hover:bg-stone-100/70 rounded-2xl border border-stone-150 cursor-pointer transition-all">
+                <label className="flex items-start gap-3 p-3.5 bg-stone-50 dark:bg-stone-800/80 hover:bg-stone-100/70 dark:hover:bg-stone-800 rounded-2xl border border-stone-150 dark:border-stone-750 cursor-pointer transition-all">
                   <input
                     type="checkbox"
                     checked={pdfIncludeDetails}
@@ -3549,8 +3697,8 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                     className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
                   />
                   <div>
-                    <span className="block text-xs font-extrabold text-stone-900">Include Detailed Contributor Registers</span>
-                    <span className="block text-[10px] text-stone-450 mt-0.5 leading-tight">
+                    <span className="block text-xs font-extrabold text-stone-900 dark:text-stone-100">Include Detailed Contributor Registers</span>
+                    <span className="block text-[10px] text-stone-450 dark:text-stone-400 mt-0.5 leading-tight">
                       Append individual, formatted list tables showing member contributions, payments, and payment dates for selected Bial areas.
                     </span>
                   </div>
@@ -3558,28 +3706,28 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
               </div>
 
               {/* Month Selector Panel */}
-              <div className="space-y-3 border-t border-stone-100 pt-4">
+              <div className="space-y-3 border-t border-stone-100 dark:border-stone-800 pt-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[11px] font-extrabold uppercase tracking-widest text-stone-400">Select Months to Include</h4>
-                  <div className="flex bg-stone-100 p-0.5 rounded-lg text-[9px] font-bold">
+                  <div className="flex bg-stone-100 dark:bg-stone-800 p-0.5 rounded-lg text-[9px] font-bold border border-stone-200/50 dark:border-stone-700">
                     <button
                       type="button"
                       onClick={() => setPdfMonthMode('all')}
-                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${pdfMonthMode === 'all' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-stone-500 hover:text-stone-700'}`}
+                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${pdfMonthMode === 'all' ? 'bg-white dark:bg-stone-700 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'}`}
                     >
                       All Months
                     </button>
                     <button
                       type="button"
                       onClick={() => setPdfMonthMode('current')}
-                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${pdfMonthMode === 'current' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-stone-500 hover:text-stone-700'}`}
+                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${pdfMonthMode === 'current' ? 'bg-white dark:bg-stone-700 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'}`}
                     >
                       Current Month
                     </button>
                     <button
                       type="button"
                       onClick={() => setPdfMonthMode('custom')}
-                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${pdfMonthMode === 'custom' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-stone-500 hover:text-stone-700'}`}
+                      className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${pdfMonthMode === 'custom' ? 'bg-white dark:bg-stone-700 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'}`}
                     >
                       Custom Selected
                     </button>
@@ -3589,19 +3737,19 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 {pdfMonthMode === 'custom' && (
                   <div className="space-y-3 animate-fade-in pt-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] text-stone-450 font-bold">Check/uncheck months below:</span>
+                      <span className="text-[9px] text-stone-450 dark:text-stone-400 font-bold">Check/uncheck months below:</span>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => setPdfSelectedMonths(MONTHS)}
-                          className="text-[9px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md cursor-pointer"
+                          className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md cursor-pointer border border-emerald-100 dark:border-emerald-800"
                         >
                           Select All
                         </button>
                         <button
                           type="button"
                           onClick={() => setPdfSelectedMonths([])}
-                          className="text-[9px] font-bold text-stone-500 hover:text-stone-700 bg-stone-100 px-2 py-0.5 rounded-md cursor-pointer"
+                          className="text-[9px] font-bold text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-md cursor-pointer border border-stone-200 dark:border-stone-700"
                         >
                           Clear All
                         </button>
@@ -3624,19 +3772,19 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                             }}
                             className={`flex flex-col items-start p-2 rounded-xl border transition-all text-left relative cursor-pointer ${
                               isSelected 
-                                ? 'bg-emerald-50/50 border-emerald-500/30 ring-1 ring-emerald-500/20' 
-                                : 'bg-white border-stone-150 hover:bg-stone-50'
+                                ? 'bg-emerald-50/50 dark:bg-emerald-950/40 border-emerald-500/30 dark:border-emerald-700/50 ring-1 ring-emerald-500/20' 
+                                : 'bg-white dark:bg-stone-800/80 border-stone-150 dark:border-stone-750 hover:bg-stone-50 dark:hover:bg-stone-800'
                             }`}
                           >
                             <div className="flex items-center justify-between w-full">
-                              <span className="text-[10px] font-extrabold text-stone-900">{month.slice(0, 3)}</span>
+                              <span className="text-[10px] font-extrabold text-stone-900 dark:text-stone-100">{month.slice(0, 3)}</span>
                               <div className={`w-3 h-3 rounded-sm border flex items-center justify-center ${
-                                isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-stone-300 bg-white'
+                                isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900'
                               }`}>
                                 {isSelected && <Check className="w-2 h-2 stroke-[4]" />}
                               </div>
                             </div>
-                            <span className="text-[8px] text-stone-450 font-mono font-bold mt-1 bg-stone-100 px-1 py-0.2 rounded leading-none">
+                            <span className="text-[8px] text-stone-450 dark:text-stone-400 font-mono font-bold mt-1 bg-stone-100 dark:bg-stone-750 px-1 py-0.2 rounded leading-none">
                               {count} {count === 1 ? 'record' : 'records'}
                             </span>
                           </button>
@@ -3647,28 +3795,28 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                 )}
 
                 {pdfMonthMode === 'current' && (
-                  <div className="p-3 bg-stone-50 rounded-2xl border border-stone-150 flex items-center justify-between text-xs font-bold text-stone-700 animate-fade-in">
+                  <div className="p-3 bg-stone-50 dark:bg-stone-800/80 rounded-2xl border border-stone-150 dark:border-stone-750 flex items-center justify-between text-xs font-bold text-stone-700 dark:text-stone-300 animate-fade-in">
                     <span>Only records assigned to:</span>
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md font-extrabold">{MONTHS[new Date().getMonth()]} (Current Month)</span>
+                    <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 rounded-md font-extrabold">{MONTHS[new Date().getMonth()]} (Current Month)</span>
                   </div>
                 )}
               </div>
 
               {/* Bial Selector Panel - only visible when pdfIncludeDetails is true */}
               {pdfIncludeDetails && (
-                <div className="space-y-3 border-t border-stone-100 pt-4 animate-fade-in">
+                <div className="space-y-3 border-t border-stone-100 dark:border-stone-800 pt-4 animate-fade-in">
                   <div className="flex items-center justify-between">
                     <h4 className="text-[11px] font-extrabold uppercase tracking-widest text-stone-400">Select Bial Areas ({pdfSelectedBials.length}/12)</h4>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setPdfSelectedBials(BIAL_IDS)}
-                        className="text-[9px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md cursor-pointer"
+                        className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-1 rounded-md cursor-pointer border border-emerald-100 dark:border-emerald-800"
                       >
                         Select All
                       </button>
                       <button
                         onClick={() => setPdfSelectedBials([])}
-                        className="text-[9px] font-bold text-stone-500 hover:text-stone-700 bg-stone-100 px-2 py-1 rounded-md cursor-pointer"
+                        className="text-[9px] font-bold text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded-md cursor-pointer border border-stone-200 dark:border-stone-700"
                       >
                         Deselect All
                       </button>
@@ -3695,20 +3843,20 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
                           }}
                           className={`flex flex-col items-start p-2.5 rounded-xl border transition-all text-left relative cursor-pointer ${
                             isSelected 
-                              ? 'bg-emerald-50/50 border-emerald-500/30 ring-1 ring-emerald-500/20' 
-                              : 'bg-white border-stone-150 hover:bg-stone-50'
+                              ? 'bg-emerald-50/50 dark:bg-emerald-950/40 border-emerald-500/30 dark:border-emerald-700/50 ring-1 ring-emerald-500/20' 
+                              : 'bg-white dark:bg-stone-800/80 border-stone-150 dark:border-stone-750 hover:bg-stone-50 dark:hover:bg-stone-800'
                           }`}
                         >
                           <div className="flex items-center justify-between w-full">
-                            <span className="text-[11px] font-extrabold text-stone-900">{bialId}</span>
+                            <span className="text-[11px] font-extrabold text-stone-900 dark:text-stone-100">{bialId}</span>
                             <div className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center ${
-                              isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-stone-300 bg-white'
+                              isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900'
                             }`}>
                               {isSelected && <Check className="w-2.5 h-2.5 stroke-[4]" />}
                             </div>
                           </div>
-                          <span className="text-[9px] text-stone-450 font-medium truncate max-w-[130px] mt-0.5">{areaName}</span>
-                          <span className="text-[8px] mt-1 font-mono font-bold text-stone-500 px-1.5 py-0.5 bg-stone-100 rounded">
+                          <span className="text-[9px] text-stone-450 dark:text-stone-400 font-medium truncate max-w-[130px] mt-0.5">{areaName}</span>
+                          <span className="text-[8px] mt-1 font-mono font-bold text-stone-500 dark:text-stone-400 px-1.5 py-0.5 bg-stone-100 dark:bg-stone-750 rounded">
                             {count} {count === 1 ? 'receipt' : 'receipts'}
                           </span>
                         </button>
@@ -3720,15 +3868,15 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
             </div>
 
-            <footer className="p-4 bg-stone-50 border-t border-stone-100 flex items-center justify-between">
-              <span className="text-[9px] text-stone-450 font-bold font-mono">
+            <footer className="p-4 bg-stone-50 dark:bg-stone-850 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between">
+              <span className="text-[9px] text-stone-450 dark:text-stone-400 font-bold font-mono">
                 A4 Landscape format. Consistent Style.
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsPDFModalOpen(false)}
-                  className="px-4 py-2.5 bg-white border border-stone-200 hover:bg-stone-50 text-stone-605 rounded-xl text-xs font-bold cursor-pointer"
+                  className="px-4 py-2.5 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-605 dark:text-stone-300 rounded-xl text-xs font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -3749,52 +3897,52 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       {/* Bulk Edit Modal */}
       {isBulkEditModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-stone-150 shadow-xl max-w-md w-full overflow-hidden animate-fade-in">
-            <header className="px-5 py-4 bg-stone-50 border-b border-stone-100 flex items-center justify-between">
+          <div className="bg-white dark:bg-stone-900 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xl max-w-md w-full overflow-hidden animate-fade-in">
+            <header className="px-5 py-4 bg-stone-50 dark:bg-stone-850 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-extrabold text-stone-900 uppercase tracking-wide">Bulk Edit {selectedRecordIds.length} Entries</h3>
-                <p className="text-[10px] text-stone-450 mt-0.5">Updating selected contributions in {activeTab}</p>
+                <h3 className="text-sm font-extrabold text-stone-900 dark:text-stone-100 uppercase tracking-wide">Bulk Edit {selectedRecordIds.length} Entries</h3>
+                <p className="text-[10px] text-stone-450 dark:text-stone-400 mt-0.5">Updating selected contributions in {activeTab}</p>
               </div>
               <button
                 onClick={() => setIsBulkEditModalOpen(false)}
-                className="p-1 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+                className="p-1 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg text-stone-400 dark:text-stone-500 hover:text-stone-700 dark:hover:text-stone-200 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </header>
 
             <div className="p-5 space-y-4">
-              <p className="text-xs text-stone-500 bg-stone-50 p-3 rounded-xl border border-stone-100">
+              <p className="text-xs text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/60 p-3 rounded-xl border border-stone-100 dark:border-stone-750">
                 Only filled-out values below will be applied to the {selectedRecordIds.length} selected records. Empty fields will remain unmodified.
               </p>
 
               <div className="space-y-4">
                 {/* Amount */}
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] text-stone-450 font-bold uppercase tracking-wider">
+                  <label className="block text-[10px] text-stone-450 dark:text-stone-400 font-bold uppercase tracking-wider">
                     New Monthly Amount (₹)
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-2 text-xs font-bold text-stone-400">₹</span>
+                    <span className="absolute left-3.5 top-2 text-xs font-bold text-stone-400 dark:text-stone-500">₹</span>
                     <input
                       type="number"
                       placeholder="Leave blank to keep existing amount"
                       value={bulkEditAmount}
                       onChange={(e) => setBulkEditAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full pl-8 pr-3.5 py-2 text-xs border border-stone-250 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="w-full pl-8 pr-3.5 py-2 text-xs border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                     />
                   </div>
                 </div>
 
                 {/* Period */}
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] text-stone-450 font-bold uppercase tracking-wider">
+                  <label className="block text-[10px] text-stone-450 dark:text-stone-400 font-bold uppercase tracking-wider">
                     New Payment Month
                   </label>
                   <select
                     value={bulkEditMonth}
                     onChange={(e) => setBulkEditMonth(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs border border-stone-250 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2 text-xs border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   >
                     <option value="">-- Keep Existing Months --</option>
                     {MONTHS.map(m => (
@@ -3805,24 +3953,24 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
 
                 {/* Payment Date */}
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] text-stone-450 font-bold uppercase tracking-wider">
+                  <label className="block text-[10px] text-stone-450 dark:text-stone-400 font-bold uppercase tracking-wider">
                     New Payment Date
                   </label>
                   <input
                     type="date"
                     value={bulkEditDate}
                     onChange={(e) => setBulkEditDate(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs border border-stone-250 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2 text-xs border border-stone-250 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 rounded-xl focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
               </div>
             </div>
 
-            <footer className="p-4 bg-stone-50 border-t border-stone-100 flex items-center justify-end gap-2">
+            <footer className="p-4 bg-stone-50 dark:bg-stone-850 border-t border-stone-100 dark:border-stone-800 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setIsBulkEditModalOpen(false)}
-                className="px-4 py-2 bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 rounded-xl text-xs font-bold cursor-pointer"
+                className="px-4 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-xl text-xs font-bold cursor-pointer"
               >
                 Cancel
               </button>
@@ -3841,34 +3989,34 @@ export function FinancialRecordsPage({ currentUser, onAddLog }: FinancialRecords
       {/* Bulk Delete Confirm Modal */}
       {isBulkDeleteConfirmOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-stone-150 shadow-xl max-w-md w-full overflow-hidden animate-fade-in">
-            <header className="px-5 py-4 bg-rose-50 border-b border-rose-100 flex items-center justify-between">
+          <div className="bg-white dark:bg-stone-900 rounded-2xl border border-stone-150 dark:border-stone-800 shadow-xl max-w-md w-full overflow-hidden animate-fade-in">
+            <header className="px-5 py-4 bg-rose-50 dark:bg-rose-950/50 border-b border-rose-100 dark:border-rose-900/50 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-extrabold text-rose-900 uppercase tracking-wide">Confirm Bulk Deletion</h3>
-                <p className="text-[10px] text-rose-700 mt-0.5">Destructive action for {selectedRecordIds.length} entries</p>
+                <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200 uppercase tracking-wide">Confirm Bulk Deletion</h3>
+                <p className="text-[10px] text-rose-700 dark:text-rose-400 mt-0.5">Destructive action for {selectedRecordIds.length} entries</p>
               </div>
               <button
                 onClick={() => setIsBulkDeleteConfirmOpen(false)}
-                className="p-1 hover:bg-rose-100 rounded-lg text-rose-500 hover:text-rose-900 transition-colors cursor-pointer"
+                className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/50 rounded-lg text-rose-500 dark:text-rose-400 hover:text-rose-900 dark:hover:text-rose-200 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </header>
 
             <div className="p-5 space-y-3">
-              <p className="text-xs text-stone-600 font-medium leading-relaxed">
-                Are you sure you want to permanently delete these <strong className="text-stone-900">{selectedRecordIds.length}</strong> financial records in {activeTab}?
+              <p className="text-xs text-stone-600 dark:text-stone-300 font-medium leading-relaxed">
+                Are you sure you want to permanently delete these <strong className="text-stone-900 dark:text-stone-100">{selectedRecordIds.length}</strong> financial records in {activeTab}?
               </p>
-              <p className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold">
+              <p className="text-xs text-rose-600 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 p-3 rounded-xl border border-rose-100 dark:border-rose-900/40 font-bold">
                 ⚠️ This process is completely irreversible and will remove these receipts permanently from the central database.
               </p>
             </div>
 
-            <footer className="p-4 bg-stone-50 border-t border-stone-100 flex items-center justify-end gap-2">
+            <footer className="p-4 bg-stone-50 dark:bg-stone-850 border-t border-stone-100 dark:border-stone-800 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setIsBulkDeleteConfirmOpen(false)}
-                className="px-4 py-2 bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 rounded-xl text-xs font-bold cursor-pointer"
+                className="px-4 py-2 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-xl text-xs font-bold cursor-pointer"
               >
                 Cancel
               </button>

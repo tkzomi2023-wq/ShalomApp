@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import BirthdayEmailSettingsPage from './BirthdayEmailSettingsPage';
 import { WebsiteMetaSettingsPage } from './WebsiteMetaSettingsPage';
+import { ManualProvisionModal } from './ManualProvisionModal';
 
 interface AdminControlPageProps {
   currentUser: Member | null;
@@ -29,6 +30,8 @@ interface AdminControlPageProps {
   onOpenSQLModal: () => void;
   onOpenBialModal: () => void;
   onOpenRetentionModal?: () => void;
+  onRefresh?: () => void;
+  setLogs?: (logs: any) => void;
   isFootballEnabled: boolean;
   setIsFootballEnabled: (enabled: boolean) => void;
   isPrayerRequestsEnabled: boolean;
@@ -46,6 +49,8 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
   onOpenSQLModal,
   onOpenBialModal,
   onOpenRetentionModal,
+  onRefresh,
+  setLogs,
   isFootballEnabled,
   setIsFootballEnabled,
   isPrayerRequestsEnabled,
@@ -57,6 +62,7 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
 }) => {
   const isSuperAdmin = currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com' || currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'birthday' | 'meta'>('overview');
+  const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -179,7 +185,7 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
               <div className="space-y-3">
                 <button
                   type="button"
-                  onClick={onOpenProvisionModal}
+                  onClick={() => setIsProvisionModalOpen(true)}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-black text-xs py-3.5 px-4 rounded-xl shadow-md shadow-emerald-600/15 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" /> Manually Provision Member
@@ -376,6 +382,15 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
 
         </div>
       )}
+
+      {/* Manual Member Provisioning Modal */}
+      <ManualProvisionModal 
+        isOpen={isProvisionModalOpen} 
+        onClose={() => setIsProvisionModalOpen(false)} 
+        currentUser={currentUser} 
+        onRefresh={onRefresh} 
+        setLogs={setLogs} 
+      />
     </div>
   );
 };
