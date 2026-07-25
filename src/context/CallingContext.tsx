@@ -70,9 +70,34 @@ interface CallingContextType {
 
 const CallingContext = createContext<CallingContextType | null>(null);
 
-const DEFAULT_STUN_SERVER: RTCIceServer = {
-  urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']
-};
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  // Primary & Fallback Public STUN Servers
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun3.l.google.com:19302', 'stun:stun4.l.google.com:19302'] },
+  { urls: ['stun:global.stun.twilio.com:3478'] },
+  { urls: ['stun:stun.cloudflare.com:3478'] },
+  { urls: ['stun:stun.nextcloud.com:443'] },
+  // OpenRelay Metered Public TURN Relay Servers (Essential for Mobile Data, CGNAT, and cross-network traversal)
+  {
+    urls: [
+      'stun:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelay',
+    credential: 'openrelay'
+  }
+];
+
+function optimizeSDPForLowNetwork(sdp: string): string {
+  if (!sdp) return '';
+  // Enable Opus In-Band Forward Error Correction (FEC) and Discontinuous Transmission (DTX) for low / unstable mobile networks
+  let modifiedSDP = sdp.replace(
+    /a=fmtp:111 (.*)/g,
+    'a=fmtp:111 $1;useinbandfec=1;usedtx=1;maxaveragebitrate=64000'
+  );
+  return modifiedSDP;
+}
 
 export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user: currentUser } = useAuth();
@@ -264,7 +289,7 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Construct WebRTC RTCPeerConnection configuration
   const getPeerConfig = useCallback((): RTCConfiguration => {
-    const iceServers: RTCIceServer[] = [DEFAULT_STUN_SERVER];
+    const iceServers: RTCIceServer[] = [...DEFAULT_ICE_SERVERS];
 
     if (settings.turn_enabled && settings.turn_server_url) {
       const turnServer: RTCIceServer = {
@@ -272,12 +297,15 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
       if (settings.turn_username) turnServer.username = settings.turn_username;
       if (settings.turn_credential) turnServer.credential = settings.turn_credential;
-      iceServers.push(turnServer);
+      iceServers.unshift(turnServer); // Prioritize user-configured TURN server if present
     }
 
     return {
       iceServers,
       iceCandidatePoolSize: 10,
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
     };
   }, [settings]);
 
@@ -396,11 +424,26 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }
   }, [settings]);
 
-  // Create PeerConnection & attach local stream tracks
-  const setupPeerConnection = useCallback((type: CallType, callId: string, roomId: string) => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
+  // Send Signaling Message over Supabase Realtime
+  const sendSignal = useCallback((event: string, payload: Partial<SignalingPayload>) => {
+    if (signalingChannelRef.current) {
+      signalingChannelRef.current.send({
+        type: 'broadcast',
+        event,
+        payload
+      });
     }
+  }, []);
+
+  // Create PeerConnection & attach local stream tracks
+  const setupPeerConnection = useCallback((type: CallType, callId: string, roomId: string, remoteMemberId?: string) => {
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch (e) {}
+    }
+
+    const targetRemoteId = remoteMemberId || targetMember?.id || '';
 
     const pc = new RTCPeerConnection(getPeerConfig());
     peerConnectionRef.current = pc;
@@ -415,11 +458,36 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             callId,
             roomId,
             callerId: currentUser.id,
-            receiverId: targetMember?.id || '',
+            receiverId: targetRemoteId,
             candidate: event.candidate.toJSON(),
             timestamp: new Date().toISOString(),
           }
         });
+      }
+    };
+
+    // Auto ICE Restart for Mobile Data, CGNAT & Cross-Network Traversal
+    pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC] ICE Connection State:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        console.warn('[WebRTC] ICE Connection failed. Initiating ICE restart for cross-network relay...');
+        pc.restartIce();
+        if (pc.signalingState === 'stable') {
+          pc.createOffer({ iceRestart: true }).then(async (offer) => {
+            const optSDP = optimizeSDPForLowNetwork(offer.sdp || '');
+            const offerDesc = new RTCSessionDescription({ type: offer.type, sdp: optSDP });
+            await pc.setLocalDescription(offerDesc);
+            sendSignal('webrtc:offer', {
+              callId,
+              roomId,
+              callerId: currentUser.id,
+              receiverId: targetRemoteId,
+              callType: type,
+              sdp: offerDesc,
+              timestamp: new Date().toISOString(),
+            });
+          }).catch(e => console.error('[WebRTC] ICE restart offer failed:', e));
+        }
       }
     };
 
@@ -438,7 +506,7 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Monitor Connection Health / Stats
     statsTimerRef.current = setInterval(async () => {
-      if (!peerConnectionRef.current || peerConnectionRef.current.connectionState !== 'connected') return;
+      if (!peerConnectionRef.current || (peerConnectionRef.current.connectionState !== 'connected' && peerConnectionRef.current.iceConnectionState !== 'connected')) return;
       try {
         const stats = await peerConnectionRef.current.getStats();
         let rtt = 50;
@@ -447,15 +515,15 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (report.currentRoundTripTime) rtt = report.currentRoundTripTime * 1000;
           }
         });
-        if (rtt < 100) setSignalBars(4);
-        else if (rtt < 200) setSignalBars(3);
-        else if (rtt < 400) setSignalBars(2);
+        if (rtt < 120) setSignalBars(4);
+        else if (rtt < 250) setSignalBars(3);
+        else if (rtt < 450) setSignalBars(2);
         else setSignalBars(1);
       } catch (e) {}
     }, 3000);
 
     return pc;
-  }, [getPeerConfig, currentUser?.id, targetMember?.id]);
+  }, [getPeerConfig, currentUser?.id, targetMember?.id, sendSignal]);
 
   // Process queued ICE Candidates
   const processQueuedIceCandidates = useCallback(async () => {
@@ -469,17 +537,6 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           console.warn('Error applying queued ICE candidate:', e);
         }
       }
-    }
-  }, []);
-
-  // Send Signaling Message over Supabase Realtime
-  const sendSignal = useCallback((event: string, payload: Partial<SignalingPayload>) => {
-    if (signalingChannelRef.current) {
-      signalingChannelRef.current.send({
-        type: 'broadcast',
-        event,
-        payload
-      });
     }
   }, []);
 
@@ -605,7 +662,9 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const pc = peerConnectionRef.current;
           if (pc) {
             const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
+            const optSDP = optimizeSDPForLowNetwork(offer.sdp || '');
+            const offerDesc = new RTCSessionDescription({ type: offer.type, sdp: optSDP });
+            await pc.setLocalDescription(offerDesc);
 
             sendSignal('webrtc:offer', {
               callId: payload.callId,
@@ -613,7 +672,7 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               callerId: currentUser.id,
               receiverId: payload.receiverId,
               callType,
-              sdp: offer,
+              sdp: offerDesc,
               timestamp: new Date().toISOString(),
             });
           }
@@ -721,14 +780,16 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           await processQueuedIceCandidates();
 
           const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
+          const optSDP = optimizeSDPForLowNetwork(answer.sdp || '');
+          const answerDesc = new RTCSessionDescription({ type: answer.type, sdp: optSDP });
+          await pc.setLocalDescription(answerDesc);
 
           sendSignal('webrtc:answer', {
             callId: payload.callId,
             roomId: payload.roomId,
             callerId: payload.callerId,
             receiverId: currentUser.id,
-            sdp: answer,
+            sdp: answerDesc,
             timestamp: new Date().toISOString(),
           });
         } catch (e) {
@@ -892,7 +953,7 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const stream = await getUserMediaStream(type);
 
       // 2. Setup RTCPeerConnection and attach tracks
-      const pc = setupPeerConnection(type, callId, roomId);
+      const pc = setupPeerConnection(type, callId, roomId, target.id);
       stream.getTracks().forEach(track => {
         pc.addTrack(track, stream);
       });
@@ -943,7 +1004,7 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const stream = await getUserMediaStream(callType);
 
       // 2. Setup Peer Connection
-      const pc = setupPeerConnection(callType, currentCall.id, currentCall.room_id);
+      const pc = setupPeerConnection(callType, currentCall.id, currentCall.room_id, currentCall.caller_id);
       stream.getTracks().forEach(track => {
         pc.addTrack(track, stream);
       });
