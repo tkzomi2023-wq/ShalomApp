@@ -452,7 +452,7 @@ CREATE POLICY "Allow authenticated delete of birthday_logs" ON public.birthday_l
     auth.uid() IS NOT NULL
   );
 
--- 9. Meta Configs table (Stores website header, SEO, and social meta configs)
+-- 9. Meta Configs table (Stores website header, SEO, social meta configs, and module visibility toggles)
 CREATE TABLE IF NOT EXISTS public.meta_configs (
   id TEXT PRIMARY KEY DEFAULT 'singleton',
   title TEXT NOT NULL,
@@ -461,8 +461,15 @@ CREATE TABLE IF NOT EXISTS public.meta_configs (
   og_image TEXT NOT NULL,
   favicon TEXT NOT NULL,
   site_url TEXT NOT NULL,
+  is_football_enabled BOOLEAN DEFAULT true,
+  is_prayer_requests_enabled BOOLEAN DEFAULT true,
+  is_calling_enabled BOOLEAN DEFAULT true,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
+ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_football_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_prayer_requests_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_calling_enabled BOOLEAN DEFAULT true;
 
 -- Enable RLS for meta_configs
 ALTER TABLE public.meta_configs ENABLE ROW LEVEL SECURITY;
@@ -838,15 +845,18 @@ class HybridDatabaseManager {
         throw error;
       }
 
-      // Read local marital_status store map to preserve marital status even if Supabase table schema lacks column
+      // Read local marital_status and last_seen store maps
       let maritalStatusMap: Record<string, string> = {};
+      let lastSeenMap: Record<string, string> = {};
       try {
-        const stored = localStorage.getItem('sy_marital_status_store');
-        if (stored) maritalStatusMap = JSON.parse(stored);
+        const storedMs = localStorage.getItem('sy_marital_status_store');
+        if (storedMs) maritalStatusMap = JSON.parse(storedMs);
+        const storedLs = localStorage.getItem('sy_last_seen_store');
+        if (storedLs) lastSeenMap = JSON.parse(storedLs);
       } catch (_) {}
 
       const rawMembers = (data && data.length > 0) ? data : [];
-      const updatedMembers = rawMembers.map((m: any) => {
+      const updatedMembers = rawMembers.map((m: any, index: number) => {
         let ms = m.marital_status;
         if (!ms && m.id && maritalStatusMap[m.id]) {
           ms = maritalStatusMap[m.id];
@@ -859,15 +869,39 @@ class HybridDatabaseManager {
         if (m.id) maritalStatusMap[m.id] = ms;
         if (m.email) maritalStatusMap[m.email.toLowerCase()] = ms;
 
+        let lsCandidates: (string | undefined)[] = [
+          m.last_seen,
+          m.id ? lastSeenMap[m.id] : undefined,
+          m.email ? lastSeenMap[m.email.toLowerCase()] : undefined
+        ];
+        
+        let ls: string | undefined = undefined;
+        let newestMs = 0;
+        for (const cand of lsCandidates) {
+          if (!cand) continue;
+          const t = new Date(cand).getTime();
+          if (!isNaN(t) && t > newestMs) {
+            newestMs = t;
+            ls = cand;
+          }
+        }
+
+        if (ls) {
+          if (m.id) lastSeenMap[m.id] = ls;
+          if (m.email) lastSeenMap[m.email.toLowerCase()] = ls;
+        }
+
         return {
           ...m,
-          marital_status: ms
+          marital_status: ms,
+          last_seen: ls
         };
       });
 
       // Cache locally for offline resilience
       try {
         localStorage.setItem('sy_marital_status_store', JSON.stringify(maritalStatusMap));
+        localStorage.setItem('sy_last_seen_store', JSON.stringify(lastSeenMap));
         localStorage.setItem('sy_local_members', JSON.stringify(updatedMembers));
       } catch (_) {}
 
@@ -954,16 +988,23 @@ class HybridDatabaseManager {
       custom_title: member.custom_title,
       church_titles: member.church_titles,
       marital_status: member.marital_status || 'Single',
+      last_seen: member.last_seen || new Date().toISOString(),
       created_at: member.created_at || new Date().toISOString()
     };
 
-    // Persist marital_status in persistent store map
+    // Persist marital_status and last_seen in persistent store maps
     try {
       const stored = localStorage.getItem('sy_marital_status_store');
       const maritalStatusMap = stored ? JSON.parse(stored) : {};
       if (newMember.id) maritalStatusMap[newMember.id] = newMember.marital_status;
       if (newMember.email) maritalStatusMap[newMember.email.toLowerCase()] = newMember.marital_status;
       localStorage.setItem('sy_marital_status_store', JSON.stringify(maritalStatusMap));
+
+      const storedLs = localStorage.getItem('sy_last_seen_store');
+      const lastSeenMap = storedLs ? JSON.parse(storedLs) : {};
+      if (newMember.id) lastSeenMap[newMember.id] = newMember.last_seen;
+      if (newMember.email) lastSeenMap[newMember.email.toLowerCase()] = newMember.last_seen;
+      localStorage.setItem('sy_last_seen_store', JSON.stringify(lastSeenMap));
     } catch (_) {}
 
     let existingProfile: any = null;
@@ -1363,6 +1404,42 @@ class HybridDatabaseManager {
     });
 
     return result;
+  }
+
+  async updateMemberLastSeen(userId: string, email?: string, timestamp?: string): Promise<string> {
+    const ts = timestamp || new Date().toISOString();
+    try {
+      const storedLs = localStorage.getItem('sy_last_seen_store');
+      const lastSeenMap = storedLs ? JSON.parse(storedLs) : {};
+      if (userId) lastSeenMap[userId] = ts;
+      if (email) lastSeenMap[email.toLowerCase()] = ts;
+      localStorage.setItem('sy_last_seen_store', JSON.stringify(lastSeenMap));
+    } catch (_) {}
+
+    try {
+      const storedMembers = localStorage.getItem('sy_local_members');
+      if (storedMembers) {
+        const membersList = JSON.parse(storedMembers);
+        let updated = false;
+        const newList = membersList.map((m: any) => {
+          if ((userId && m.id === userId) || (email && m.email?.toLowerCase() === email.toLowerCase())) {
+            updated = true;
+            return { ...m, last_seen: ts };
+          }
+          return m;
+        });
+        if (updated) {
+          localStorage.setItem('sy_local_members', JSON.stringify(newList));
+        }
+      }
+    } catch (_) {}
+
+    if (userId) {
+      try {
+        await supabase.from('profiles').update({ last_seen: ts }).eq('id', userId);
+      } catch (_) {}
+    }
+    return ts;
   }
 
   async updateProfileId(oldId: string, newId: string): Promise<boolean> {

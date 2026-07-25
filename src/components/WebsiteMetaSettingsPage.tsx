@@ -24,6 +24,24 @@ const isNetlify = typeof window !== 'undefined' && (
   (window.location.hostname.endsWith('.app') && !window.location.hostname.includes('run.app') && !window.location.hostname.includes('google'))
 );
 
+export const toFullUrl = (url?: string, siteUrl?: string): string => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  let base = siteUrl?.trim() || '';
+  if (!base && typeof window !== 'undefined') {
+    base = window.location.origin;
+  }
+  if (base && !base.startsWith('http://') && !base.startsWith('https://')) {
+    base = `https://${base}`;
+  }
+  base = base.replace(/\/+$/, '');
+  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return base ? `${base}${cleanPath}` : `https://jsagyouth.netlify.app${cleanPath}`;
+};
+
 export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = ({ currentUser }) => {
   const [config, setConfig] = useState<MetaConfig>({
     title: '',
@@ -69,10 +87,11 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       const filePath = `meta/og-image.png`;
       const imageUrl = await db.uploadToStorage('thumbnails', filePath, file);
       const freshImageUrl = `${imageUrl.split('?')[0]}?v=${Date.now()}`;
+      const fullOg = toFullUrl(freshImageUrl, config.siteUrl);
       
       clearInterval(progressInterval);
       setOgUploadProgress(100);
-      setConfig(prev => ({ ...prev, ogImage: freshImageUrl }));
+      setConfig(prev => ({ ...prev, ogImage: fullOg }));
     } catch (err: any) {
       clearInterval(progressInterval);
       console.error('Error uploading custom OG image:', err);
@@ -105,10 +124,11 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       const filePath = `meta/favicon.png`;
       const imageUrl = await db.uploadToStorage('thumbnails', filePath, file);
       const freshFaviconUrl = `${imageUrl.split('?')[0]}?v=${Date.now()}`;
+      const fullFavicon = toFullUrl(freshFaviconUrl, config.siteUrl);
       
       clearInterval(progressInterval);
       setFaviconUploadProgress(100);
-      setConfig(prev => ({ ...prev, favicon: freshFaviconUrl }));
+      setConfig(prev => ({ ...prev, favicon: fullFavicon }));
     } catch (err: any) {
       clearInterval(progressInterval);
       console.error('Error uploading custom favicon:', err);
@@ -125,17 +145,26 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       const response = await apiFetch('/api/meta-config');
       if (response.ok) {
         const data = await safeJsonParse(response);
+        const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app');
+        const resolvedOgImage = toFullUrl(data.ogImage, resolvedSiteUrl);
+        const resolvedFavicon = toFullUrl(data.favicon, resolvedSiteUrl);
+        
         setConfig({
           title: data.title || '',
           description: data.description || '',
           keywords: data.keywords || '',
-          ogImage: data.ogImage || '',
-          favicon: data.favicon || '',
-          siteUrl: data.siteUrl || ''
+          ogImage: resolvedOgImage,
+          favicon: resolvedFavicon,
+          siteUrl: resolvedSiteUrl
         });
         setIsFallbackMode(false);
         // Sync local cache
-        localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
+        localStorage.setItem('sy_local_meta_config', JSON.stringify({
+          ...data,
+          ogImage: resolvedOgImage,
+          favicon: resolvedFavicon,
+          siteUrl: resolvedSiteUrl
+        }));
       } else {
         throw new Error(`Server returned error status ${response.status}`);
       }
@@ -146,13 +175,14 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         const cached = localStorage.getItem('sy_local_meta_config');
         if (cached) {
           const data = JSON.parse(cached);
+          const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app');
           setConfig({
             title: data.title || '',
             description: data.description || '',
             keywords: data.keywords || '',
-            ogImage: data.ogImage || '',
-            favicon: data.favicon || '',
-            siteUrl: data.siteUrl || ''
+            ogImage: toFullUrl(data.ogImage, resolvedSiteUrl),
+            favicon: toFullUrl(data.favicon, resolvedSiteUrl),
+            siteUrl: resolvedSiteUrl
           });
         }
       } catch (e) {
@@ -172,9 +202,31 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     setSaving(true);
     setFeedback(null);
 
+    let cleanSiteUrl = config.siteUrl.trim();
+    if (cleanSiteUrl && !cleanSiteUrl.startsWith('http://') && !cleanSiteUrl.startsWith('https://')) {
+      cleanSiteUrl = `https://${cleanSiteUrl}`;
+    }
+    if (!cleanSiteUrl && typeof window !== 'undefined') {
+      cleanSiteUrl = window.location.origin;
+    }
+
+    const fullOgImage = toFullUrl(config.ogImage, cleanSiteUrl);
+    const fullFavicon = toFullUrl(config.favicon, cleanSiteUrl);
+
+    const normConfig: MetaConfig = {
+      title: config.title.trim(),
+      description: config.description.trim(),
+      keywords: config.keywords.trim(),
+      ogImage: fullOgImage,
+      favicon: fullFavicon,
+      siteUrl: cleanSiteUrl
+    };
+
+    setConfig(normConfig);
+
     const updateClientSideInstant = () => {
-      if (config.title) {
-        document.title = config.title;
+      if (normConfig.title) {
+        document.title = normConfig.title;
       }
       
       const setMetaTag = (selector: string, attrName: string, attrVal: string, contentVal: string) => {
@@ -188,30 +240,31 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         el.setAttribute('content', contentVal);
       };
 
-      setMetaTag('meta[name="description"]', 'name', 'description', config.description);
-      setMetaTag('meta[name="keywords"]', 'name', 'keywords', config.keywords);
+      setMetaTag('meta[name="description"]', 'name', 'description', normConfig.description);
+      setMetaTag('meta[name="keywords"]', 'name', 'keywords', normConfig.keywords);
       
-      setMetaTag('meta[property="og:title"]', 'property', 'og:title', config.title);
-      setMetaTag('meta[property="og:description"]', 'property', 'og:description', config.description);
-      setMetaTag('meta[property="og:image"]', 'property', 'og:image', config.ogImage);
-      setMetaTag('meta[property="og:url"]', 'property', 'og:url', config.siteUrl);
+      setMetaTag('meta[property="og:title"]', 'property', 'og:title', normConfig.title);
+      setMetaTag('meta[property="og:description"]', 'property', 'og:description', normConfig.description);
+      setMetaTag('meta[property="og:image"]', 'property', 'og:image', normConfig.ogImage);
+      setMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', normConfig.ogImage);
+      setMetaTag('meta[property="og:url"]', 'property', 'og:url', normConfig.siteUrl);
 
-      setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', config.title);
-      setMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', config.description);
-      setMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', config.ogImage);
-      setMetaTag('meta[name="twitter:url"]', 'name', 'twitter:url', config.siteUrl);
+      setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', normConfig.title);
+      setMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', normConfig.description);
+      setMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', normConfig.ogImage);
+      setMetaTag('meta[name="twitter:url"]', 'name', 'twitter:url', normConfig.siteUrl);
 
-      if (config.siteUrl) {
+      if (normConfig.siteUrl) {
         let canonical = document.querySelector('link[rel="canonical"]');
         if (!canonical) {
           canonical = document.createElement('link');
           canonical.setAttribute('rel', 'canonical');
           document.head.appendChild(canonical);
         }
-        canonical.setAttribute('href', config.siteUrl);
+        canonical.setAttribute('href', normConfig.siteUrl);
       }
 
-      if (config.favicon) {
+      if (normConfig.favicon) {
         let faviconLinks = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
         if (faviconLinks.length === 0) {
           const newFav = document.createElement('link');
@@ -220,12 +273,12 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
           faviconLinks = document.querySelectorAll('link[rel="icon"]');
         }
         faviconLinks.forEach(link => {
-          link.setAttribute('href', config.favicon);
+          link.setAttribute('href', normConfig.favicon);
         });
       }
 
       try {
-        window.dispatchEvent(new CustomEvent('meta_config_updated', { detail: config }));
+        window.dispatchEvent(new CustomEvent('meta_config_updated', { detail: normConfig }));
       } catch (e) {}
     };
 
@@ -236,12 +289,12 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         .from('meta_configs')
         .upsert({
           id: 'singleton',
-          title: config.title,
-          description: config.description,
-          keywords: config.keywords,
-          og_image: config.ogImage,
-          favicon: config.favicon,
-          site_url: config.siteUrl,
+          title: normConfig.title,
+          description: normConfig.description,
+          keywords: normConfig.keywords,
+          og_image: normConfig.ogImage,
+          favicon: normConfig.favicon,
+          site_url: normConfig.siteUrl,
           updated_at: new Date().toISOString()
         });
       
@@ -257,13 +310,13 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     if (isFallbackMode) {
       // Direct LocalStorage fallback mode saving
       try {
-        localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
+        localStorage.setItem('sy_local_meta_config', JSON.stringify(normConfig));
         updateClientSideInstant();
         setFeedback({ 
           type: 'success', 
           message: dbSyncSuccess 
-            ? 'Website meta details saved to browser cache and synced directly with Supabase database!'
-            : 'Website meta details successfully saved locally! (Fallback Mode Active due to static Netlify hosting)' 
+            ? 'Website meta details and full OG Image URL saved to browser cache and synced directly with Supabase database!'
+            : 'Website meta details successfully saved locally! (Fallback Mode Active due to static hosting)' 
         });
       } catch (err: any) {
         setFeedback({ type: 'error', message: err.message || 'Failed to save settings locally.' });
@@ -281,7 +334,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         },
         body: JSON.stringify({
           requesterEmail: currentUser?.email,
-          ...config
+          ...normConfig
         })
       });
 
@@ -290,11 +343,11 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         setFeedback({ 
           type: 'success', 
           message: dbSyncSuccess
-            ? 'Website meta details successfully saved, with high-fidelity database synchronizations complete!'
+            ? 'Website meta details and full OG Image URL successfully saved and synchronized across all files & database!'
             : (successData.message || 'Website meta details and OG image settings successfully saved!')
         });
         updateClientSideInstant();
-        localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
+        localStorage.setItem('sy_local_meta_config', JSON.stringify(normConfig));
       } else {
         // If API fails but direct DB write succeeded, we can still report success!
         if (dbSyncSuccess) {
@@ -303,7 +356,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
             message: 'Website meta details successfully saved and updated directly in the Supabase database!'
           });
           updateClientSideInstant();
-          localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
+          localStorage.setItem('sy_local_meta_config', JSON.stringify(normConfig));
         } else {
           const errData = await safeJsonParse(response);
           setFeedback({ type: 'error', message: errData.error || 'Failed to save settings' });
@@ -313,7 +366,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       console.warn('Network error while saving settings via API, falling back to LocalStorage & direct DB:', err);
       // Fallback
       try {
-        localStorage.setItem('sy_local_meta_config', JSON.stringify(config));
+        localStorage.setItem('sy_local_meta_config', JSON.stringify(normConfig));
         updateClientSideInstant();
         setIsFallbackMode(true);
         setFeedback({ 
@@ -469,6 +522,12 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                 </div>
                 
                 <p className="text-[10px] text-stone-400 dark:text-stone-500">Direct URL to an image shown when the website is shared on social networks (WhatsApp, Facebook, Discord). Optimal size: 1200 x 630 pixels.</p>
+                {config.ogImage && (
+                  <div className="mt-1 p-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-lg text-[10px] font-mono text-emerald-800 dark:text-emerald-300 break-all flex items-center gap-1.5">
+                    <span className="font-bold shrink-0">Resolved Full Link:</span>
+                    <span>{toFullUrl(config.ogImage, config.siteUrl)}</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">

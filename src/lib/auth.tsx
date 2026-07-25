@@ -125,6 +125,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 currentProfile.id = session.user.id;
               }
             }
+            const nowIso = new Date().toISOString();
+            currentProfile.last_seen = nowIso;
+            db.updateMemberLastSeen(currentProfile.id, currentProfile.email, nowIso);
             setUser(currentProfile);
             safeStorage.setItem('sy_current_user', JSON.stringify(currentProfile));
           } else if (cachedUserStr) {
@@ -652,6 +655,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Logo Out
   const signOut = async () => {
     try {
+      if (user) {
+        const nowIso = new Date().toISOString();
+        db.updateMemberLastSeen(user.id, user.email, nowIso);
+      }
       safeStorage.setSessionItem('sy_signed_out_by_user', 'true');
       safeStorage.removeItem('sy_current_user');
       await supabase.auth.signOut();

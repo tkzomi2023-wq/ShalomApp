@@ -20,14 +20,17 @@ import {
   Trash2, 
   Edit2, 
   Check, 
+  Copy,
   ArrowUpDown,
   FileText,
   X,
   AlertTriangle,
   ShieldCheck,
   IdCard,
-  Sparkles
+  Sparkles,
+  Clock
 } from 'lucide-react';
+import { formatLastSeenInfo } from '../lib/dateUtils';
 import { financialsDb, BialConfig } from '../lib/financials';
 import { useAuth } from '../lib/auth';
 import { MemberIDCardModal } from './MemberIDCardModal';
@@ -84,6 +87,25 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   const { user: currentUser } = useAuth();
   const canChangeRole = currentUser?.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [searchTerm, setSearchTerm] = useState('');
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+
+  const handleCopyEmail = (e: React.MouseEvent, email: string) => {
+    e.stopPropagation();
+    if (!email) return;
+    navigator.clipboard.writeText(email).then(() => {
+      setCopiedEmail(email);
+      setTimeout(() => setCopiedEmail(null), 2000);
+    }).catch(() => {
+      const textArea = document.createElement('textarea');
+      textArea.value = email;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedEmail(email);
+      setTimeout(() => setCopiedEmail(null), 2000);
+    });
+  };
   const [statusFilter, setStatusFilter] = useState<'All' | 'pending' | 'approved' | 'rejected'>(initialStatusFilter || 'All');
 
   useEffect(() => {
@@ -92,7 +114,8 @@ export const MemberTable: React.FC<MemberTableProps> = ({
     }
   }, [initialStatusFilter]);
   const [roleGroupFilter, setRoleGroupFilter] = useState<'All' | 'standard' | 'ECM' | 'OB'>('All');
-  const [sortBy, setSortBy] = useState<'name' | 'created_at'>('name');
+  const [activityFilter, setActivityFilter] = useState<'All' | 'active' | 'inactive'>('All');
+  const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'last_seen'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -367,7 +390,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   useEffect(() => {
     setCurrentPage(1);
     setSelectedMemberIds([]);
-  }, [searchTerm, statusFilter, roleGroupFilter, sortBy, sortOrder]);
+  }, [searchTerm, statusFilter, roleGroupFilter, activityFilter, sortBy, sortOrder]);
 
   // Clear batch selection when page changes
   useEffect(() => {
@@ -398,10 +421,35 @@ export const MemberTable: React.FC<MemberTableProps> = ({
       matchesRoleGroup = OB_ROLES.includes(member.role);
     }
 
-    return matchesSearch && matchesStatus && matchesRoleGroup;
+    // Activity Filter
+    let matchesActivity = true;
+    const isOnline = onlineUserIds.includes(member.id);
+    const lastSeenInfo = formatLastSeenInfo(member.last_seen, isOnline);
+    if (activityFilter === 'active') {
+      matchesActivity = !lastSeenInfo.isInactive;
+    } else if (activityFilter === 'inactive') {
+      matchesActivity = lastSeenInfo.isInactive;
+    }
+
+    return matchesSearch && matchesStatus && matchesRoleGroup && matchesActivity;
   }).sort((a, b) => {
-    let checkA = sortBy === 'name' ? (a.display_name || a.name).toLowerCase() : a.created_at;
-    let checkB = sortBy === 'name' ? (b.display_name || b.name).toLowerCase() : b.created_at;
+    let checkA: string | number = '';
+    let checkB: string | number = '';
+
+    if (sortBy === 'name') {
+      checkA = (a.display_name || a.name).toLowerCase();
+      checkB = (b.display_name || b.name).toLowerCase();
+    } else if (sortBy === 'created_at') {
+      checkA = a.created_at || '';
+      checkB = b.created_at || '';
+    } else if (sortBy === 'last_seen') {
+      const isOnlineA = onlineUserIds.includes(a.id);
+      const isOnlineB = onlineUserIds.includes(b.id);
+      const timeA = isOnlineA ? Date.now() : a.last_seen ? new Date(a.last_seen).getTime() : 0;
+      const timeB = isOnlineB ? Date.now() : b.last_seen ? new Date(b.last_seen).getTime() : 0;
+      checkA = isNaN(timeA) ? 0 : timeA;
+      checkB = isNaN(timeB) ? 0 : timeB;
+    }
 
     if (checkA < checkB) return sortOrder === 'asc' ? -1 : 1;
     if (checkA > checkB) return sortOrder === 'asc' ? 1 : -1;
@@ -411,12 +459,12 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   const totalPages = Math.ceil(filteredMembers.length / itemsPerPage);
   const paginatedMembers = filteredMembers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const toggleSort = (field: 'name' | 'created_at') => {
+  const toggleSort = (field: 'name' | 'created_at' | 'last_seen') => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortBy(field);
-      setSortOrder('asc');
+      setSortOrder(field === 'last_seen' ? 'desc' : 'asc');
     }
   };
 
@@ -525,7 +573,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
         </div>
 
         {/* Categories Tab selectors */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-1 text-xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pt-1 text-xs">
           
           {/* Status filter */}
           <div className="space-y-1.5">
@@ -542,6 +590,28 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                   }`}
                 >
                   {status === 'All' ? 'All Members' : status}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Activity Status filter */}
+          <div className="space-y-1.5">
+            <span className="font-bold text-[10px] text-stone-400 uppercase tracking-wider">Member Activity (Last Seen)</span>
+            <div className="flex flex-wrap gap-1.5">
+              {(['All', 'active', 'inactive'] as const).map(act => (
+                <button
+                  key={act}
+                  onClick={() => setActivityFilter(act)}
+                  className={`px-3 py-1.5 rounded-lg border font-semibold transition-all uppercase tracking-wide text-[10px] cursor-pointer ${
+                    activityFilter === act
+                      ? act === 'inactive'
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                        : 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-750'
+                  }`}
+                >
+                  {act === 'All' ? 'All Activity' : act === 'active' ? 'Active Recently' : 'Inactive (30d+)'}
                 </button>
               ))}
             </div>
@@ -572,20 +642,47 @@ export const MemberTable: React.FC<MemberTableProps> = ({
       </div>
 
       {/* Query count indicator */}
-      <div className="flex items-center justify-between px-1 text-xs text-stone-500">
-        <span>Found <strong>{filteredMembers.length}</strong> youth register records</span>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-1 text-xs text-stone-500">
+        <div className="flex items-center gap-2">
+          <span>Found <strong>{filteredMembers.length}</strong> youth register records</span>
+          {(() => {
+            const inactiveCount = members.filter(m => formatLastSeenInfo(m.last_seen, onlineUserIds.includes(m.id)).isInactive).length;
+            if (inactiveCount > 0) {
+              return (
+                <button
+                  onClick={() => setActivityFilter(activityFilter === 'inactive' ? 'All' : 'inactive')}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold cursor-pointer transition-all ${
+                    activityFilter === 'inactive'
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100'
+                  }`}
+                >
+                  {inactiveCount} Inactive (30d+)
+                </button>
+              );
+            }
+            return null;
+          })()}
+        </div>
         <div className="flex items-center gap-3">
+          <span className="text-[10px] uppercase font-bold text-stone-400">Sort:</span>
           <button
             onClick={() => toggleSort('name')}
-            className="hover:text-stone-800 font-medium inline-flex items-center gap-1 cursor-pointer"
+            className={`hover:text-stone-800 dark:hover:text-white font-medium inline-flex items-center gap-1 cursor-pointer ${sortBy === 'name' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''}`}
           >
             Name <ArrowUpDown className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => toggleSort('created_at')}
-            className="hover:text-stone-800 font-medium inline-flex items-center gap-1 cursor-pointer"
+            onClick={() => toggleSort('last_seen')}
+            className={`hover:text-stone-800 dark:hover:text-white font-medium inline-flex items-center gap-1 cursor-pointer ${sortBy === 'last_seen' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''}`}
           >
-            Date Registered <ArrowUpDown className="w-3.5 h-3.5" />
+            Last Active <ArrowUpDown className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => toggleSort('created_at')}
+            className={`hover:text-stone-800 dark:hover:text-white font-medium inline-flex items-center gap-1 cursor-pointer ${sortBy === 'created_at' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''}`}
+          >
+            Registered <ArrowUpDown className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -701,6 +798,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4">Member Info</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4">Approval Status</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4">Assigned Role</th>
+                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Last Active</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4">Bial Area</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4 hidden md:table-cell">Address Details</th>
                   <th className="py-2.5 sm:py-3 px-2 sm:px-4 text-right">Actions</th>
@@ -771,9 +869,27 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                 title={onlineUserIds.includes(member.id) ? "Online" : "Offline"}
                               />
                             </div>
-                            <span className="text-stone-400 block break-words text-[9px] sm:text-[11px]">
-                              {member.email} {member.phone ? `• ${member.phone}` : ''}
-                            </span>
+                            <div className="flex items-center gap-1 text-stone-400 text-[9px] sm:text-[11px] min-w-0">
+                              <span className="truncate max-w-[130px] sm:max-w-[200px]" title={member.email}>
+                                {member.email}
+                              </span>
+                              {member.email && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCopyEmail(e, member.email)}
+                                  className="p-0.5 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors shrink-0 cursor-pointer"
+                                  title={copiedEmail === member.email ? "Email copied!" : "Copy email address"}
+                                  aria-label="Copy email address"
+                                >
+                                  {copiedEmail === member.email ? (
+                                    <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-3 h-3" />
+                                  )}
+                                </button>
+                              )}
+                              {member.phone && <span className="shrink-0">• {member.phone}</span>}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -843,6 +959,37 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             )}
                           </div>
                         )}
+                      </td>
+
+                      {/* Last Active Timestamp */}
+                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                        {(() => {
+                          const isOnline = onlineUserIds.includes(member.id);
+                          const info = formatLastSeenInfo(member.last_seen, isOnline);
+                          return (
+                            <div className="flex flex-col gap-0.5">
+                              {info.isOnline ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] sm:text-xs">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                  Online Now
+                                </span>
+                              ) : info.isInactive ? (
+                                <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-[10px] sm:text-xs bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 rounded-md border border-rose-200/60 dark:border-rose-900/40 w-fit" title={info.fullDate}>
+                                  <Clock className="w-3 h-3 text-rose-500 shrink-0" />
+                                  {info.relativeTime}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-stone-700 dark:text-stone-300 font-medium text-[10px] sm:text-xs" title={info.fullDate}>
+                                  <Clock className="w-3 h-3 text-stone-400 shrink-0" />
+                                  {info.relativeTime}
+                                </span>
+                              )}
+                              <span className="text-[9px] text-stone-400 dark:text-stone-500 font-mono">
+                                {info.isOnline ? 'Active session' : info.fullDate}
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Bial Area info */}
@@ -1010,7 +1157,24 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                         title={onlineUserIds.includes(member.id) ? "Online" : "Offline"}
                       />
                     </div>
-                    <span className="text-[10px] font-bold text-stone-400 block truncate">{member.email}</span>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="text-[10px] font-bold text-stone-400 truncate" title={member.email}>{member.email}</span>
+                      {member.email && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleCopyEmail(e, member.email)}
+                          className="p-0.5 rounded hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors shrink-0 cursor-pointer"
+                          title={copiedEmail === member.email ? "Email copied!" : "Copy email address"}
+                          aria-label="Copy email address"
+                        >
+                          {copiedEmail === member.email ? (
+                            <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <Copy className="w-2.5 h-2.5" />
+                          )}
+                        </button>
+                      )}
+                    </div>
                     <span className="text-[10px] text-stone-400 block">{member.phone || 'No Phone'}</span>
                   </div>
                 </div>
@@ -1043,6 +1207,19 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                     }`}>
                       {member.status}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-1 border-t border-stone-100 dark:border-stone-800">
+                    <span className="text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase">Last Active:</span>
+                    {(() => {
+                      const isOnline = onlineUserIds.includes(member.id);
+                      const info = formatLastSeenInfo(member.last_seen, isOnline);
+                      return (
+                        <span className={`text-[10px] font-bold flex items-center gap-1 ${info.isOnline ? 'text-emerald-600 dark:text-emerald-400' : info.isInactive ? 'text-rose-600 dark:text-rose-400' : 'text-stone-600 dark:text-stone-300'}`} title={info.fullDate}>
+                          <Clock className="w-3 h-3 shrink-0" />
+                          {info.isOnline ? 'Online Now' : info.relativeTime === 'Never' ? 'Never logged in' : info.relativeTime}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
 

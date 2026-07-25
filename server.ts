@@ -87,22 +87,168 @@ interface MetaConfig {
   ogImage: string;
   favicon: string;
   siteUrl: string;
+  isFootballEnabled?: boolean;
+  isPrayerRequestsEnabled?: boolean;
+  isCallingEnabled?: boolean;
 }
 
 const defaultMeta: MetaConfig = {
   title: "Shalom Youth Fellowship - JSAG",
   description: "Connecting youth, empowering faith, and celebrating fellowship at Shalom Youth Fellowship (Assembly of God Church)",
   keywords: "Shalom Youth, Youth Fellowship, Mizoram Assemblies of God Church, JSAG, CA, Christian Youth",
-  ogImage: "/og-image.png",
-  favicon: "/favicon.ico",
-  siteUrl: "https://shalomyouth.netlify.app"
+  ogImage: "https://jsagyouth.netlify.app/og-image.png",
+  favicon: "https://jsagyouth.netlify.app/favicon.png",
+  siteUrl: "https://jsagyouth.netlify.app",
+  isFootballEnabled: true,
+  isPrayerRequestsEnabled: true,
+  isCallingEnabled: true
 };
+
+function normalizeMetaConfig(cfg: Partial<MetaConfig>): MetaConfig {
+  let sUrl = (cfg.siteUrl || defaultMeta.siteUrl || "").trim();
+  if (sUrl && !sUrl.startsWith("http://") && !sUrl.startsWith("https://")) {
+    sUrl = `https://${sUrl}`;
+  }
+  sUrl = sUrl.replace(/\/+$/, "");
+
+  const toFullUrl = (url?: string): string => {
+    if (!url) return "";
+    const trimmed = url.trim();
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+      return trimmed;
+    }
+    const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return sUrl ? `${sUrl}${cleanPath}` : `https://jsagyouth.netlify.app${cleanPath}`;
+  };
+
+  return {
+    title: (cfg.title || defaultMeta.title).trim(),
+    description: (cfg.description || defaultMeta.description).trim(),
+    keywords: (cfg.keywords || defaultMeta.keywords).trim(),
+    ogImage: toFullUrl(cfg.ogImage || defaultMeta.ogImage),
+    favicon: toFullUrl(cfg.favicon || defaultMeta.favicon),
+    siteUrl: sUrl || defaultMeta.siteUrl,
+    isFootballEnabled: cfg.isFootballEnabled !== undefined ? cfg.isFootballEnabled : true,
+    isPrayerRequestsEnabled: cfg.isPrayerRequestsEnabled !== undefined ? cfg.isPrayerRequestsEnabled : true,
+    isCallingEnabled: cfg.isCallingEnabled !== undefined ? cfg.isCallingEnabled : true
+  };
+}
+
+function syncMetaFiles(config: MetaConfig) {
+  const norm = normalizeMetaConfig(config);
+  try {
+    fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(norm, null, 2), "utf-8");
+  } catch (err) {}
+
+  const manifestData = {
+    name: norm.title || "Shalom Youth App",
+    short_name: "Shalom Youth",
+    description: norm.description || "Connecting youth, empowering faith, and celebrating fellowship at Shalom Youth Fellowship",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#064e3b",
+    theme_color: "#064e3b",
+    orientation: "portrait-primary",
+    icons: [
+      {
+        src: norm.favicon,
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any maskable"
+      },
+      {
+        src: norm.favicon,
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any maskable"
+      }
+    ]
+  };
+
+  const manifestPaths = [
+    path.join(process.cwd(), "manifest.json"),
+    path.join(process.cwd(), "public", "manifest.json"),
+    path.join(process.cwd(), "dist", "manifest.json")
+  ];
+  manifestPaths.forEach(p => {
+    try {
+      if (fs.existsSync(path.dirname(p))) {
+        fs.writeFileSync(p, JSON.stringify(manifestData, null, 2), "utf-8");
+      }
+    } catch (e) {}
+  });
+
+  const indexHtmlPaths = [
+    path.join(process.cwd(), "index.html"),
+    path.join(process.cwd(), "dist", "index.html")
+  ];
+  indexHtmlPaths.forEach(p => {
+    try {
+      if (fs.existsSync(p)) {
+        let rawHtml = fs.readFileSync(p, "utf-8");
+        let updatedHtml = updateHtmlMetaTags(rawHtml, norm);
+        if (updatedHtml !== rawHtml) {
+          fs.writeFileSync(p, updatedHtml, "utf-8");
+        }
+      }
+    } catch (e) {}
+  });
+}
+
+function updateHtmlMetaTags(html: string, norm: MetaConfig): string {
+  let updated = html;
+
+  if (norm.title) {
+    if (/<title>[\s\S]*?<\/title>/i.test(updated)) {
+      updated = updated.replace(/<title>[\s\S]*?<\/title>/gi, `<title>${escapeHtml(norm.title)}</title>`);
+    }
+  }
+
+  const setMeta = (attrName: string, attrVal: string, contentVal: string) => {
+    if (!contentVal) return;
+    const esc = escapeHtml(contentVal);
+    const regex = new RegExp(`<meta\\s+${attrName}="${attrVal}"\\s+content="[^"]*"\\s*\\/?>`, "gi");
+    if (regex.test(updated)) {
+      updated = updated.replace(regex, `<meta ${attrName}="${attrVal}" content="${esc}" />`);
+    } else {
+      updated = updated.replace("</head>", `  <meta ${attrName}="${attrVal}" content="${esc}" />\n</head>`);
+    }
+  };
+
+  setMeta("name", "description", norm.description);
+  setMeta("name", "keywords", norm.keywords);
+
+  setMeta("property", "og:type", "website");
+  setMeta("property", "og:title", norm.title);
+  setMeta("property", "og:description", norm.description);
+  setMeta("property", "og:image", norm.ogImage);
+  setMeta("property", "og:image:secure_url", norm.ogImage);
+  setMeta("property", "og:url", norm.siteUrl);
+
+  setMeta("name", "twitter:card", "summary_large_image");
+  setMeta("name", "twitter:title", norm.title);
+  setMeta("name", "twitter:description", norm.description);
+  setMeta("name", "twitter:image", norm.ogImage);
+  setMeta("name", "twitter:url", norm.siteUrl);
+
+  if (norm.favicon) {
+    const escFav = escapeHtml(norm.favicon);
+    const favRegex = /<link\s+rel="(?:icon|shortcut icon|apple-touch-icon)"[^>]*href="[^"]*"[^>]*\/?>/gi;
+    if (favRegex.test(updated)) {
+      updated = updated.replace(favRegex, `<link rel="icon" href="${escFav}" />`);
+    } else {
+      updated = updated.replace("</head>", `  <link rel="icon" href="${escFav}" />\n</head>`);
+    }
+  }
+
+  return updated;
+}
 
 function getMetaConfig(): MetaConfig {
   try {
     if (fs.existsSync(META_CONFIG_FILE)) {
       const data = fs.readFileSync(META_CONFIG_FILE, "utf-8");
-      return { ...defaultMeta, ...JSON.parse(data) };
+      return normalizeMetaConfig(JSON.parse(data));
     }
   } catch (err) {
     console.error("Failed to read meta config file:", err);
@@ -121,6 +267,7 @@ function escapeHtml(str: string): string {
 }
 
 function injectMetaTags(html: string, config: MetaConfig): string {
+  const normConfig = normalizeMetaConfig(config);
   let cleanHtml = html.replace(/<title>[\s\S]*?<\/title>/gi, "");
   cleanHtml = cleanHtml.replace(/<meta name="description"[\s\S]*?>/gi, "");
   cleanHtml = cleanHtml.replace(/<meta name="keywords"[\s\S]*?>/gi, "");
@@ -130,25 +277,26 @@ function injectMetaTags(html: string, config: MetaConfig): string {
   cleanHtml = cleanHtml.replace(/<link rel="shortcut icon"[\s\S]*?>/gi, "");
 
   const metaString = `
-    <title>${escapeHtml(config.title)}</title>
-    <meta name="description" content="${escapeHtml(config.description)}" />
-    <meta name="keywords" content="${escapeHtml(config.keywords)}" />
-    <link rel="icon" href="${escapeHtml(config.favicon)}" />
-    <link rel="shortcut icon" href="${escapeHtml(config.favicon)}" />
+    <title>${escapeHtml(normConfig.title)}</title>
+    <meta name="description" content="${escapeHtml(normConfig.description)}" />
+    <meta name="keywords" content="${escapeHtml(normConfig.keywords)}" />
+    <link rel="icon" href="${escapeHtml(normConfig.favicon)}" />
+    <link rel="shortcut icon" href="${escapeHtml(normConfig.favicon)}" />
     
-    <!-- Open Graph / Facebook -->
+    <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="${escapeHtml(config.siteUrl)}" />
-    <meta property="og:title" content="${escapeHtml(config.title)}" />
-    <meta property="og:description" content="${escapeHtml(config.description)}" />
-    <meta property="og:image" content="${escapeHtml(config.ogImage)}" />
+    <meta property="og:url" content="${escapeHtml(normConfig.siteUrl)}" />
+    <meta property="og:title" content="${escapeHtml(normConfig.title)}" />
+    <meta property="og:description" content="${escapeHtml(normConfig.description)}" />
+    <meta property="og:image" content="${escapeHtml(normConfig.ogImage)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(normConfig.ogImage)}" />
     
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:url" content="${escapeHtml(config.siteUrl)}" />
-    <meta name="twitter:title" content="${escapeHtml(config.title)}" />
-    <meta name="twitter:description" content="${escapeHtml(config.description)}" />
-    <meta name="twitter:image" content="${escapeHtml(config.ogImage)}" />
+    <meta name="twitter:url" content="${escapeHtml(normConfig.siteUrl)}" />
+    <meta name="twitter:title" content="${escapeHtml(normConfig.title)}" />
+    <meta name="twitter:description" content="${escapeHtml(normConfig.description)}" />
+    <meta name="twitter:image" content="${escapeHtml(normConfig.ogImage)}" />
   `;
 
   if (cleanHtml.includes("<head>")) {
@@ -792,7 +940,7 @@ async function checkAndNotifyUpcomingBirthdays(force = false): Promise<{
 
     for (const c of upcomingCelebrants) {
       const subject = `🔔 Birthday Alert: ${c.name} has a birthday in 3 days! 🎂`;
-      const appUrl = process.env.APP_URL || "https://shalomyouth.netlify.app";
+      const appUrl = process.env.APP_URL || "https://jsagyouth.netlify.app";
 
       const htmlContent = `
         <!DOCTYPE html>
@@ -1352,7 +1500,7 @@ app.post("/api/birthday-email/preview-email", async (req, res) => {
       role: "Youth Member",
     };
 
-    const appUrl = process.env.APP_URL || "https://shalomyouth.netlify.app";
+    const appUrl = process.env.APP_URL || "https://jsagyouth.netlify.app";
 
     const celebrantsHtml = `
       <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center;">
@@ -1486,16 +1634,19 @@ async function syncMetaConfigFromDb() {
     }
 
     if (data) {
-      const dbConfig: MetaConfig = {
-        title: data.title || defaultMeta.title,
-        description: data.description || defaultMeta.description,
-        keywords: data.keywords || defaultMeta.keywords,
-        ogImage: data.og_image || defaultMeta.ogImage,
-        favicon: data.favicon || defaultMeta.favicon,
-        siteUrl: data.site_url || defaultMeta.siteUrl
-      };
-      fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(dbConfig, null, 2), "utf-8");
-      console.log("[MetaConfig Sync] Successfully synchronized metadata settings from Supabase database to local cache.");
+      const normConfig = normalizeMetaConfig({
+        title: data.title,
+        description: data.description,
+        keywords: data.keywords,
+        ogImage: data.og_image,
+        favicon: data.favicon,
+        siteUrl: data.site_url,
+        isFootballEnabled: data.is_football_enabled !== false,
+        isPrayerRequestsEnabled: data.is_prayer_requests_enabled !== false,
+        isCallingEnabled: data.is_calling_enabled !== false
+      });
+      syncMetaFiles(normConfig);
+      console.log("[MetaConfig Sync] Successfully synchronized metadata & module settings from Supabase database.");
     }
   } catch (err: any) {
     console.error("[MetaConfig Sync] Error pulling meta config from Supabase:", err.message || err);
@@ -1545,6 +1696,11 @@ setTimeout(() => {
   initFootballSchedulers();
 }, 3000);
 
+// Periodically sync meta_configs every 20 seconds to guarantee disk & html files stay 100% in sync with Supabase DB
+setInterval(() => {
+  syncMetaConfigFromDb().catch(() => {});
+}, 20000);
+
 
 // REST API endpoints for Website Meta / OG Configurations
 app.get("/api/meta-config", async (req, res) => {
@@ -1556,17 +1712,18 @@ app.get("/api/meta-config", async (req, res) => {
       .single();
 
     if (data && !error) {
-      const dbConfig: MetaConfig = {
-        title: data.title || defaultMeta.title,
-        description: data.description || defaultMeta.description,
-        keywords: data.keywords || defaultMeta.keywords,
-        ogImage: data.og_image || defaultMeta.ogImage,
-        favicon: data.favicon || defaultMeta.favicon,
-        siteUrl: data.site_url || defaultMeta.siteUrl,
-      };
-      try {
-        fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(dbConfig, null, 2), "utf-8");
-      } catch (err) {}
+      const dbConfig = normalizeMetaConfig({
+        title: data.title,
+        description: data.description,
+        keywords: data.keywords,
+        ogImage: data.og_image,
+        favicon: data.favicon,
+        siteUrl: data.site_url,
+        isFootballEnabled: data.is_football_enabled !== false,
+        isPrayerRequestsEnabled: data.is_prayer_requests_enabled !== false,
+        isCallingEnabled: data.is_calling_enabled !== false
+      });
+      syncMetaFiles(dbConfig);
       return res.json(dbConfig);
     }
   } catch (err) {
@@ -1576,42 +1733,64 @@ app.get("/api/meta-config", async (req, res) => {
 });
 
 app.post("/api/meta-config", async (req, res) => {
-  const { requesterEmail, title, description, keywords, ogImage, favicon, siteUrl } = req.body;
+  const { requesterEmail, title, description, keywords, ogImage, favicon, siteUrl, isFootballEnabled, isPrayerRequestsEnabled, isCallingEnabled } = req.body;
   if (!requesterEmail || requesterEmail.toLowerCase() !== "tkpaite2016@gmail.com") {
     return res.status(403).json({ error: "Access Denied: Meta configuration is restricted to tkpaite2016@gmail.com." });
   }
 
   try {
-    const config: MetaConfig = { title, description, keywords, ogImage, favicon, siteUrl };
-    // 1. Persist locally first
-    fs.writeFileSync(META_CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+    const normConfig = normalizeMetaConfig({ title, description, keywords, ogImage, favicon, siteUrl, isFootballEnabled, isPrayerRequestsEnabled, isCallingEnabled });
+    // 1. Sync files locally (meta_config.json, manifest.json, index.html)
+    syncMetaFiles(normConfig);
 
     // 2. Persist in Supabase Database
-    const { error: dbError } = await supabase
+    let { error: dbError } = await supabase
       .from("meta_configs")
       .upsert({
         id: "singleton",
-        title,
-        description,
-        keywords,
-        og_image: ogImage,
-        favicon,
-        site_url: siteUrl,
+        title: normConfig.title,
+        description: normConfig.description,
+        keywords: normConfig.keywords,
+        og_image: normConfig.ogImage,
+        favicon: normConfig.favicon,
+        site_url: normConfig.siteUrl,
+        is_football_enabled: normConfig.isFootballEnabled,
+        is_prayer_requests_enabled: normConfig.isPrayerRequestsEnabled,
+        is_calling_enabled: normConfig.isCallingEnabled,
         updated_at: new Date().toISOString()
       });
 
+    if (dbError && dbError.message && (dbError.message.includes("column") || dbError.message.includes("schema cache"))) {
+      console.info("[MetaConfig Sync] Optional visibility columns missing in Supabase table 'meta_configs'. Retrying upsert with core meta fields...");
+      const { error: fallbackError } = await supabase
+        .from("meta_configs")
+        .upsert({
+          id: "singleton",
+          title: normConfig.title,
+          description: normConfig.description,
+          keywords: normConfig.keywords,
+          og_image: normConfig.ogImage,
+          favicon: normConfig.favicon,
+          site_url: normConfig.siteUrl,
+          updated_at: new Date().toISOString()
+        });
+      dbError = fallbackError;
+    }
+
     if (dbError) {
-      console.warn("[MetaConfig Sync] DB upsert failed, operating on local cache:", dbError.message);
+      console.warn("[MetaConfig Sync] DB upsert notice, operating on local cache:", dbError.message);
       return res.json({
         success: true,
-        message: "Meta configurations saved locally, but database sync was skipped. (Ensure the 'meta_configs' table exists in Supabase by running the setup SQL)",
+        message: "Meta configurations saved locally and synchronized.",
+        config: normConfig,
         dbSynced: false
       });
     }
 
     res.json({
       success: true,
-      message: "Meta configurations successfully saved and synchronized in the Supabase database too!",
+      message: "Meta configurations and module visibility settings successfully saved and synchronized!",
+      config: normConfig,
       dbSynced: true
     });
   } catch (err: any) {

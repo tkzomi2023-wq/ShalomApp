@@ -9,7 +9,8 @@ import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultA
 import { useAuth } from '../lib/auth';
 import { useCalling } from '../context/CallingContext';
 import { supabase, db } from '../lib/supabase';
-import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2, PhoneCall, Video, SlidersHorizontal, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Trash2, Volume2 } from 'lucide-react';
+import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Copy, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2, PhoneCall, Video, SlidersHorizontal, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Trash2, Volume2, AlertCircle } from 'lucide-react';
+import { formatLastSeenInfo } from '../lib/dateUtils';
 import { RoleBadge } from './RoleBadge';
 import { CallButtons } from './calling/CallButtons';
 import { CommunicationSettingsModal } from './calling/CommunicationSettingsModal';
@@ -38,7 +39,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   initialEditMode = false
 }) => {
   const { user: currentUser } = useAuth();
-  const { startCall, callState } = useCalling();
+  const { startCall, presenceMap, callState } = useCalling();
+
+  const memberPresence = presenceMap?.get(member.id);
+  const isMemberOnline = memberPresence?.status === 'online' || memberPresence?.status === 'in_call' || currentUser?.id === member.id;
+  const lastSeenTs = memberPresence?.lastSeen || member.last_seen;
+  const lastSeenInfo = formatLastSeenInfo(lastSeenTs, isMemberOnline);
   const getOriginalAvatar = (url: string | undefined): string => {
     if (!url) return '';
     if (url.includes('|||')) {
@@ -56,6 +62,25 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   
   const [isSaving, setIsSaving] = useState(false);
   const [showIdCard, setShowIdCard] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+
+  const handleCopyEmail = (e: React.MouseEvent, email: string) => {
+    e.stopPropagation();
+    if (!email) return;
+    navigator.clipboard.writeText(email).then(() => {
+      setCopiedEmail(email);
+      setTimeout(() => setCopiedEmail(null), 2000);
+    }).catch(() => {
+      const textArea = document.createElement('textarea');
+      textArea.value = email;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedEmail(email);
+      setTimeout(() => setCopiedEmail(null), 2000);
+    });
+  };
 
   // Client-side AI Background removal states
   const [removeBgToggle, setRemoveBgToggle] = useState<boolean>(false);
@@ -1548,6 +1573,22 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               }`}>
                 Status: {member.status}
               </span>
+              {lastSeenInfo.isOnline ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1.5 shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Online Now</span>
+                </span>
+              ) : lastSeenInfo.isInactive ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 flex items-center gap-1" title={lastSeenInfo.fullDate}>
+                  <Clock className="w-3 h-3 text-rose-500 shrink-0" />
+                  <span>Active {lastSeenInfo.relativeTime}</span>
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-850 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-800 flex items-center gap-1" title={lastSeenInfo.fullDate}>
+                  <Clock className="w-3 h-3 text-stone-400 shrink-0" />
+                  <span>Active {lastSeenInfo.relativeTime}</span>
+                </span>
+              )}
             </div>
 
             {/* Quick Voice & Video Call Action */}
@@ -1695,9 +1736,26 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   
                   <div className="flex items-center gap-2.5">
                     <Mail className="w-4 h-4 text-stone-400 shrink-0" />
-                    <div className="truncate">
+                    <div className="truncate flex-1 min-w-0">
                       <p className="text-[10px] text-stone-400 uppercase tracking-wide">Email</p>
-                      <p className="font-semibold text-stone-900 dark:text-white truncate">{member.email}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-semibold text-stone-900 dark:text-white truncate">{member.email}</p>
+                        {member.email && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyEmail(e, member.email)}
+                            className="p-1 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors shrink-0 cursor-pointer"
+                            title={copiedEmail === member.email ? "Email copied!" : "Copy email address"}
+                            aria-label="Copy email address"
+                          >
+                            {copiedEmail === member.email ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1716,6 +1774,50 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                         <p className="font-semibold text-stone-900 dark:text-white">{phone || 'Not Provided'}</p>
                       )}
                     </div>
+                  </div>
+
+                  {/* Activity & Last Seen Details */}
+                  <div className="p-3 bg-stone-50/80 dark:bg-stone-900/60 rounded-xl border border-stone-200/80 dark:border-stone-800/80 space-y-2 mt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        Account Activity & Last Seen
+                      </span>
+                      {lastSeenInfo.isInactive ? (
+                        <span className="text-[9px] font-extrabold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-200/50">
+                          Inactive Member
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200/50">
+                          Active Member
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-start gap-2 pt-1">
+                      <div className="flex-1">
+                        <p className="font-bold text-xs text-stone-900 dark:text-white flex items-center gap-1.5">
+                          {lastSeenInfo.isOnline ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              Online Now
+                            </span>
+                          ) : (
+                            <span>{lastSeenInfo.relativeTime === 'Never' ? 'Never logged in' : `Last active ${lastSeenInfo.relativeTime}`}</span>
+                          )}
+                        </p>
+                        <p className="text-[10px] text-stone-500 dark:text-stone-400 font-mono mt-0.5">
+                          {lastSeenInfo.fullDate}
+                        </p>
+                      </div>
+                    </div>
+                    {isUserAdmin && lastSeenInfo.isInactive && (
+                      <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-lg flex items-start gap-1.5 text-amber-800 dark:text-amber-300 text-[10px]">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <span>
+                          <strong>Admin Notice:</strong> This youth member has been inactive for over 30 days. Consider reaching out via email or phone.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

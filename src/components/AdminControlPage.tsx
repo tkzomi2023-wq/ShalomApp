@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Member, DEFAULT_ADMIN_EMAIL, isOBUser } from '../types';
+import { supabase } from '../lib/supabase';
+import { apiFetch } from '../lib/api';
 import { 
   Plus, 
   Database, 
@@ -63,6 +65,50 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
   const isSuperAdmin = currentUser?.email?.toLowerCase() === 'tkpaite2016@gmail.com' || currentUser?.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'birthday' | 'meta'>('overview');
   const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
+
+  const handleModuleToggle = async (moduleKey: 'football' | 'prayer' | 'calling', newValue: boolean) => {
+    if (moduleKey === 'football') setIsFootballEnabled(newValue);
+    if (moduleKey === 'prayer') setIsPrayerRequestsEnabled(newValue);
+    if (moduleKey === 'calling') setIsCallingEnabled(newValue);
+
+    const lsKey = moduleKey === 'football' ? 'sy_enable_football_predictions' : moduleKey === 'prayer' ? 'sy_enable_prayer_requests' : 'sy_enable_calling_services';
+    localStorage.setItem(lsKey, newValue ? 'true' : 'false');
+
+    const dbField = moduleKey === 'football' ? 'is_football_enabled' : moduleKey === 'prayer' ? 'is_prayer_requests_enabled' : 'is_calling_enabled';
+    const payload: any = { [dbField]: newValue, updated_at: new Date().toISOString() };
+
+    window.dispatchEvent(new CustomEvent('module_visibility_updated', { detail: payload }));
+
+    // 1. Save to local server first (persists to meta_config.json and syncs local state)
+    try {
+      await apiFetch('/api/meta-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requesterEmail: currentUser?.email,
+          isFootballEnabled: moduleKey === 'football' ? newValue : isFootballEnabled,
+          isPrayerRequestsEnabled: moduleKey === 'prayer' ? newValue : isPrayerRequestsEnabled,
+          isCallingEnabled: moduleKey === 'calling' ? newValue : isCallingEnabled,
+        })
+      });
+    } catch (e) {}
+
+    // 2. Persist in Supabase meta_configs table if available
+    try {
+      const { error } = await supabase
+        .from('meta_configs')
+        .upsert({ id: 'singleton', ...payload }, { onConflict: 'id' });
+      if (error) {
+        if (error.message?.includes('column') || error.message?.includes('schema cache')) {
+          console.info('[AdminControl] Notice: Supabase table meta_configs missing column, state persisted locally via meta-config API.');
+        } else {
+          console.warn('Failed to persist module toggle setting to Supabase:', error.message);
+        }
+      }
+    } catch (err: any) {
+      console.info('[AdminControl] Supabase persist notice:', err.message || err);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -260,11 +306,7 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
                         <input
                           type="checkbox"
                           checked={isFootballEnabled}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setIsFootballEnabled(newValue);
-                            localStorage.setItem('sy_enable_football_predictions', newValue ? 'true' : 'false');
-                          }}
+                          onChange={(e) => handleModuleToggle('football', e.target.checked)}
                           className="sr-only peer"
                         />
                         <div className="w-9 h-5 bg-stone-300 dark:bg-stone-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -286,11 +328,7 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
                         <input
                           type="checkbox"
                           checked={isPrayerRequestsEnabled}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setIsPrayerRequestsEnabled(newValue);
-                            localStorage.setItem('sy_enable_prayer_requests', newValue ? 'true' : 'false');
-                          }}
+                          onChange={(e) => handleModuleToggle('prayer', e.target.checked)}
                           className="sr-only peer"
                         />
                         <div className="w-9 h-5 bg-stone-300 dark:bg-stone-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -312,11 +350,7 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
                         <input
                           type="checkbox"
                           checked={isCallingEnabled}
-                          onChange={(e) => {
-                            const newValue = e.target.checked;
-                            setIsCallingEnabled(newValue);
-                            localStorage.setItem('sy_enable_calling_services', newValue ? 'true' : 'false');
-                          }}
+                          onChange={(e) => handleModuleToggle('calling', e.target.checked)}
                           className="sr-only peer"
                         />
                         <div className="w-9 h-5 bg-stone-300 dark:bg-stone-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>

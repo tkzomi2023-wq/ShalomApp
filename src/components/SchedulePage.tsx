@@ -185,66 +185,66 @@ function NextServiceCountdown({ schedule }: { schedule: ServiceSchedule }) {
   }, [schedule.date, schedule.time]);
 
   return (
-    <div className="bg-stone-850/90 border border-emerald-500/35 p-5 rounded-2xl shadow-xl space-y-3.5 backdrop-blur-xs">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-700/60 pb-3">
+    <div className="bg-white/80 dark:bg-stone-850/90 border border-stone-200/80 dark:border-emerald-500/35 p-5 rounded-2xl shadow-xs dark:shadow-xl space-y-3.5 backdrop-blur-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 dark:border-stone-700/60 pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-xs">
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-500/30 flex items-center justify-center shrink-0 shadow-xs">
             <Clock className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
                 COUNTDOWN TO NEXT FELLOWSHIP
               </span>
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-600 dark:bg-emerald-400 animate-ping" />
             </div>
-            <h3 className="text-sm font-black text-white tracking-tight">{schedule.title}</h3>
+            <h3 className="text-sm font-black text-stone-900 dark:text-white tracking-tight">{schedule.title}</h3>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-stone-300 bg-stone-900/60 px-3 py-1.5 rounded-xl border border-stone-700/50">
-          <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-emerald-400" /> {schedule.date} • {schedule.time}</span>
-          <span>•</span>
-          <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-emerald-400" /> {schedule.venue || 'Shalom Sanctuary'}</span>
+        <div className="flex items-center gap-3 text-xs text-stone-700 dark:text-stone-300 bg-stone-100/80 dark:bg-stone-900/60 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700/50">
+          <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> {schedule.date} • {schedule.time}</span>
+          <span className="text-stone-300 dark:text-stone-600">•</span>
+          <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> {schedule.venue || 'Shalom Sanctuary'}</span>
         </div>
       </div>
 
       {timeLeft.isPast ? (
-        <div className="text-center py-2.5 bg-emerald-950/50 border border-emerald-500/40 rounded-xl text-xs font-bold text-emerald-300 animate-pulse">
+        <div className="text-center py-2.5 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-500/40 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 animate-pulse">
           🎉 Youth Fellowship Service is in session now! Welcome all!
         </div>
       ) : (
         <div className="grid grid-cols-4 gap-2 sm:gap-3 text-center">
-          <div className="bg-stone-900/95 border border-stone-700/80 rounded-xl p-2.5 shadow-inner">
-            <span className="text-xl sm:text-2xl font-black text-white font-mono block tracking-tight">
+          <div className="bg-stone-100/90 dark:bg-stone-900/95 border border-stone-200/90 dark:border-stone-700/80 rounded-xl p-2.5 shadow-xs dark:shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white font-mono block tracking-tight">
               {String(timeLeft.days).padStart(2, '0')}
             </span>
-            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Days</span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-500 dark:text-stone-400 block mt-0.5">Days</span>
           </div>
-          <div className="bg-stone-900/95 border border-stone-700/80 rounded-xl p-2.5 shadow-inner">
-            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono block tracking-tight">
+          <div className="bg-stone-100/90 dark:bg-stone-900/95 border border-stone-200/90 dark:border-stone-700/80 rounded-xl p-2.5 shadow-xs dark:shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono block tracking-tight">
               {String(timeLeft.hours).padStart(2, '0')}
             </span>
-            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Hours</span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-500 dark:text-stone-400 block mt-0.5">Hours</span>
           </div>
-          <div className="bg-stone-900/95 border border-stone-700/80 rounded-xl p-2.5 shadow-inner">
-            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono block tracking-tight">
+          <div className="bg-stone-100/90 dark:bg-stone-900/95 border border-stone-200/90 dark:border-stone-700/80 rounded-xl p-2.5 shadow-xs dark:shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono block tracking-tight">
               {String(timeLeft.minutes).padStart(2, '0')}
             </span>
-            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Mins</span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-500 dark:text-stone-400 block mt-0.5">Mins</span>
           </div>
-          <div className="bg-stone-900/95 border border-emerald-500/40 rounded-xl p-2.5 shadow-inner">
-            <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono block tracking-tight animate-pulse">
+          <div className="bg-stone-100/90 dark:bg-stone-900/95 border border-emerald-300 dark:border-emerald-500/40 rounded-xl p-2.5 shadow-xs dark:shadow-inner">
+            <span className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 font-mono block tracking-tight animate-pulse">
               {String(timeLeft.seconds).padStart(2, '0')}
             </span>
-            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mt-0.5">Secs</span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-stone-500 dark:text-stone-400 block mt-0.5">Secs</span>
           </div>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between text-[11px] text-stone-400 pt-1.5 border-t border-stone-750">
-        <span><strong className="text-white">Sermon / Speaker:</strong> {schedule.speaker}</span>
-        <span><strong className="text-white">Service Chairman:</strong> {schedule.leader}</span>
+      <div className="flex flex-wrap items-center justify-between text-[11px] text-stone-600 dark:text-stone-400 pt-1.5 border-t border-stone-200 dark:border-stone-750">
+        <span><strong className="text-stone-900 dark:text-white">Sermon / Speaker:</strong> {schedule.speaker}</span>
+        <span><strong className="text-stone-900 dark:text-white">Service Chairman:</strong> {schedule.leader}</span>
       </div>
     </div>
   );
@@ -1058,19 +1058,19 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
       )}
 
       {/* Header Banner */}
-      <header className="bg-stone-900 text-stone-100 rounded-3xl p-6 md:p-8 relative overflow-hidden shadow-md">
-        <div className="absolute right-0 top-0 w-80 h-80 bg-emerald-600/15 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
-        <div className="absolute left-1/3 bottom-0 w-60 h-60 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+      <header className="bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 rounded-3xl p-6 md:p-8 relative overflow-hidden shadow-xs border border-stone-200 dark:border-stone-800">
+        <div className="absolute right-0 top-0 w-80 h-80 bg-emerald-500/10 dark:bg-emerald-600/15 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+        <div className="absolute left-1/3 bottom-0 w-60 h-60 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
 
         <div className="relative space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1.5">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 font-extrabold text-[10px] tracking-wide uppercase">
-                <Sparkles className="w-3 h-3" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-400 font-extrabold text-[10px] tracking-wide uppercase border border-emerald-200/80 dark:border-emerald-500/30">
+                <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                 Fellowship Planning
               </span>
-              <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">Youth Service Schedules</h2>
-              <p className="text-xs text-stone-400 max-w-xl">
+              <h2 className="text-2xl md:text-3xl font-black tracking-tight text-stone-900 dark:text-white">Youth Service Schedules</h2>
+              <p className="text-xs text-stone-600 dark:text-stone-400 max-w-xl">
                 Organize and sync scripture study, worship coordinates, and fellowship schedules. 
                 Schedules are manageable exclusively by designated Secretaries and Assitant Secretaries.
               </p>
@@ -1217,7 +1217,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                       <span className={`px-2.5 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-widest shadow-sm border relative z-20 ${
                         flagUpcoming 
                           ? 'bg-emerald-600 text-white border-emerald-500' 
-                          : 'bg-stone-800 text-stone-300 border-stone-700'
+                          : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700'
                       }`}>
                         {flagUpcoming ? 'Upcoming' : 'Concluded'}
                       </span>
@@ -1770,21 +1770,21 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
       {/* modal create/update form layout */}
       {isFormOpen && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-stone-150 flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-stone-900/60 dark:bg-black/75 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl max-w-xl w-full shadow-2xl border border-stone-150 dark:border-stone-800 flex flex-col max-h-[90vh]">
             {/* Modal header */}
-            <div className="p-6 border-b border-stone-150 flex items-center justify-between">
+            <div className="p-6 border-b border-stone-150 dark:border-stone-800 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-black text-stone-900">
+                <h3 className="text-base font-black text-stone-900 dark:text-stone-100">
                   {editingSchedule ? 'Modify Service Schedule' : 'Create Youth Service Schedule'}
                 </h3>
-                <p className="text-[11px] text-stone-500 mt-0.5">
+                <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
                   Update leadership, timing, and topic details for youth fellowship.
                 </p>
               </div>
               <button 
                 onClick={handleCloseForm}
-                className="text-stone-400 hover:text-stone-700 transition-all text-xs font-bold p-2 hover:bg-stone-100 rounded-xl cursor-pointer"
+                className="text-stone-400 dark:text-stone-500 hover:text-stone-700 dark:hover:text-stone-200 transition-all text-xs font-bold p-2 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl cursor-pointer"
               >
                 ✕
               </button>
@@ -1793,28 +1793,28 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
             {/* Modal Body form */}
             <form onSubmit={handleFormSubmit} className="p-6 overflow-y-auto space-y-4">
               {formError && (
-                <div className="bg-red-50 text-red-800 p-3.5 rounded-xl border border-red-200 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600" />
+                <div className="bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 p-3.5 rounded-xl border border-red-200 dark:border-red-900/50 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
                   <span>{formError}</span>
                 </div>
               )}
 
               <div className="space-y-1">
-                <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Event Title *</label>
+                <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Event Title *</label>
                 <input
                   type="text"
                   placeholder="e.g., Youth Fellowship & Worship Service"
                   value={formTitle}
                   onChange={(e) => setFormTitle(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                  className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                   required
                 />
               </div>
 
               {/* Event Image Banner (Thumbnail / Cover Photo) */}
-              <div className="space-y-3 p-4 bg-stone-50/50 rounded-2xl border border-stone-200/80">
+              <div className="space-y-3 p-4 bg-stone-50/50 dark:bg-stone-950/30 rounded-2xl border border-stone-200/80 dark:border-stone-800">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] text-stone-600 font-extrabold uppercase tracking-widest block">Service Banner Cover (Optional)</label>
+                  <label className="text-[10px] text-stone-600 dark:text-stone-300 font-extrabold uppercase tracking-widest block">Service Banner Cover (Optional)</label>
                   {formThumbnail && (
                     <button
                       type="button"
@@ -1822,7 +1822,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                         setFormThumbnail('');
                         setThumbnailUploadError(null);
                       }}
-                      className="text-[9px] font-black text-rose-600 uppercase hover:underline cursor-pointer"
+                      className="text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase hover:underline cursor-pointer"
                     >
                       Clear Cover Photo
                     </button>
@@ -1831,7 +1831,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
                 {/* Banner Preview */}
                 {formThumbnail ? (
-                  <div className="w-full h-28 rounded-xl relative overflow-hidden bg-stone-100 border border-stone-200 shadow-xs group/banner">
+                  <div className="w-full h-28 rounded-xl relative overflow-hidden bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 shadow-xs group/banner">
                     <img
                       src={formThumbnail}
                       alt="Banner Preview"
@@ -1847,24 +1847,24 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                     </div>
                   </div>
                 ) : (
-                  <div className="w-full h-16 bg-white/70 rounded-xl border border-dashed border-stone-300 flex items-center justify-center text-[10px] text-stone-400 font-medium italic">
+                  <div className="w-full h-16 bg-white/70 dark:bg-stone-900/70 rounded-xl border border-dashed border-stone-300 dark:border-stone-700 flex items-center justify-center text-[10px] text-stone-400 dark:text-stone-500 font-medium italic">
                     No cover banner selected. Banner defaults to gradient context.
                   </div>
                 )}
 
                 {/* Uploading Progress Indicator */}
                 {isThumbnailUploading && (
-                  <div className="space-y-1 p-2 bg-emerald-50/40 border border-emerald-100/30 rounded-xl">
-                    <div className="flex items-center justify-between text-[9px] font-extrabold uppercase tracking-wider text-emerald-600">
+                  <div className="space-y-1 p-2 bg-emerald-50/40 dark:bg-emerald-950/30 border border-emerald-100/30 dark:border-emerald-900/40 rounded-xl">
+                    <div className="flex items-center justify-between text-[9px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                       <span className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 border-2 border-t-transparent border-emerald-600 rounded-full animate-spin"></span>
+                        <span className="w-2.5 h-2.5 border-2 border-t-transparent border-emerald-600 dark:border-emerald-400 rounded-full animate-spin"></span>
                         Uploading Custom Banner to Supabase Bucket...
                       </span>
                       <span>{thumbnailUploadProgress}%</span>
                     </div>
-                    <div className="w-full h-1.5 bg-stone-200/80 rounded-full overflow-hidden">
+                    <div className="w-full h-1.5 bg-stone-200/80 dark:bg-stone-800 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-emerald-600 transition-all duration-150 rounded-full"
+                        className="h-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-150 rounded-full"
                         style={{ width: `${thumbnailUploadProgress}%` }}
                       ></div>
                     </div>
@@ -1873,26 +1873,26 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
                 {/* Upload Specific Error Display with Dismiss/Retry buttons */}
                 {thumbnailUploadError && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-[10px] leading-relaxed text-rose-800 space-y-1.5">
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-xl text-[10px] leading-relaxed text-rose-800 dark:text-rose-200 space-y-1.5">
                     <p className="font-extrabold flex items-center gap-1 uppercase tracking-wider text-[9px]">
                       ⚠️ Cover Upload Failed
                     </p>
                     <p className="font-semibold">{thumbnailUploadError}</p>
-                    <p className="text-[9px] text-stone-500">
+                    <p className="text-[9px] text-stone-500 dark:text-stone-400">
                       Ensure the file size is under 2MB, your internet connection is active, and the file is a valid image.
                     </p>
                     <div className="flex items-center gap-2 pt-1">
                       <button 
                         type="button"
                         onClick={() => document.getElementById('input-schedule-thumbnail')?.click()}
-                        className="bg-rose-100 hover:bg-rose-200 px-2 py-1 rounded font-extrabold uppercase text-[8px] tracking-wider transition-colors cursor-pointer"
+                        className="bg-rose-100 dark:bg-rose-900/50 hover:bg-rose-200 dark:hover:bg-rose-800 px-2 py-1 rounded font-extrabold uppercase text-[8px] tracking-wider transition-colors cursor-pointer text-rose-900 dark:text-rose-100"
                       >
                         Try Another Image
                       </button>
                       <button 
                         type="button"
                         onClick={() => setThumbnailUploadError(null)}
-                        className="text-stone-400 hover:text-stone-600 font-extrabold uppercase text-[8px] tracking-wider transition-colors cursor-pointer"
+                        className="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 font-extrabold uppercase text-[8px] tracking-wider transition-colors cursor-pointer"
                       >
                         Dismiss Error
                       </button>
@@ -1902,7 +1902,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
                 {/* Preset List Selection */}
                 <div className="space-y-1.5">
-                  <p className="text-[9px] text-stone-500 font-extrabold uppercase tracking-wider">Select a Professional Design Preset:</p>
+                  <p className="text-[9px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider">Select a Professional Design Preset:</p>
                   <div className="grid grid-cols-4 gap-2">
                     {PRESET_COVERS.map((preset) => (
                       <button
@@ -1913,7 +1913,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                           setThumbnailUploadError(null);
                         }}
                         className={`relative h-12 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
-                          formThumbnail === preset.url ? 'border-emerald-600 scale-95 ring-3 ring-emerald-500/15' : 'border-stone-200 hover:border-stone-300'
+                          formThumbnail === preset.url ? 'border-emerald-600 scale-95 ring-3 ring-emerald-500/15' : 'border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600'
                         }`}
                         title={preset.name}
                       >
@@ -1933,7 +1933,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
                 {/* File Upload Field */}
                 <div className="space-y-1.5">
-                  <p className="text-[9px] text-stone-500 font-extrabold uppercase tracking-wider">Or Upload Custom Image:</p>
+                  <p className="text-[9px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider">Or Upload Custom Image:</p>
                   <label
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
@@ -1944,20 +1944,20 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
                         handleThumbnailUpload(file);
                       }
                     }}
-                    className="flex flex-col items-center justify-center p-3.5 bg-white border border-dashed border-stone-200 rounded-xl cursor-pointer hover:bg-stone-50/50 hover:border-emerald-500 transition-all relative min-h-[90px]"
+                    className="flex flex-col items-center justify-center p-3.5 bg-white dark:bg-stone-900 border border-dashed border-stone-200 dark:border-stone-800 rounded-xl cursor-pointer hover:bg-stone-50/50 dark:hover:bg-stone-850/50 hover:border-emerald-500 transition-all relative min-h-[90px]"
                   >
                     {isThumbnailUploading ? (
                       <div className="flex flex-col items-center justify-center text-center">
-                        <span className="w-6 h-6 border-2 border-t-transparent border-emerald-600 rounded-full animate-spin mb-1"></span>
-                        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">Uploading Custom Image...</p>
+                        <span className="w-6 h-6 border-2 border-t-transparent border-emerald-600 dark:border-emerald-400 rounded-full animate-spin mb-1"></span>
+                        <p className="text-[10px] text-stone-500 dark:text-stone-400 font-bold uppercase tracking-wider">Uploading Custom Image...</p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center text-center">
-                        <Sparkles className="w-5 h-5 text-emerald-600 mb-0.5 shrink-0" />
-                        <p className="text-[10px] text-stone-600 font-bold">
-                          Click here to browse files <span className="text-stone-400">or drop image here</span>
+                        <Sparkles className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mb-0.5 shrink-0" />
+                        <p className="text-[10px] text-stone-600 dark:text-stone-300 font-bold">
+                          Click here to browse files <span className="text-stone-400 dark:text-stone-500">or drop image here</span>
                         </p>
-                        <p className="text-[8px] text-stone-450 font-medium">PNG, JPG or JPEG up to 2MB</p>
+                        <p className="text-[8px] text-stone-450 dark:text-stone-500 font-medium">PNG, JPG or JPEG up to 2MB</p>
                       </div>
                     )}
                     <input
@@ -1979,23 +1979,23 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Date *</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Date *</label>
                   <input
                     type="date"
                     value={formDate}
                     onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                     required
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Service Time *</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Service Time *</label>
                   <input
                     type="text"
                     placeholder="e.g. 04:30 PM"
                     value={formTime}
                     onChange={(e) => setFormTime(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                     required
                   />
                 </div>
@@ -2003,24 +2003,24 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Speaker/Sermon *</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Speaker/Sermon *</label>
                   <input
                     type="text"
                     placeholder="e.g., Pastor Joseph Liam"
                     value={formSpeaker}
                     onChange={(e) => setFormSpeaker(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                     required
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Chairman *</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Chairman *</label>
                   <input
                     type="text"
                     placeholder="e.g. Tg. Do Lian"
                     value={formLeader}
                     onChange={(e) => setFormLeader(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                     required
                   />
                 </div>
@@ -2028,80 +2028,80 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Solo (Optional)</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Solo (Optional)</label>
                   <input
                     type="text"
                     placeholder="e.g. Lia Rebecca"
                     value={formSolo}
                     onChange={(e) => setFormSolo(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Sumpi Aapna (Optional)</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Sumpi Aapna (Optional)</label>
                   <input
                     type="text"
                     placeholder="e.g. Tg. Khup & Lia Ching"
                     value={formSumpiAapna}
                     onChange={(e) => setFormSumpiAapna(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">LST Simna & Quiz (Optional)</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">LST Simna & Quiz (Optional)</label>
                   <input
                     type="text"
                     placeholder="e.g. Sermon speed quiz"
                     value={formLstSimnaQuiz}
                     onChange={(e) => setFormLstSimnaQuiz(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Sumpi khon ding (Optional)</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Sumpi khon ding (Optional)</label>
                   <input
                     type="text"
                     placeholder="e.g. Lia Niang"
                     value={formSumpiKhonDing}
                     onChange={(e) => setFormSumpiKhonDing(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Venue (Optional)</label>
+                  <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Venue (Optional)</label>
                   <input
                     type="text"
                     placeholder="e.g., Shalom Sanctuary"
                     value={formVenue}
                     onChange={(e) => setFormVenue(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                    className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] text-stone-500 font-extrabold uppercase tracking-wider block">Notes</label>
+                <label className="text-[10px] text-stone-500 dark:text-stone-400 font-extrabold uppercase tracking-wider block">Notes</label>
                 <textarea
                   placeholder="e.g. Special instructions or devotional notes..."
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                   rows={2}
-                  className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
+                  className="w-full px-4 py-2.5 bg-stone-50 dark:bg-stone-950/40 border border-stone-200 dark:border-stone-800 rounded-2xl text-xs text-stone-850 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-semibold"
                 />
               </div>
 
               {/* Action buttons */}
-              <div className="pt-4 border-t border-stone-150 flex items-center justify-end gap-2 shrink-0">
+              <div className="pt-4 border-t border-stone-150 dark:border-stone-800 flex items-center justify-end gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={handleCloseForm}
-                  className="px-5 py-2.5 bg-stone-100 hover:bg-stone-200 active:bg-stone-300 text-stone-700 text-xs font-bold rounded-2xl transition-all cursor-pointer"
+                  className="px-5 py-2.5 bg-stone-100 hover:bg-stone-200 active:bg-stone-300 dark:bg-stone-800 dark:hover:bg-stone-750 dark:text-stone-300 text-stone-700 text-xs font-bold rounded-2xl transition-all cursor-pointer"
                 >
                   Cancel
                 </button>

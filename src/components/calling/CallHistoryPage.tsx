@@ -124,18 +124,18 @@ export const CallHistoryPage: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8 animate-in fade-in">
       
       {/* Top Banner Header */}
-      <div className="bg-gradient-to-r from-stone-900 via-stone-850 to-stone-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-stone-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 rounded-3xl p-6 sm:p-8 shadow-xs dark:shadow-xl border border-stone-200 dark:border-stone-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="space-y-2 max-w-2xl relative z-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
-            <Sparkles className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/10 border border-emerald-200/80 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-400 text-xs font-semibold">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span>REAL-TIME VOICE & VIDEO CALLING</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-stone-900 dark:text-white">
             Call Logs & Communication Hub
           </h1>
-          <p className="text-stone-400 text-xs sm:text-sm">
+          <p className="text-stone-600 dark:text-stone-400 text-xs sm:text-sm">
             High-definition peer-to-peer WebRTC calls with zero server audio latency, complete call history, and media preferences.
           </p>
         </div>
@@ -143,9 +143,9 @@ export const CallHistoryPage: React.FC = () => {
         <div className="flex items-center gap-3 relative z-10">
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="px-4 py-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold flex items-center gap-2 border border-stone-700 transition-all cursor-pointer shadow-md"
+            className="px-4 py-2.5 rounded-2xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-white text-xs font-bold flex items-center gap-2 border border-stone-200/80 dark:border-stone-700 transition-all cursor-pointer shadow-xs"
           >
-            <Settings className="w-4 h-4 text-emerald-400" />
+            <Settings className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>Settings</span>
           </button>
           <button
@@ -315,7 +315,7 @@ export const CallHistoryPage: React.FC = () => {
                     {otherAvatar ? (
                       <img src={otherAvatar} alt={otherName} className="w-11 h-11 rounded-full object-cover ring-2 ring-stone-200 dark:ring-stone-700 shrink-0" />
                     ) : (
-                      <div className="w-11 h-11 rounded-full bg-emerald-900 text-emerald-200 font-bold text-sm flex items-center justify-center shrink-0">
+                      <div className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-bold text-sm flex items-center justify-center shrink-0">
                         {otherName.charAt(0).toUpperCase()}
                       </div>
                     )}

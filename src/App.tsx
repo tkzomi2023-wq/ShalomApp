@@ -214,7 +214,13 @@ function AppContent() {
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+    if (typeof document !== 'undefined' && 'startViewTransition' in document) {
+      (document as any).startViewTransition(() => {
+        setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+      });
+    } else {
+      setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+    }
   };
 
   const applyMetaToDom = (data: {
@@ -226,6 +232,28 @@ function AppContent() {
     siteUrl?: string;
   }) => {
     if (!data) return;
+
+    let sUrl = (data.siteUrl || '').trim();
+    if (sUrl && !sUrl.startsWith('http://') && !sUrl.startsWith('https://')) {
+      sUrl = `https://${sUrl}`;
+    }
+    if (!sUrl && typeof window !== 'undefined') {
+      sUrl = window.location.origin;
+    }
+    sUrl = sUrl.replace(/\/+$/, '');
+
+    const toFullUrl = (url?: string): string => {
+      if (!url) return '';
+      const trimmed = url.trim();
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+        return trimmed;
+      }
+      const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+      return sUrl ? `${sUrl}${cleanPath}` : `https://jsagyouth.netlify.app${cleanPath}`;
+    };
+
+    const fullOgImage = toFullUrl(data.ogImage);
+    const fullFavicon = toFullUrl(data.favicon);
 
     if (data.title) {
       document.title = data.title;
@@ -247,25 +275,26 @@ function AppContent() {
 
     setMetaTag('meta[property="og:title"]', 'property', 'og:title', data.title);
     setMetaTag('meta[property="og:description"]', 'property', 'og:description', data.description);
-    setMetaTag('meta[property="og:image"]', 'property', 'og:image', data.ogImage);
-    setMetaTag('meta[property="og:url"]', 'property', 'og:url', data.siteUrl);
+    setMetaTag('meta[property="og:image"]', 'property', 'og:image', fullOgImage);
+    setMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', fullOgImage);
+    setMetaTag('meta[property="og:url"]', 'property', 'og:url', sUrl);
 
     setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', data.title);
     setMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', data.description);
-    setMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', data.ogImage);
-    setMetaTag('meta[name="twitter:url"]', 'name', 'twitter:url', data.siteUrl);
+    setMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', fullOgImage);
+    setMetaTag('meta[name="twitter:url"]', 'name', 'twitter:url', sUrl);
 
-    if (data.siteUrl) {
+    if (sUrl) {
       let canonical = document.querySelector('link[rel="canonical"]');
       if (!canonical) {
         canonical = document.createElement('link');
         canonical.setAttribute('rel', 'canonical');
         document.head.appendChild(canonical);
       }
-      canonical.setAttribute('href', data.siteUrl);
+      canonical.setAttribute('href', sUrl);
     }
 
-    if (data.favicon) {
+    if (fullFavicon) {
       let faviconLinks = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
       if (faviconLinks.length === 0) {
         const newFav = document.createElement('link');
@@ -274,13 +303,13 @@ function AppContent() {
         faviconLinks = document.querySelectorAll('link[rel="icon"]');
       }
       faviconLinks.forEach(link => {
-        link.setAttribute('href', data.favicon!);
+        link.setAttribute('href', fullFavicon);
       });
     }
   };
 
   useEffect(() => {
-    // Dynamic website meta & SEO configurations loader
+    // Dynamic website meta, SEO configurations & module visibility loader
     const loadWebsiteMeta = async () => {
       let data: any = null;
 
@@ -299,8 +328,20 @@ function AppContent() {
             keywords: dbMeta.keywords,
             ogImage: dbMeta.og_image,
             favicon: dbMeta.favicon,
-            siteUrl: dbMeta.site_url
+            siteUrl: dbMeta.site_url,
+            isFootballEnabled: dbMeta.is_football_enabled !== false,
+            isPrayerRequestsEnabled: dbMeta.is_prayer_requests_enabled !== false,
+            isCallingEnabled: dbMeta.is_calling_enabled !== false
           };
+
+          setIsFootballEnabled(dbMeta.is_football_enabled !== false);
+          setIsPrayerRequestsEnabled(dbMeta.is_prayer_requests_enabled !== false);
+          setIsCallingEnabled(dbMeta.is_calling_enabled !== false);
+
+          localStorage.setItem('sy_enable_football_predictions', dbMeta.is_football_enabled !== false ? 'true' : 'false');
+          localStorage.setItem('sy_enable_prayer_requests', dbMeta.is_prayer_requests_enabled !== false ? 'true' : 'false');
+          localStorage.setItem('sy_enable_calling_services', dbMeta.is_calling_enabled !== false ? 'true' : 'false');
+
           localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
         }
       } catch (e) {
@@ -328,6 +369,18 @@ function AppContent() {
             if (!contentType || !contentType.includes('text/html')) {
               data = await response.json();
               if (data) {
+                if (data.isFootballEnabled !== undefined) {
+                  setIsFootballEnabled(data.isFootballEnabled);
+                  localStorage.setItem('sy_enable_football_predictions', data.isFootballEnabled ? 'true' : 'false');
+                }
+                if (data.isPrayerRequestsEnabled !== undefined) {
+                  setIsPrayerRequestsEnabled(data.isPrayerRequestsEnabled);
+                  localStorage.setItem('sy_enable_prayer_requests', data.isPrayerRequestsEnabled ? 'true' : 'false');
+                }
+                if (data.isCallingEnabled !== undefined) {
+                  setIsCallingEnabled(data.isCallingEnabled);
+                  localStorage.setItem('sy_enable_calling_services', data.isCallingEnabled ? 'true' : 'false');
+                }
                 localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
               }
             }
@@ -361,6 +414,19 @@ function AppContent() {
       .channel('meta_configs_realtime_app')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meta_configs' }, (payload: any) => {
         if (payload.new) {
+          if (typeof payload.new.is_football_enabled === 'boolean') {
+            setIsFootballEnabled(payload.new.is_football_enabled);
+            localStorage.setItem('sy_enable_football_predictions', payload.new.is_football_enabled ? 'true' : 'false');
+          }
+          if (typeof payload.new.is_prayer_requests_enabled === 'boolean') {
+            setIsPrayerRequestsEnabled(payload.new.is_prayer_requests_enabled);
+            localStorage.setItem('sy_enable_prayer_requests', payload.new.is_prayer_requests_enabled ? 'true' : 'false');
+          }
+          if (typeof payload.new.is_calling_enabled === 'boolean') {
+            setIsCallingEnabled(payload.new.is_calling_enabled);
+            localStorage.setItem('sy_enable_calling_services', payload.new.is_calling_enabled ? 'true' : 'false');
+          }
+
           const newMeta = {
             title: payload.new.title,
             description: payload.new.description,
@@ -382,9 +448,19 @@ function AppContent() {
     };
     window.addEventListener('meta_config_updated', handleCustomEvent);
 
+    const handleVisibilityEvent = (e: any) => {
+      if (e.detail) {
+        if (typeof e.detail.is_football_enabled === 'boolean') setIsFootballEnabled(e.detail.is_football_enabled);
+        if (typeof e.detail.is_prayer_requests_enabled === 'boolean') setIsPrayerRequestsEnabled(e.detail.is_prayer_requests_enabled);
+        if (typeof e.detail.is_calling_enabled === 'boolean') setIsCallingEnabled(e.detail.is_calling_enabled);
+      }
+    };
+    window.addEventListener('module_visibility_updated', handleVisibilityEvent);
+
     return () => {
       supabase.removeChannel(metaChannel);
       window.removeEventListener('meta_config_updated', handleCustomEvent);
+      window.removeEventListener('module_visibility_updated', handleVisibilityEvent);
     };
   }, []);
 
@@ -593,6 +669,18 @@ function AppContent() {
   const [lastCleanupRun, setLastCleanupRun] = useState<string | null>(null);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
   const [cleanupFeedback, setCleanupFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Active user presence/last_seen heartbeat
+  useEffect(() => {
+    if (!user?.id) return;
+    const updateHeartbeat = () => {
+      const nowIso = new Date().toISOString();
+      db.updateMemberLastSeen(user.id, user.email, nowIso);
+    };
+    updateHeartbeat();
+    const interval = setInterval(updateHeartbeat, 20000);
+    return () => clearInterval(interval);
+  }, [user?.id, user?.email]);
 
   // Load retention settings when modal is opened
   useEffect(() => {
@@ -1182,6 +1270,8 @@ function AppContent() {
           presences.forEach((p) => {
             if (p.user_id) {
               onlineIds.push(p.user_id);
+              const nowIso = new Date().toISOString();
+              db.updateMemberLastSeen(p.user_id, undefined, nowIso);
             }
             if (p.is_typing && p.user_id !== user.id) {
               typing.push(p.user_name || 'Someone');
@@ -2663,7 +2753,7 @@ function AppContent() {
                   <span>Service Schedules</span>
                 </button>
 
-                {(isPrayerRequestsEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+                {isPrayerRequestsEnabled && (
                   <button
                     id="tab-btn-prayers"
                     onClick={() => setCurrentTab('prayer-requests')}
@@ -2682,7 +2772,7 @@ function AppContent() {
                     <span>Financial Records</span>
                   </button>
                 )}
-                {(isFootballEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+                {isFootballEnabled && (
                   <button
                     onClick={() => setCurrentTab('football')}
                     className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${currentTab === 'football' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
@@ -2691,7 +2781,7 @@ function AppContent() {
                     <span>Football Predictions</span>
                   </button>
                 )}
-                {(isCallingEnabled || user?.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+                {isCallingEnabled && (
                   <button
                     id="tab-btn-calling"
                     onClick={() => setCurrentTab('calling')}
@@ -2777,7 +2867,7 @@ function AppContent() {
             </div>
 
             {currentTab === 'football' ? (
-              (!isFootballEnabled && user?.email?.toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase()) ? (
+              !isFootballEnabled ? (
                 <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-8 md:p-12 text-center max-w-lg mx-auto shadow-sm my-8">
                   <div className="w-16 h-16 bg-amber-50 dark:bg-amber-950/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-amber-200/50">
                     <Trophy className="w-8 h-8 text-amber-600 dark:text-amber-500" />
@@ -2819,7 +2909,7 @@ function AppContent() {
                 }}
               />
             ) : currentTab === 'prayer-requests' ? (
-              (!isPrayerRequestsEnabled && user?.email?.toLowerCase() !== 'tkpaite2016@gmail.com') ? (
+              !isPrayerRequestsEnabled ? (
                 <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-8 md:p-12 text-center max-w-lg mx-auto shadow-sm my-8">
                   <div className="w-16 h-16 bg-rose-50 dark:bg-rose-950/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-200/50">
                     <Heart className="w-8 h-8 text-rose-600 dark:text-rose-500 fill-rose-600 dark:fill-rose-500" />
@@ -2841,7 +2931,7 @@ function AppContent() {
                 <PrayerRequestsPage currentUser={user} />
               )
             ) : currentTab === 'calling' ? (
-              (!isCallingEnabled && user?.email?.toLowerCase() !== 'tkpaite2016@gmail.com') ? (
+              !isCallingEnabled ? (
                 <div className="bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-800 rounded-3xl p-8 md:p-12 text-center max-w-lg mx-auto shadow-sm my-8">
                   <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-200/50">
                     <PhoneCall className="w-8 h-8 text-blue-600 dark:text-blue-500" />

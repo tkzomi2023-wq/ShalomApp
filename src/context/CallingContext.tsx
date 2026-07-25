@@ -6,7 +6,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, db } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { Member } from '../types';
 import { 
@@ -128,10 +128,102 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const persistentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const wakeLockRef = useRef<any>(null);
   const iceCandidatesQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const durationTimerRef = useRef<any>(null);
   const statsTimerRef = useRef<any>(null);
   const ringTimeoutRef = useRef<any>(null);
+
+  // Request & Release Screen Wake Lock to keep CPU & network alive when minimized / screen locked
+  const requestWakeLock = useCallback(async () => {
+    try {
+      if ('wakeLock' in navigator && (callStateRef.current === 'active' || callStateRef.current === 'ringing_outgoing' || callStateRef.current === 'ringing_incoming')) {
+        if (!wakeLockRef.current) {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+          wakeLockRef.current.addEventListener('release', () => {
+            wakeLockRef.current = null;
+          });
+          console.log('[WakeLock] Active call screen wake lock acquired.');
+        }
+      }
+    } catch (err) {
+      console.info('[WakeLock] Request notice:', err);
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+      console.log('[WakeLock] Active call screen wake lock released.');
+    }
+  }, []);
+
+  // Manage Wake Lock based on Call State
+  useEffect(() => {
+    if (callState === 'active' || callState === 'ringing_outgoing' || callState === 'ringing_incoming') {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [callState, requestWakeLock, releaseWakeLock]);
+
+  // Re-acquire Wake Lock & ensure audio element is playing when app visibility changes or screen unlocks
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && (callState === 'active' || callState === 'ringing_outgoing' || callState === 'ringing_incoming')) {
+        await requestWakeLock();
+        if (persistentAudioRef.current && remoteStreamRef.current) {
+          persistentAudioRef.current.play().catch(() => {});
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [callState, requestWakeLock]);
+
+  // Sync remoteStream with persistent background audio player so call audio never cuts off when modal is minimized
+  useEffect(() => {
+    if (persistentAudioRef.current) {
+      if (remoteStream) {
+        if (persistentAudioRef.current.srcObject !== remoteStream) {
+          persistentAudioRef.current.srcObject = remoteStream;
+        }
+        persistentAudioRef.current.muted = isSpeakerMuted;
+        persistentAudioRef.current.play().catch((err) => console.warn('[Background Audio] Remote stream playback notice:', err));
+      } else {
+        persistentAudioRef.current.srcObject = null;
+      }
+    }
+  }, [remoteStream, isSpeakerMuted]);
+
+  // Register MediaSession API so OS background audio service stays active during lockscreen / minimized state
+  useEffect(() => {
+    if ((callState === 'active' || callState === 'ringing_outgoing' || callState === 'ringing_incoming') && targetMember && 'mediaSession' in navigator) {
+      try {
+        const name = targetMember.display_name || targetMember.name || 'Fellow Member';
+        (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
+          title: `Shalom Youth Call: ${name}`,
+          artist: 'Shalom Youth Calling Service',
+          album: `${callType.toUpperCase()} Call Active`,
+          artwork: targetMember.avatar ? [{ src: targetMember.avatar, sizes: '512x512', type: 'image/jpeg' }] : []
+        });
+
+        (navigator as any).mediaSession.setActionHandler('hangup', () => {
+          endCall();
+        });
+      } catch (e) {
+        console.info('[MediaSession] Setup notice:', e);
+      }
+    } else if ('mediaSession' in navigator) {
+      try {
+        (navigator as any).mediaSession.metadata = null;
+      } catch (e) {}
+    }
+  }, [callState, targetMember, callType]);
 
   // Realtime Channels
   const signalingChannelRef = useRef<any>(null);
@@ -690,10 +782,12 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const userArr = state[key] as any[];
           if (userArr && userArr.length > 0) {
             const p = userArr[0];
+            const nowSeen = p.lastSeen || new Date().toISOString();
+            db.updateMemberLastSeen(key, undefined, nowSeen);
             map.set(key, {
               userId: key,
               status: p.status || 'online',
-              lastSeen: p.lastSeen || new Date().toISOString(),
+              lastSeen: nowSeen,
               name: p.name,
               avatar: p.avatar,
             });
@@ -1156,6 +1250,14 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }}
     >
       {children}
+      {/* Persistent Background Audio Player - guarantees continuous voice playback when app is minimized or screen locked */}
+      <audio 
+        ref={persistentAudioRef} 
+        autoPlay 
+        playsInline 
+        hidden 
+        style={{ display: 'none' }}
+      />
     </CallingContext.Provider>
   );
 };

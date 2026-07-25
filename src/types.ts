@@ -38,6 +38,7 @@ export interface Member {
   custom_title?: string;
   church_titles?: string;
   marital_status?: 'Single' | 'Married' | 'Widowed' | 'Divorced' | string;
+  last_seen?: string;
 }
 
 export interface ActivityLog {
