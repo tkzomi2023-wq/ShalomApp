@@ -5,7 +5,8 @@
  * and PiP float mode.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { motion } from 'motion/react';
 import { useCalling } from '../../context/CallingContext';
 import { RoleBadge } from '../RoleBadge';
 import { formatMemberName, getCleanAvatar } from '../../types';
@@ -28,7 +29,10 @@ import {
   Signal, 
   ShieldCheck, 
   Sparkles,
-  PhoneCall
+  PhoneCall,
+  ArrowLeftRight,
+  Move,
+  User
 } from 'lucide-react';
 
 export const ActiveCallModal: React.FC = () => {
@@ -58,7 +62,9 @@ export const ActiveCallModal: React.FC = () => {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
+  const [isSwapped, setIsSwapped] = useState(false); // WhatsApp-style stream swap state
   const viewMenuRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null); // Container bounds for drag gestures
 
   // Click outside listener for view mode menu
   useEffect(() => {
@@ -80,7 +86,7 @@ export const ActiveCallModal: React.FC = () => {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Callback ref handler to attach localStream as soon as video element enters DOM
-  const setLocalVideoRef = (el: HTMLVideoElement | null) => {
+  const setLocalVideoRef = useCallback((el: HTMLVideoElement | null) => {
     localVideoRef.current = el;
     if (el && localStream) {
       if (el.srcObject !== localStream) {
@@ -88,10 +94,10 @@ export const ActiveCallModal: React.FC = () => {
       }
       el.play().catch(() => {});
     }
-  };
+  }, [localStream]);
 
   // Callback ref handler to attach remoteStream as soon as video element enters DOM
-  const setRemoteVideoRef = (el: HTMLVideoElement | null) => {
+  const setRemoteVideoRef = useCallback((el: HTMLVideoElement | null) => {
     remoteVideoRef.current = el;
     if (el && remoteStream) {
       if (el.srcObject !== remoteStream) {
@@ -100,10 +106,10 @@ export const ActiveCallModal: React.FC = () => {
       el.muted = isSpeakerMuted;
       el.play().catch(() => {});
     }
-  };
+  }, [remoteStream, isSpeakerMuted]);
 
   // Callback ref handler for dedicated audio playback during voice calls
-  const setRemoteAudioRef = (el: HTMLAudioElement | null) => {
+  const setRemoteAudioRef = useCallback((el: HTMLAudioElement | null) => {
     remoteAudioRef.current = el;
     if (el && remoteStream) {
       if (el.srcObject !== remoteStream) {
@@ -112,9 +118,9 @@ export const ActiveCallModal: React.FC = () => {
       el.muted = isSpeakerMuted;
       el.play().catch((err) => console.warn('Remote audio stream play warning:', err));
     }
-  };
+  }, [remoteStream, isSpeakerMuted]);
 
-  // Attach local stream to video element on state/stream updates
+  // Attach local stream to video element on state/stream/swap updates
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       if (localVideoRef.current.srcObject !== localStream) {
@@ -122,9 +128,9 @@ export const ActiveCallModal: React.FC = () => {
       }
       localVideoRef.current.play().catch(() => {});
     }
-  }, [localStream, callState, callType, isCameraOff]);
+  }, [localStream, callState, callType, isCameraOff, isSwapped]);
 
-  // Attach remote stream to video element on state/stream updates
+  // Attach remote stream to video element on state/stream/swap updates
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       if (remoteVideoRef.current.srcObject !== remoteStream) {
@@ -133,7 +139,7 @@ export const ActiveCallModal: React.FC = () => {
       remoteVideoRef.current.muted = isSpeakerMuted;
       remoteVideoRef.current.play().catch(() => {});
     }
-  }, [remoteStream, callState, callType, isSpeakerMuted]);
+  }, [remoteStream, callState, callType, isSpeakerMuted, isSwapped]);
 
   // Attach remote stream to audio element for voice calls
   useEffect(() => {
@@ -328,15 +334,67 @@ export const ActiveCallModal: React.FC = () => {
         </div>
 
         {/* Main Stage View (Video or Audio Visualizer) */}
-        <div className="relative flex-1 bg-stone-950 flex items-center justify-center overflow-hidden">
-          {callType === 'video' && remoteStream ? (
-            /* Remote Video Stream */
-            <video 
-              ref={setRemoteVideoRef} 
-              autoPlay 
-              playsInline 
-              className="w-full h-full object-cover" 
-            />
+        <div ref={stageRef} className="relative flex-1 bg-stone-950 flex items-center justify-center overflow-hidden touch-none select-none">
+          
+          {/* MAIN BACKGROUND STREAM */}
+          {callType === 'video' ? (
+            !isSwapped ? (
+              /* DEFAULT: Main background shows Remote Stream */
+              remoteStream ? (
+                <video 
+                  ref={setRemoteVideoRef} 
+                  autoPlay 
+                  playsInline 
+                  className="w-full h-full object-cover" 
+                />
+              ) : (
+                /* Remote video loading / audio / ringing screen */
+                <div className="flex flex-col items-center justify-center p-6 text-center z-10">
+                  <div className="relative my-6">
+                    <div className="absolute -inset-6 rounded-full bg-emerald-500/10 animate-pulse duration-1000" />
+                    <div className="absolute -inset-12 rounded-full border border-emerald-500/20 animate-ping duration-1000" />
+
+                    {cleanAvatar ? (
+                      <img 
+                        src={cleanAvatar} 
+                        alt={displayName} 
+                        className="relative w-36 h-36 rounded-full object-cover ring-4 ring-emerald-500/40 shadow-2xl" 
+                      />
+                    ) : (
+                      <div className="relative w-36 h-36 rounded-full bg-emerald-950 text-emerald-300 font-bold text-4xl flex items-center justify-center ring-4 ring-emerald-500/40 shadow-2xl">
+                        {displayName.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+
+                  <h3 className="text-2xl font-black text-white">{displayName}</h3>
+                  <div className="mt-2 flex items-center gap-2">
+                    <RoleBadge role={targetMember.role} />
+                  </div>
+
+                  <p className="mt-3 text-xs text-stone-400 font-medium">
+                    {callState === 'ringing_outgoing' ? (isCalleeRinging ? 'Ringing...' : 'Calling...') : 'Connecting Video Stream...'}
+                  </p>
+                </div>
+              )
+            ) : (
+              /* SWAPPED: Main background shows Self Local Stream */
+              !isCameraOff && localStream ? (
+                <video 
+                  ref={setLocalVideoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className="w-full h-full object-cover" 
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-6 text-center z-10 text-stone-400">
+                  <VideoOff className="w-16 h-16 mb-3 text-stone-600" />
+                  <h3 className="text-xl font-bold text-white">Your Camera is Off</h3>
+                  <p className="text-xs text-stone-500 mt-1">Tap camera icon below to turn on video</p>
+                </div>
+              )
+            )
           ) : (
             /* Voice Call Stage / Large Avatar View */
             <div className="flex flex-col items-center justify-center p-6 text-center z-10">
@@ -368,74 +426,149 @@ export const ActiveCallModal: React.FC = () => {
             </div>
           )}
 
-          {/* Self Local Video PIP Preview (Corner) */}
-          {callType === 'video' && localStream && (
-            <div className="absolute bottom-24 right-4 z-20 w-36 h-48 sm:w-44 sm:h-56 bg-stone-900 rounded-2xl overflow-hidden border-2 border-stone-700/80 shadow-2xl">
-              <video 
-                ref={setLocalVideoRef} 
-                autoPlay 
-                playsInline 
-                muted 
-                className={`w-full h-full object-cover ${isCameraOff ? 'hidden' : ''}`} 
-              />
-              {isCameraOff && (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-stone-900 text-stone-500 text-xs">
-                  <VideoOff className="w-6 h-6 mb-1 text-stone-600" />
-                  <span>Camera Off</span>
-                </div>
+          {/* WHATSAPP-STYLE DRAGGABLE & TAPPABLE PIP FLOATING VIDEO WINDOW */}
+          {callType === 'video' && (
+            <motion.div
+              drag
+              dragConstraints={stageRef}
+              dragElastic={0.08}
+              dragMomentum={false}
+              whileDrag={{ scale: 1.05, boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)' }}
+              onTap={() => setIsSwapped(!isSwapped)}
+              className="absolute bottom-6 right-4 z-30 w-32 h-48 sm:w-40 sm:h-60 bg-stone-900/90 rounded-2xl overflow-hidden border-2 border-emerald-500/60 shadow-2xl cursor-grab active:cursor-grabbing backdrop-blur-md select-none group touch-none"
+              title="Drag to reposition, tap to swap video view"
+            >
+              {!isSwapped ? (
+                /* DEFAULT SMALL CONTAINER: Self Local Stream */
+                !isCameraOff && localStream ? (
+                  <video 
+                    ref={setLocalVideoRef} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    className="w-full h-full object-cover pointer-events-none" 
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-stone-900 text-stone-500 text-xs p-2 text-center">
+                    <VideoOff className="w-6 h-6 mb-1 text-stone-600" />
+                    <span className="font-medium text-[11px]">Camera Off</span>
+                  </div>
+                )
+              ) : (
+                /* SWAPPED SMALL CONTAINER: Remote Participant Stream */
+                remoteStream ? (
+                  <video 
+                    ref={setRemoteVideoRef} 
+                    autoPlay 
+                    playsInline 
+                    className="w-full h-full object-cover pointer-events-none" 
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-stone-900 text-stone-300 p-2 text-center">
+                    {cleanAvatar ? (
+                      <img src={cleanAvatar} alt={displayName} className="w-12 h-12 rounded-full object-cover mb-1 border border-stone-700" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-emerald-950 text-emerald-300 font-bold flex items-center justify-center mb-1">
+                        {displayName.charAt(0)}
+                      </div>
+                    )}
+                    <span className="text-[10px] text-stone-400 font-medium truncate w-full">{displayName}</span>
+                  </div>
+                )
               )}
-            </div>
+
+              {/* Floating Touch Gesture & Swap Label Bar */}
+              <div className="absolute top-2 left-2 flex items-center gap-1 bg-stone-950/70 backdrop-blur-md px-1.5 py-0.5 rounded-md border border-stone-800 text-[9px] text-stone-300">
+                <Move className="w-2.5 h-2.5 text-stone-400" />
+                <span className="font-mono text-[8px] text-stone-400 uppercase tracking-wider">Drag</span>
+              </div>
+
+              <div className="absolute bottom-2 left-2 right-2 bg-stone-950/80 backdrop-blur-md px-2 py-1 rounded-xl border border-stone-800/80 text-[10px] text-stone-200 flex items-center justify-between shadow-lg opacity-90 group-hover:opacity-100 transition-opacity">
+                <span className="font-semibold truncate max-w-[60px] text-[10px]">
+                  {!isSwapped ? 'You' : displayName.split(' ')[0]}
+                </span>
+                <div className="flex items-center gap-1 text-emerald-400 font-bold text-[10px]">
+                  <ArrowLeftRight className="w-3 h-3 animate-pulse" />
+                  <span>Tap</span>
+                </div>
+              </div>
+            </motion.div>
           )}
+
         </div>
 
         {/* Bottom Control Dock Toolbar */}
         <div className="p-4 sm:p-6 bg-stone-950/90 border-t border-stone-800/80 flex items-center justify-center gap-3 sm:gap-6 text-white">
           
           {/* Mute Mic */}
-          <button
-            onClick={toggleMicrophone}
+          <motion.button
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.85 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            onClick={() => {
+              if (typeof window !== 'undefined' && 'vibrate' in navigator) try { navigator.vibrate(30); } catch (e) {}
+              toggleMicrophone();
+            }}
             className={`p-3.5 sm:p-4 rounded-2xl transition-all duration-200 cursor-pointer ${
               isMicMuted 
-                ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/30 ring-2 ring-rose-500' 
+                ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/40 ring-2 ring-rose-500' 
                 : 'bg-stone-800 hover:bg-stone-700 text-stone-200'
             }`}
             title={isMicMuted ? 'Unmute Microphone' : 'Mute Microphone'}
           >
             {isMicMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-          </button>
+          </motion.button>
 
           {/* Camera Toggle */}
           {callType === 'video' && (
-            <button
-              onClick={toggleCamera}
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.85 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+              onClick={() => {
+                if (typeof window !== 'undefined' && 'vibrate' in navigator) try { navigator.vibrate(30); } catch (e) {}
+                toggleCamera();
+              }}
               className={`p-3.5 sm:p-4 rounded-2xl transition-all duration-200 cursor-pointer ${
                 isCameraOff 
-                  ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/30 ring-2 ring-rose-500' 
+                  ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/40 ring-2 ring-rose-500' 
                   : 'bg-stone-800 hover:bg-stone-700 text-stone-200'
               }`}
               title={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
             >
               {isCameraOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
-            </button>
+            </motion.button>
           )}
 
           {/* Speaker Toggle */}
-          <button
-            onClick={toggleSpeaker}
+          <motion.button
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.85 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            onClick={() => {
+              if (typeof window !== 'undefined' && 'vibrate' in navigator) try { navigator.vibrate(30); } catch (e) {}
+              toggleSpeaker();
+            }}
             className={`p-3.5 sm:p-4 rounded-2xl transition-all duration-200 cursor-pointer ${
               isSpeakerMuted 
-                ? 'bg-amber-600 text-white' 
+                ? 'bg-amber-600 text-white shadow-lg shadow-amber-900/40 ring-2 ring-amber-500' 
                 : 'bg-stone-800 hover:bg-stone-700 text-stone-200'
             }`}
             title={isSpeakerMuted ? 'Unmute Speaker' : 'Mute Speaker'}
           >
             {isSpeakerMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-          </button>
+          </motion.button>
 
           {/* Screen Share */}
           {callType === 'video' && (
-            <button
-              onClick={toggleScreenShare}
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.85 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+              onClick={() => {
+                if (typeof window !== 'undefined' && 'vibrate' in navigator) try { navigator.vibrate(30); } catch (e) {}
+                toggleScreenShare();
+              }}
               className={`p-3.5 sm:p-4 rounded-2xl transition-all duration-200 cursor-pointer ${
                 isScreenSharing 
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30' 
@@ -444,17 +577,23 @@ export const ActiveCallModal: React.FC = () => {
               title="Share Screen"
             >
               <Monitor className="w-6 h-6" />
-            </button>
+            </motion.button>
           )}
 
           {/* End Call Button */}
-          <button
-            onClick={endCall}
-            className="px-6 py-3.5 sm:px-8 sm:py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold flex items-center gap-2.5 shadow-xl shadow-rose-900/40 transition-all duration-200 hover:scale-105 cursor-pointer"
+          <motion.button
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.82, rotate: -12 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 15 }}
+            onClick={() => {
+              if (typeof window !== 'undefined' && 'vibrate' in navigator) try { navigator.vibrate([60, 40, 100]); } catch (e) {}
+              endCall();
+            }}
+            className="px-6 py-3.5 sm:px-8 sm:py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold flex items-center gap-2.5 shadow-xl shadow-rose-900/50 ring-2 ring-rose-500/50 cursor-pointer active:bg-rose-700"
           >
             <PhoneOff className="w-6 h-6" />
             <span className="hidden sm:inline text-sm">End Call</span>
-          </button>
+          </motion.button>
         </div>
 
         {/* Dedicated audio element for voice calls */}

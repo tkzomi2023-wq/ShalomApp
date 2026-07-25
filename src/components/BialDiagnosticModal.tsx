@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Member } from '../types';
 import { financialsDb } from '../lib/financials';
 import { db } from '../lib/supabase';
+import { customConfirm } from '../context/CustomDialogContext';
 import { 
   X, 
   AlertTriangle, 
@@ -140,7 +141,15 @@ export function BialDiagnosticModal({ isOpen, onClose, members, onRefresh }: Bia
     const unresolved = discrepancies.filter(d => !d.resolved);
     if (unresolved.length === 0) return;
 
-    if (!confirm(`Are you sure you want to automatically resolve and sync all ${unresolved.length} discrepancies? This will overwrite profile settings with their financial records' Bial values.`)) {
+    const isConfirmed = await customConfirm({
+      title: 'Auto Sync All Discrepancies',
+      message: `Are you sure you want to automatically resolve and sync all ${unresolved.length} discrepancies? This will overwrite profile settings with their financial records' Bial values.`,
+      type: 'warning',
+      confirmText: 'Sync All Now',
+      cancelText: 'Cancel'
+    });
+
+    if (!isConfirmed) {
       return;
     }
 

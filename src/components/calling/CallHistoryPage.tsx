@@ -35,10 +35,12 @@ import {
   Phone
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { useCustomDialog } from '../../context/CustomDialogContext';
 
 export const CallHistoryPage: React.FC = () => {
   const { user } = useAuth();
   const { startCall, markNotificationsAsRead, refreshHistory } = useCalling();
+  const { showConfirm, showAlert } = useCustomDialog();
 
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [stats, setStats] = useState<CommunicationStats | null>(null);
@@ -79,9 +81,47 @@ export const CallHistoryPage: React.FC = () => {
   };
 
   const handleDeleteItem = async (callId: string) => {
-    if (confirm('Delete this call record from history?')) {
+    const isConfirmed = await showConfirm({
+      title: 'Delete Call Log',
+      message: 'Are you sure you want to remove this call record from your history? This action cannot be reversed.',
+      type: 'danger',
+      confirmText: 'Delete Record',
+      cancelText: 'Cancel'
+    });
+
+    if (isConfirmed) {
       await callingService.deleteCallHistoryItem(callId);
       setCalls(prev => prev.filter(c => c.id !== callId));
+      showAlert({
+        title: 'Call Record Removed',
+        message: 'The selected call log has been deleted successfully.',
+        type: 'success',
+        confirmText: 'Done'
+      });
+    }
+  };
+
+  const handleClearAllLogs = async () => {
+    if (calls.length === 0) return;
+    const isConfirmed = await showConfirm({
+      title: 'Clear All Call History',
+      message: `Are you sure you want to permanently delete all ${calls.length} call records from your history?`,
+      type: 'danger',
+      confirmText: 'Clear All History',
+      cancelText: 'Keep History'
+    });
+
+    if (isConfirmed) {
+      for (const call of calls) {
+        await callingService.deleteCallHistoryItem(call.id);
+      }
+      setCalls([]);
+      showAlert({
+        title: 'Call History Cleared',
+        message: 'All call records have been deleted.',
+        type: 'success',
+        confirmText: 'Done'
+      });
     }
   };
 
@@ -90,7 +130,12 @@ export const CallHistoryPage: React.FC = () => {
     if (target) {
       startCall(target, type);
     } else {
-      alert('Member details not found in directory.');
+      showAlert({
+        title: 'Member Not Found',
+        message: 'Member details were not found in the community directory.',
+        type: 'warning',
+        confirmText: 'Understood'
+      });
     }
   };
 
@@ -140,17 +185,27 @@ export const CallHistoryPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 relative z-10">
+        <div className="flex flex-wrap items-center gap-2.5 relative z-10">
+          {calls.length > 0 && (
+            <button
+              onClick={handleClearAllLogs}
+              className="px-3.5 py-2.5 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 text-xs font-bold flex items-center gap-1.5 border border-rose-200 dark:border-rose-900/40 transition-all cursor-pointer shadow-xs active:scale-95"
+              title="Clear all call history logs"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+              <span>Clear History</span>
+            </button>
+          )}
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="px-4 py-2.5 rounded-2xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-white text-xs font-bold flex items-center gap-2 border border-stone-200/80 dark:border-stone-700 transition-all cursor-pointer shadow-xs"
+            className="px-4 py-2.5 rounded-2xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-white text-xs font-bold flex items-center gap-2 border border-stone-200/80 dark:border-stone-700 transition-all cursor-pointer shadow-xs active:scale-95"
           >
             <Settings className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>Settings</span>
           </button>
           <button
             onClick={loadCallData}
-            className="p-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer shadow-md"
+            className="p-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer shadow-md active:scale-95"
             title="Refresh History"
           >
             <RefreshCw className="w-4 h-4" />

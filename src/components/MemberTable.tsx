@@ -8,6 +8,7 @@ import { motion } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Member, UserRole, ALL_ROLES, OB_ROLES, isOBUser, DEFAULT_ADMIN_EMAIL, formatMemberName, getDefaultAvatar, getCleanAvatar } from '../types';
+import { customConfirm } from '../context/CustomDialogContext';
 import { RoleBadge } from './RoleBadge';
 import { CallButtons } from './calling/CallButtons';
 import { 
@@ -719,7 +720,14 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                   onChange={async (e) => {
                     const targetBial = e.target.value;
                     if (!targetBial) return;
-                    if (confirm(`Are you sure you want to assign the ${selectedMemberIds.length} selected members to "${targetBial}"?`)) {
+                    const isConfirmed = await customConfirm({
+                      title: 'Assign Bial',
+                      message: `Are you sure you want to assign the ${selectedMemberIds.length} selected members to "${targetBial}"?`,
+                      type: 'warning',
+                      confirmText: 'Assign Members',
+                      cancelText: 'Cancel'
+                    });
+                    if (isConfirmed) {
                       await onBulkAssignBial(selectedMemberIds, targetBial);
                       setSelectedMemberIds([]);
                     }

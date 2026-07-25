@@ -22,6 +22,7 @@ import {
 } from '../types/calling';
 import { callingService } from '../lib/callingService';
 import { callAudio } from '../lib/callAudio';
+import { customAlert } from './CustomDialogContext';
 
 interface CallingContextType {
   // Call State
@@ -81,8 +82,24 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
     urls: [
       'stun:openrelay.metered.ca:80',
       'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:80?transport=tcp',
       'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp'
+      'turn:openrelay.metered.ca:443?transport=tcp',
+      'turns:openrelay.metered.ca:443',
+      'turns:openrelay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelay',
+    credential: 'openrelay'
+  },
+  {
+    urls: [
+      'stun:relay.metered.ca:80',
+      'turn:relay.metered.ca:80',
+      'turn:relay.metered.ca:80?transport=tcp',
+      'turn:relay.metered.ca:443',
+      'turn:relay.metered.ca:443?transport=tcp',
+      'turns:relay.metered.ca:443',
+      'turns:relay.metered.ca:443?transport=tcp'
     ],
     username: 'openrelay',
     credential: 'openrelay'
@@ -448,6 +465,14 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const pc = new RTCPeerConnection(getPeerConfig());
     peerConnectionRef.current = pc;
 
+    // Ensure audio & video transceivers are initialized for bidirectional media across networks
+    try {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+    } catch (e) {
+      console.warn('[WebRTC] Transceiver setup notice:', e);
+    }
+
     // Handle ICE Candidates
     pc.onicecandidate = (event) => {
       if (event.candidate && signalingChannelRef.current && currentUser?.id) {
@@ -527,12 +552,13 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Process queued ICE Candidates
   const processQueuedIceCandidates = useCallback(async () => {
-    if (!peerConnectionRef.current || !peerConnectionRef.current.remoteDescription) return;
+    const pc = peerConnectionRef.current;
+    if (!pc || !pc.remoteDescription) return;
     while (iceCandidatesQueueRef.current.length > 0) {
       const candidate = iceCandidatesQueueRef.current.shift();
-      if (candidate) {
+      if (candidate && (candidate.candidate || candidate.sdpMid !== undefined)) {
         try {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (e) {
           console.warn('Error applying queued ICE candidate:', e);
         }
@@ -661,7 +687,10 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         try {
           const pc = peerConnectionRef.current;
           if (pc) {
-            const offer = await pc.createOffer();
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            });
             const optSDP = optimizeSDPForLowNetwork(offer.sdp || '');
             const offerDesc = new RTCSessionDescription({ type: offer.type, sdp: optSDP });
             await pc.setLocalDescription(offerDesc);
@@ -779,7 +808,10 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
           await processQueuedIceCandidates();
 
-          const answer = await pc.createAnswer();
+          const answer = await pc.createAnswer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+          });
           const optSDP = optimizeSDPForLowNetwork(answer.sdp || '');
           const answerDesc = new RTCSessionDescription({ type: answer.type, sdp: optSDP });
           await pc.setLocalDescription(answerDesc);
@@ -901,19 +933,19 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Start an Outgoing Call
   const startCall = async (target: Member, type: CallType) => {
     if (!currentUser?.id) {
-      alert('Please log in to initiate calls.');
+      customAlert({ title: 'Authentication Required', message: 'Please log in to initiate calls.', type: 'warning' });
       return;
     }
 
     const isCallingEnabled = typeof window !== 'undefined' ? localStorage.getItem('sy_enable_calling_services') !== 'false' : true;
     const isAdmin = currentUser.email?.toLowerCase() === 'tkpaite2016@gmail.com';
     if (!isCallingEnabled && !isAdmin) {
-      alert('Voice and video calling services are currently disabled by administrators.');
+      customAlert({ title: 'Calls Disabled', message: 'Voice and video calling services are currently disabled by administrators.', type: 'warning' });
       return;
     }
 
     if (callState !== 'idle') {
-      alert('You are already on an active call.');
+      customAlert({ title: 'Call in Progress', message: 'You are already on an active call.', type: 'info' });
       return;
     }
 
@@ -985,7 +1017,7 @@ export const CallingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCallState('idle');
       setCurrentCall(null);
       setTargetMember(null);
-      alert(`Could not access audio/video device: ${err.message || 'Permission denied'}`);
+      customAlert({ title: 'Device Access Error', message: `Could not access audio/video device: ${err.message || 'Permission denied'}`, type: 'danger' });
     }
   };
 

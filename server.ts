@@ -104,8 +104,32 @@ const defaultMeta: MetaConfig = {
   isCallingEnabled: true
 };
 
-function normalizeMetaConfig(cfg: Partial<MetaConfig>): MetaConfig {
-  let sUrl = (cfg.siteUrl || defaultMeta.siteUrl || "").trim();
+function getMetaConfig(): MetaConfig {
+  try {
+    if (fs.existsSync(META_CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(META_CONFIG_FILE, "utf-8"));
+      return {
+        title: (data.title || defaultMeta.title).trim(),
+        description: (data.description || defaultMeta.description).trim(),
+        keywords: (data.keywords || defaultMeta.keywords).trim(),
+        ogImage: data.ogImage || defaultMeta.ogImage,
+        favicon: data.favicon || defaultMeta.favicon,
+        siteUrl: data.siteUrl || defaultMeta.siteUrl,
+        isFootballEnabled: typeof data.isFootballEnabled === 'boolean' ? data.isFootballEnabled : (data.is_football_enabled === false ? false : true),
+        isPrayerRequestsEnabled: typeof data.isPrayerRequestsEnabled === 'boolean' ? data.isPrayerRequestsEnabled : (data.is_prayer_requests_enabled === false ? false : true),
+        isCallingEnabled: typeof data.isCallingEnabled === 'boolean' ? data.isCallingEnabled : (data.is_calling_enabled === false ? false : true)
+      };
+    }
+  } catch (err) {
+    console.error("Failed to read meta config file:", err);
+  }
+  return defaultMeta;
+}
+
+function normalizeMetaConfig(cfg: Partial<MetaConfig>, baseConfig?: MetaConfig): MetaConfig {
+  const current = baseConfig || getMetaConfig();
+
+  let sUrl = (cfg.siteUrl !== undefined ? cfg.siteUrl : current.siteUrl || defaultMeta.siteUrl || "").trim();
   if (sUrl && !sUrl.startsWith("http://") && !sUrl.startsWith("https://")) {
     sUrl = `https://${sUrl}`;
   }
@@ -121,16 +145,23 @@ function normalizeMetaConfig(cfg: Partial<MetaConfig>): MetaConfig {
     return sUrl ? `${sUrl}${cleanPath}` : `https://jsagyouth.netlify.app${cleanPath}`;
   };
 
+  const parseBool = (val: any, fallback: boolean) => {
+    if (typeof val === 'boolean') return val;
+    if (val === 'true' || val === 1) return true;
+    if (val === 'false' || val === 0) return false;
+    return fallback;
+  };
+
   return {
-    title: (cfg.title || defaultMeta.title).trim(),
-    description: (cfg.description || defaultMeta.description).trim(),
-    keywords: (cfg.keywords || defaultMeta.keywords).trim(),
-    ogImage: toFullUrl(cfg.ogImage || defaultMeta.ogImage),
-    favicon: toFullUrl(cfg.favicon || defaultMeta.favicon),
-    siteUrl: sUrl || defaultMeta.siteUrl,
-    isFootballEnabled: cfg.isFootballEnabled !== undefined ? cfg.isFootballEnabled : true,
-    isPrayerRequestsEnabled: cfg.isPrayerRequestsEnabled !== undefined ? cfg.isPrayerRequestsEnabled : true,
-    isCallingEnabled: cfg.isCallingEnabled !== undefined ? cfg.isCallingEnabled : true
+    title: (cfg.title !== undefined ? cfg.title : current.title || defaultMeta.title).trim(),
+    description: (cfg.description !== undefined ? cfg.description : current.description || defaultMeta.description).trim(),
+    keywords: (cfg.keywords !== undefined ? cfg.keywords : current.keywords || defaultMeta.keywords).trim(),
+    ogImage: toFullUrl(cfg.ogImage !== undefined ? cfg.ogImage : current.ogImage || defaultMeta.ogImage),
+    favicon: toFullUrl(cfg.favicon !== undefined ? cfg.favicon : current.favicon || defaultMeta.favicon),
+    siteUrl: sUrl || current.siteUrl || defaultMeta.siteUrl,
+    isFootballEnabled: parseBool(cfg.isFootballEnabled !== undefined ? cfg.isFootballEnabled : (cfg as any).is_football_enabled, current.isFootballEnabled),
+    isPrayerRequestsEnabled: parseBool(cfg.isPrayerRequestsEnabled !== undefined ? cfg.isPrayerRequestsEnabled : (cfg as any).is_prayer_requests_enabled, current.isPrayerRequestsEnabled),
+    isCallingEnabled: parseBool(cfg.isCallingEnabled !== undefined ? cfg.isCallingEnabled : (cfg as any).is_calling_enabled, current.isCallingEnabled)
   };
 }
 
@@ -242,18 +273,6 @@ function updateHtmlMetaTags(html: string, norm: MetaConfig): string {
   }
 
   return updated;
-}
-
-function getMetaConfig(): MetaConfig {
-  try {
-    if (fs.existsSync(META_CONFIG_FILE)) {
-      const data = fs.readFileSync(META_CONFIG_FILE, "utf-8");
-      return normalizeMetaConfig(JSON.parse(data));
-    }
-  } catch (err) {
-    console.error("Failed to read meta config file:", err);
-  }
-  return defaultMeta;
 }
 
 function escapeHtml(str: string): string {
@@ -1634,6 +1653,7 @@ async function syncMetaConfigFromDb() {
     }
 
     if (data) {
+      const current = getMetaConfig();
       const normConfig = normalizeMetaConfig({
         title: data.title,
         description: data.description,
@@ -1641,10 +1661,10 @@ async function syncMetaConfigFromDb() {
         ogImage: data.og_image,
         favicon: data.favicon,
         siteUrl: data.site_url,
-        isFootballEnabled: data.is_football_enabled !== false,
-        isPrayerRequestsEnabled: data.is_prayer_requests_enabled !== false,
-        isCallingEnabled: data.is_calling_enabled !== false
-      });
+        isFootballEnabled: typeof data.is_football_enabled === 'boolean' ? data.is_football_enabled : current.isFootballEnabled,
+        isPrayerRequestsEnabled: typeof data.is_prayer_requests_enabled === 'boolean' ? data.is_prayer_requests_enabled : current.isPrayerRequestsEnabled,
+        isCallingEnabled: typeof data.is_calling_enabled === 'boolean' ? data.is_calling_enabled : current.isCallingEnabled
+      }, current);
       syncMetaFiles(normConfig);
       console.log("[MetaConfig Sync] Successfully synchronized metadata & module settings from Supabase database.");
     }
@@ -1712,6 +1732,7 @@ app.get("/api/meta-config", async (req, res) => {
       .single();
 
     if (data && !error) {
+      const current = getMetaConfig();
       const dbConfig = normalizeMetaConfig({
         title: data.title,
         description: data.description,
@@ -1719,10 +1740,10 @@ app.get("/api/meta-config", async (req, res) => {
         ogImage: data.og_image,
         favicon: data.favicon,
         siteUrl: data.site_url,
-        isFootballEnabled: data.is_football_enabled !== false,
-        isPrayerRequestsEnabled: data.is_prayer_requests_enabled !== false,
-        isCallingEnabled: data.is_calling_enabled !== false
-      });
+        isFootballEnabled: typeof data.is_football_enabled === 'boolean' ? data.is_football_enabled : current.isFootballEnabled,
+        isPrayerRequestsEnabled: typeof data.is_prayer_requests_enabled === 'boolean' ? data.is_prayer_requests_enabled : current.isPrayerRequestsEnabled,
+        isCallingEnabled: typeof data.is_calling_enabled === 'boolean' ? data.is_calling_enabled : current.isCallingEnabled
+      }, current);
       syncMetaFiles(dbConfig);
       return res.json(dbConfig);
     }

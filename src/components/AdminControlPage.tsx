@@ -67,6 +67,10 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
   const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
 
   const handleModuleToggle = async (moduleKey: 'football' | 'prayer' | 'calling', newValue: boolean) => {
+    const nextFootball = moduleKey === 'football' ? newValue : isFootballEnabled;
+    const nextPrayer = moduleKey === 'prayer' ? newValue : isPrayerRequestsEnabled;
+    const nextCalling = moduleKey === 'calling' ? newValue : isCallingEnabled;
+
     if (moduleKey === 'football') setIsFootballEnabled(newValue);
     if (moduleKey === 'prayer') setIsPrayerRequestsEnabled(newValue);
     if (moduleKey === 'calling') setIsCallingEnabled(newValue);
@@ -74,10 +78,14 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
     const lsKey = moduleKey === 'football' ? 'sy_enable_football_predictions' : moduleKey === 'prayer' ? 'sy_enable_prayer_requests' : 'sy_enable_calling_services';
     localStorage.setItem(lsKey, newValue ? 'true' : 'false');
 
-    const dbField = moduleKey === 'football' ? 'is_football_enabled' : moduleKey === 'prayer' ? 'is_prayer_requests_enabled' : 'is_calling_enabled';
-    const payload: any = { [dbField]: newValue, updated_at: new Date().toISOString() };
+    const fullPayload = {
+      is_football_enabled: nextFootball,
+      is_prayer_requests_enabled: nextPrayer,
+      is_calling_enabled: nextCalling,
+      updated_at: new Date().toISOString()
+    };
 
-    window.dispatchEvent(new CustomEvent('module_visibility_updated', { detail: payload }));
+    window.dispatchEvent(new CustomEvent('module_visibility_updated', { detail: fullPayload }));
 
     // 1. Save to local server first (persists to meta_config.json and syncs local state)
     try {
@@ -86,9 +94,9 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           requesterEmail: currentUser?.email,
-          isFootballEnabled: moduleKey === 'football' ? newValue : isFootballEnabled,
-          isPrayerRequestsEnabled: moduleKey === 'prayer' ? newValue : isPrayerRequestsEnabled,
-          isCallingEnabled: moduleKey === 'calling' ? newValue : isCallingEnabled,
+          isFootballEnabled: nextFootball,
+          isPrayerRequestsEnabled: nextPrayer,
+          isCallingEnabled: nextCalling,
         })
       });
     } catch (e) {}
@@ -97,7 +105,7 @@ export const AdminControlPage: React.FC<AdminControlPageProps> = ({
     try {
       const { error } = await supabase
         .from('meta_configs')
-        .upsert({ id: 'singleton', ...payload }, { onConflict: 'id' });
+        .upsert({ id: 'singleton', ...fullPayload }, { onConflict: 'id' });
       if (error) {
         if (error.message?.includes('column') || error.message?.includes('schema cache')) {
           console.info('[AdminControl] Notice: Supabase table meta_configs missing column, state persisted locally via meta-config API.');

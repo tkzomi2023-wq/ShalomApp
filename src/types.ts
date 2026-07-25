@@ -191,4 +191,16 @@ export interface BirthdayLog {
   errorMessage?: string;
 }
 
+export interface MetaConfig {
+  title: string;
+  description: string;
+  keywords: string;
+  ogImage: string;
+  favicon: string;
+  siteUrl: string;
+  isFootballEnabled?: boolean;
+  isPrayerRequestsEnabled?: boolean;
+  isCallingEnabled?: boolean;
+}
+
 

@@ -9,6 +9,9 @@ interface MetaConfig {
   ogImage: string;
   favicon: string;
   siteUrl: string;
+  isFootballEnabled?: boolean;
+  isPrayerRequestsEnabled?: boolean;
+  isCallingEnabled?: boolean;
 }
 
 interface WebsiteMetaSettingsPageProps {
@@ -295,6 +298,9 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
           og_image: normConfig.ogImage,
           favicon: normConfig.favicon,
           site_url: normConfig.siteUrl,
+          is_football_enabled: normConfig.isFootballEnabled,
+          is_prayer_requests_enabled: normConfig.isPrayerRequestsEnabled,
+          is_calling_enabled: normConfig.isCallingEnabled,
           updated_at: new Date().toISOString()
         });
       

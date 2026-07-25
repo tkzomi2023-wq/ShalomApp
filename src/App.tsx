@@ -32,6 +32,7 @@ import { Confetti } from './components/Confetti';
 import { OnboardingTour } from './components/OnboardingTour';
 import { getApiUrl, apiFetch, safeJsonParse } from './lib/api';
 import { CallingProvider } from './context/CallingContext';
+import { CustomDialogProvider, customConfirm, customAlert } from './context/CustomDialogContext';
 import { IncomingCallModal } from './components/calling/IncomingCallModal';
 import { ActiveCallModal } from './components/calling/ActiveCallModal';
 import { CallHistoryPage } from './components/calling/CallHistoryPage';
@@ -322,25 +323,40 @@ function AppContent() {
           .single();
 
         if (dbMeta && !dbErr) {
+          const storedLocalConfig = localStorage.getItem('sy_local_meta_config');
+          const parsedLocal = storedLocalConfig ? JSON.parse(storedLocalConfig) : null;
+
+          const footballVal = typeof dbMeta.is_football_enabled === 'boolean'
+            ? dbMeta.is_football_enabled
+            : (localStorage.getItem('sy_enable_football_predictions') === 'false' ? false : (parsedLocal?.isFootballEnabled ?? true));
+
+          const prayerVal = typeof dbMeta.is_prayer_requests_enabled === 'boolean'
+            ? dbMeta.is_prayer_requests_enabled
+            : (localStorage.getItem('sy_enable_prayer_requests') === 'false' ? false : (parsedLocal?.isPrayerRequestsEnabled ?? true));
+
+          const callingVal = typeof dbMeta.is_calling_enabled === 'boolean'
+            ? dbMeta.is_calling_enabled
+            : (localStorage.getItem('sy_enable_calling_services') === 'false' ? false : (parsedLocal?.isCallingEnabled ?? true));
+
           data = {
-            title: dbMeta.title,
-            description: dbMeta.description,
-            keywords: dbMeta.keywords,
-            ogImage: dbMeta.og_image,
-            favicon: dbMeta.favicon,
-            siteUrl: dbMeta.site_url,
-            isFootballEnabled: dbMeta.is_football_enabled !== false,
-            isPrayerRequestsEnabled: dbMeta.is_prayer_requests_enabled !== false,
-            isCallingEnabled: dbMeta.is_calling_enabled !== false
+            title: dbMeta.title || parsedLocal?.title,
+            description: dbMeta.description || parsedLocal?.description,
+            keywords: dbMeta.keywords || parsedLocal?.keywords,
+            ogImage: dbMeta.og_image || parsedLocal?.ogImage,
+            favicon: dbMeta.favicon || parsedLocal?.favicon,
+            siteUrl: dbMeta.site_url || parsedLocal?.siteUrl,
+            isFootballEnabled: footballVal,
+            isPrayerRequestsEnabled: prayerVal,
+            isCallingEnabled: callingVal
           };
 
-          setIsFootballEnabled(dbMeta.is_football_enabled !== false);
-          setIsPrayerRequestsEnabled(dbMeta.is_prayer_requests_enabled !== false);
-          setIsCallingEnabled(dbMeta.is_calling_enabled !== false);
+          setIsFootballEnabled(footballVal);
+          setIsPrayerRequestsEnabled(prayerVal);
+          setIsCallingEnabled(callingVal);
 
-          localStorage.setItem('sy_enable_football_predictions', dbMeta.is_football_enabled !== false ? 'true' : 'false');
-          localStorage.setItem('sy_enable_prayer_requests', dbMeta.is_prayer_requests_enabled !== false ? 'true' : 'false');
-          localStorage.setItem('sy_enable_calling_services', dbMeta.is_calling_enabled !== false ? 'true' : 'false');
+          localStorage.setItem('sy_enable_football_predictions', footballVal ? 'true' : 'false');
+          localStorage.setItem('sy_enable_prayer_requests', prayerVal ? 'true' : 'false');
+          localStorage.setItem('sy_enable_calling_services', callingVal ? 'true' : 'false');
 
           localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
         }
@@ -1488,7 +1504,15 @@ function AppContent() {
       ? 'Are you sure you want to clear the entire chat history for everyone? This action is permanent.'
       : 'Are you sure you want to clear your chat history view?';
 
-    if (!window.confirm(confirmMsg)) {
+    const confirmed = await customConfirm({
+      title: 'Clear Chat History',
+      message: confirmMsg,
+      type: 'danger',
+      confirmText: 'Clear Chat',
+      cancelText: 'Cancel'
+    });
+
+    if (!confirmed) {
       return;
     }
     try {
@@ -1578,7 +1602,14 @@ function AppContent() {
 
   const handleDeleteMessage = async (messageId: string) => {
     if (!user) return;
-    if (!window.confirm('Are you sure you want to delete this message?')) return;
+    const confirmed = await customConfirm({
+      title: 'Delete Message',
+      message: 'Are you sure you want to delete this message? This action cannot be undone.',
+      type: 'danger',
+      confirmText: 'Delete',
+      cancelText: 'Cancel'
+    });
+    if (!confirmed) return;
     try {
       const updated = await db.deleteChatMessage(messageId);
       if (updated) {
@@ -4552,10 +4583,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <CallingProvider>
-        <AppContent />
-      </CallingProvider>
-    </AuthProvider>
+    <CustomDialogProvider>
+      <AuthProvider>
+        <CallingProvider>
+          <AppContent />
+        </CallingProvider>
+      </AuthProvider>
+    </CustomDialogProvider>
   );
 }
