@@ -3466,6 +3466,7 @@ function AppContent() {
                 isCurrentUserAdmin={isCurrentUserAdmin}
                 onlineUserIds={onlineUserIds}
                 initialStatusFilter={directoryStatusFilter}
+                onAddMember={() => setAddNewMemberOpen(true)}
               />
             </section>
               </>

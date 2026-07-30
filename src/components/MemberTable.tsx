@@ -31,12 +31,16 @@ import {
   Sparkles,
   Clock,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Share2
 } from 'lucide-react';
 import { formatLastSeenInfo } from '../lib/dateUtils';
 import { financialsDb, BialConfig } from '../lib/financials';
 import { useAuth } from '../lib/auth';
 import { MemberIDCardModal } from './MemberIDCardModal';
+import { ShareProfileModal } from './ShareProfileModal';
+import { ImagePreviewModal } from './ImagePreviewModal';
+import { EmptyDirectoryState } from './EmptyDirectoryState';
 
 interface MemberTableProps {
   members: Member[];
@@ -49,6 +53,7 @@ interface MemberTableProps {
   isCurrentUserAdmin: boolean;
   onlineUserIds?: string[];
   initialStatusFilter?: 'All' | 'pending' | 'approved' | 'rejected';
+  onAddMember?: () => void;
 }
 
 const containerVariants = {
@@ -85,12 +90,14 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   onOpenProfile,
   isCurrentUserAdmin,
   onlineUserIds = [],
-  initialStatusFilter
+  initialStatusFilter,
+  onAddMember
 }) => {
   const { user: currentUser } = useAuth();
   const canChangeRole = currentUser?.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; title: string; subtitle?: string; member?: Member } | null>(null);
 
   const handleCopyEmail = (e: React.MouseEvent, email: string) => {
     e.stopPropagation();
@@ -161,6 +168,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(20);
   const [idCardMember, setIdCardMember] = useState<Member | null>(null);
+  const [shareMember, setShareMember] = useState<Member | null>(null);
 
   // PDF & Bial States
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
@@ -830,13 +838,21 @@ export const MemberTable: React.FC<MemberTableProps> = ({
 
       {/* Empty States */}
       {filteredMembers.length === 0 && (
-        <div className="p-12 text-center bg-white dark:bg-stone-900 border border-stone-150 dark:border-stone-850 rounded-2xl space-y-3 shadow-xs">
-          <ShieldAlert className="w-8 h-8 text-stone-300 dark:text-stone-600 mx-auto" />
-          <div>
-            <p className="font-bold text-stone-800 dark:text-stone-100 text-sm">No Members Match the Criteria</p>
-            <p className="text-xs text-stone-500 dark:text-stone-400">Try loosening your search filters or check pending applications</p>
-          </div>
-        </div>
+        <EmptyDirectoryState
+          totalMembersCount={members.length}
+          searchTerm={searchTerm}
+          statusFilter={statusFilter}
+          roleGroupFilter={roleGroupFilter}
+          activityFilter={activityFilter}
+          onClearFilters={() => {
+            setSearchTerm('');
+            setStatusFilter('All');
+            setRoleGroupFilter('All');
+            setActivityFilter('All');
+          }}
+          onSearchChange={(term) => setSearchTerm(term)}
+          onAddMember={onAddMember}
+        />
       )}
 
       {/* View layouts */}
@@ -909,8 +925,22 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       <td className={cellPaddingClass}>
                         <div className="flex items-center gap-2 sm:gap-3">
                           <div 
-                            onClick={() => onOpenProfile(member)}
-                            className={`${density === 'compact' ? 'w-7 h-7 sm:w-8 sm:h-8 text-xs' : 'w-8 h-8 sm:w-10 sm:h-10 text-xs sm:text-sm'} shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? '' : 'p-1.5 sm:p-2.5'} font-bold flex items-center justify-center cursor-pointer select-none`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const avatarUrl = getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender);
+                              if (avatarUrl) {
+                                setPreviewImage({
+                                  url: avatarUrl,
+                                  title: `${formatMemberName(member.display_name || member.name, member.gender, member.marital_status)} - Profile Photo`,
+                                  subtitle: member.bial ? `Bial: ${member.bial}` : 'Shalom Youth Fellowship',
+                                  member: member
+                                });
+                              } else {
+                                onOpenProfile(member);
+                              }
+                            }}
+                            className={`${density === 'compact' ? 'w-7 h-7 sm:w-8 sm:h-8 text-xs' : 'w-8 h-8 sm:w-10 sm:h-10 text-xs sm:text-sm'} shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? '' : 'p-1.5 sm:p-2.5'} font-bold flex items-center justify-center cursor-pointer select-none hover:ring-2 hover:ring-emerald-500 transition-all`}
+                            title="Click to view avatar photo at high resolution"
                           >
                             {getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? (
                               <img src={getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -1143,6 +1173,15 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             <CallButtons member={member} size="sm" />
                           )}
 
+                          <button
+                            type="button"
+                            onClick={() => setShareMember(member)}
+                            className="p-1 sm:p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-all cursor-pointer"
+                            title="Share Member Profile Page & Link"
+                          >
+                            <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          </button>
+
                           {member.status === 'approved' && (
                             <button
                               type="button"
@@ -1335,13 +1374,21 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                   <Edit2 className="w-3 h-3" /> Edit Profile
                                 </button>
 
+                                <button
+                                  type="button"
+                                  onClick={() => setShareMember(member)}
+                                  className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold border border-emerald-200 dark:border-emerald-800/60 rounded-lg text-[10px] flex items-center gap-1 hover:bg-emerald-100 cursor-pointer"
+                                >
+                                  <Share2 className="w-3 h-3 text-emerald-600" /> Share
+                                </button>
+
                                 {member.status === 'approved' && (
                                   <button
                                     type="button"
                                     onClick={() => setIdCardMember(member)}
-                                    className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold border border-emerald-200 dark:border-emerald-800/60 rounded-lg text-[10px] flex items-center gap-1 hover:bg-emerald-100 cursor-pointer"
+                                    className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold border border-stone-200 dark:border-stone-700 rounded-lg text-[10px] flex items-center gap-1 hover:bg-stone-200 cursor-pointer"
                                   >
-                                    <IdCard className="w-3 h-3 text-emerald-600" /> ID Badge
+                                    <IdCard className="w-3 h-3 text-stone-600 dark:text-stone-400" /> ID Badge
                                   </button>
                                 )}
 
@@ -1407,7 +1454,24 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       />
                     </div>
                   )}
-                  <div className="w-12 h-12 shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 font-extrabold flex items-center justify-center text-lg shadow-inner select-none">
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const avatarUrl = getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender);
+                      if (avatarUrl) {
+                        setPreviewImage({
+                          url: avatarUrl,
+                          title: `${formatMemberName(member.display_name || member.name, member.gender, member.marital_status)} - Profile Photo`,
+                          subtitle: member.bial ? `Bial: ${member.bial}` : 'Shalom Youth Fellowship',
+                          member: member
+                        });
+                      } else {
+                        onOpenProfile(member);
+                      }
+                    }}
+                    className="w-12 h-12 shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 font-extrabold flex items-center justify-center text-lg shadow-inner select-none cursor-pointer hover:ring-2 hover:ring-emerald-500 transition-all"
+                    title="Click to view avatar photo at high resolution"
+                  >
                     {getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? (
                       <img src={getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
@@ -2056,6 +2120,36 @@ export const MemberTable: React.FC<MemberTableProps> = ({
           member={idCardMember}
           isOpen={idCardMember !== null}
           onClose={() => setIdCardMember(null)}
+        />
+      )}
+
+      {/* Share Profile Modal */}
+      {shareMember && (
+        <ShareProfileModal
+          member={shareMember}
+          isOpen={shareMember !== null}
+          onClose={() => setShareMember(null)}
+          onOpenIdCard={() => {
+            const m = shareMember;
+            setShareMember(null);
+            setIdCardMember(m);
+          }}
+        />
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <ImagePreviewModal
+          imageUrl={previewImage.url}
+          title={previewImage.title}
+          subtitle={previewImage.subtitle}
+          isOpen={!!previewImage}
+          onClose={() => setPreviewImage(null)}
+          onShare={previewImage.member ? () => {
+            const m = previewImage.member!;
+            setPreviewImage(null);
+            setShareMember(m);
+          } : undefined}
         />
       )}
 

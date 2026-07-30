@@ -9,7 +9,7 @@ import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultA
 import { useAuth } from '../lib/auth';
 import { useCalling } from '../context/CallingContext';
 import { supabase, db } from '../lib/supabase';
-import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Copy, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2, PhoneCall, Video, SlidersHorizontal, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Trash2, Volume2, AlertCircle, Cake } from 'lucide-react';
+import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Copy, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2, PhoneCall, Video, SlidersHorizontal, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Trash2, Volume2, AlertCircle, Cake, Share2, Maximize2, Image as ImageIcon } from 'lucide-react';
 import { formatLastSeenInfo } from '../lib/dateUtils';
 import { RoleBadge } from './RoleBadge';
 import { CallButtons } from './calling/CallButtons';
@@ -19,8 +19,38 @@ import { CallRecord } from '../types/calling';
 import { FinancialRecord, financialsDb, MONTHS, BIAL_IDS } from '../lib/financials';
 import { getActivityLogs, addActivityLog } from '../lib/activity';
 import { MemberIDCardModal } from './MemberIDCardModal';
+import { ShareProfileModal } from './ShareProfileModal';
+import { ImagePreviewModal } from './ImagePreviewModal';
 import { convertToAnimeCharacter } from '../utils/cartoonFilter';
 import { setDynamicPageTitle } from '../lib/title';
+
+const PRESET_COVER_BANNERS = [
+  {
+    id: 'emerald-glow',
+    title: 'Emerald Fellowship Glow',
+    url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1600&auto=format&fit=crop'
+  },
+  {
+    id: 'mizo-hills',
+    title: 'Mizo Hills Sunset',
+    url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=1600&auto=format&fit=crop'
+  },
+  {
+    id: 'worship-light',
+    title: 'Gospel Light & Praise',
+    url: 'https://images.unsplash.com/photo-1548625361-18159231f692?q=80&w=1600&auto=format&fit=crop'
+  },
+  {
+    id: 'abstract-aurora',
+    title: 'Aurora Borealis',
+    url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=1600&auto=format&fit=crop'
+  },
+  {
+    id: 'starry-sky',
+    title: 'Heavenly Constellations',
+    url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?q=80&w=1600&auto=format&fit=crop'
+  }
+];
 
 interface UserProfileModalProps {
   member: Member;
@@ -63,6 +93,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   
   const [isSaving, setIsSaving] = useState(false);
   const [showIdCard, setShowIdCard] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
   useEffect(() => {
@@ -519,6 +550,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [role, setRole] = useState<UserRole>(member.role);
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>(member.status);
   const [avatar, setAvatar] = useState(member.avatar || '');
+  const [coverPhoto, setCoverPhoto] = useState<string>(member.cover_photo || '');
+  const [isCoverUploading, setIsCoverUploading] = useState<boolean>(false);
+  const [coverUploadError, setCoverUploadError] = useState<string | null>(null);
+  const [showPresetCovers, setShowPresetCovers] = useState<boolean>(false);
+
+  // Image Preview Modal state
+  const [previewImage, setPreviewImage] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
+
   const [emailNotifications, setEmailNotifications] = useState<boolean>(member.email_notifications !== false);
   const [birthdayEmailNotifications, setBirthdayEmailNotifications] = useState<boolean>(member.birthday_email_notifications !== false);
   const [hideNotificationsUI, setHideNotificationsUI] = useState<boolean>(member.hide_notifications_ui === true);
@@ -630,6 +669,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     const hasCartoonAvatar = rawAvatar.includes('_cartoon_');
 
     setAvatar(cleanAvatar);
+    setCoverPhoto(member.cover_photo || '');
+    setCoverUploadError(null);
     setEmailNotifications(member.email_notifications !== false);
     setBirthdayEmailNotifications(member.birthday_email_notifications !== false);
     setHideNotificationsUI(member.hide_notifications_ui === true);
@@ -863,6 +904,67 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   };
 
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      setCoverUploadError('Cover image is too large. Please select an image under 15MB.');
+      return;
+    }
+
+    setIsCoverUploading(true);
+    setCoverUploadError(null);
+
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const filePath = `${member.id}/cover_${Date.now()}.${ext}`;
+      const imageUrl = await db.uploadToStorage('avatars', filePath, file);
+      
+      setCoverPhoto(imageUrl);
+
+      if (!isEditing) {
+        const updated: Member = {
+          ...member,
+          cover_photo: imageUrl
+        };
+        await onUpdate(updated);
+      }
+    } catch (err: any) {
+      console.error('Error uploading cover photo:', err);
+      setCoverUploadError(`Cover Upload Failed: ${err.message || 'Storage permission error.'}`);
+    } finally {
+      setIsCoverUploading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleSelectPresetCover = async (presetUrl: string) => {
+    setCoverPhoto(presetUrl);
+    setShowPresetCovers(false);
+    setCoverUploadError(null);
+    if (!isEditing) {
+      const updated: Member = {
+        ...member,
+        cover_photo: presetUrl
+      };
+      await onUpdate(updated);
+    }
+  };
+
+  const handleRemoveCover = async () => {
+    setCoverPhoto('');
+    setShowPresetCovers(false);
+    setCoverUploadError(null);
+    if (!isEditing) {
+      const updated: Member = {
+        ...member,
+        cover_photo: ''
+      };
+      await onUpdate(updated);
+    }
+  };
+
   const handleSave = async () => {
     if (cartoonifyToggle && cartoonifyError) {
       alert('Anime transformation failed. Please turn off "Convert to Anime Character Avatar" or retry before saving.');
@@ -934,6 +1036,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         role: canChangeRole ? role : member.role,
         status: isUserAdmin ? status : member.status,
         avatar: finalAvatar,
+        cover_photo: coverPhoto,
         email_notifications: emailNotifications,
         birthday_email_notifications: birthdayEmailNotifications,
         hide_notifications_ui: hideNotificationsUI,
@@ -1021,82 +1124,329 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <p className="text-xs text-stone-400">Shalom Youth Registration ID: {member.id.substring(0, 8)}</p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-600 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowShareModal(true)}
+              className="p-1.5 px-2.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+              title="Share member profile link & card"
+            >
+              <Share2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Share</span>
+            </button>
+            <button 
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-600 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Body */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0 space-y-5 text-xs text-stone-600 dark:text-stone-300">
           
-          {/* Avatar and Primary Identity */}
-          <div className="flex flex-col items-center text-center pb-4 border-b border-stone-100 dark:border-stone-800">
+          {/* Cover Photo Banner & Avatar Section */}
+          <div className="relative rounded-2xl overflow-hidden mb-2 border border-stone-200 dark:border-stone-800 shadow-xs bg-stone-900 group">
+            {/* Cover Image Banner */}
             <div 
+              className="h-32 sm:h-44 w-full relative bg-linear-to-r from-emerald-950 via-stone-900 to-emerald-900 overflow-hidden cursor-pointer"
               onClick={() => {
-                if (canEdit) {
-                  document.getElementById('avatar-file-input')?.click();
-                }
+                const activeCover = coverPhoto || 'https://images.unsplash.com/photo-1548625361-18159231f692?q=80&w=1600&auto=format&fit=crop';
+                setPreviewImage({
+                  url: activeCover,
+                  title: `${formatMemberName(displayName || name, gender, maritalStatus)} - Cover Banner`,
+                  subtitle: bial ? `Shalom Youth • Bial: ${bial}` : 'Shalom Youth Fellowship'
+                });
               }}
-              className={`w-24 h-24 rounded-full flex items-center justify-center text-3xl font-black mb-3 border-4 select-none relative overflow-hidden group transition-all duration-300 ${
-                canEdit ? 'cursor-pointer hover:border-emerald-500 hover:scale-105 hover:shadow-lg' : ''
-              } ${
-                member.status === 'approved' 
-                  ? 'bg-emerald-100 text-emerald-800 border-emerald-250 dark:border-emerald-900/40' 
-                  : member.status === 'rejected'
-                  ? 'bg-rose-100 text-rose-800 border-rose-250 dark:border-rose-900/40'
-                  : 'bg-amber-100 text-amber-800 border-amber-250 dark:border-amber-900/40'
-              }`}
-              title={canEdit ? "Tap to update profile photo" : "Member photo"}
             >
-              {avatar || getDefaultAvatar(gender) ? (
+              {coverPhoto ? (
                 <img 
-                  src={avatar || getDefaultAvatar(gender)} 
-                  alt={name} 
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
+                  src={coverPhoto} 
+                  alt="Cover Banner" 
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <span>{name.charAt(0).toUpperCase()}</span>
-              )}
-
-              {/* Uploading overlay */}
-              {isAvatarUploading && (
-                <div className="absolute inset-0 bg-stone-900/70 flex flex-col items-center justify-center text-white z-10">
-                  <span className="w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin"></span>
-                  <span className="text-[8px] font-bold mt-1 uppercase tracking-wider">Uploading</span>
+                <div className="w-full h-full relative flex items-center justify-center p-6 text-center bg-linear-to-br from-emerald-900/90 via-stone-900 to-emerald-950">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(16,185,129,0.25),transparent_70%)]"></div>
+                  <div className="relative z-10">
+                    <p className="text-emerald-300/80 font-black tracking-widest text-[10px] uppercase">Shalom Youth Fellowship</p>
+                    <p className="text-white/40 text-[10px] mt-0.5 italic">JSAG Church Aizawl, Mizoram</p>
+                  </div>
                 </div>
               )}
 
-              {/* Processing overlay */}
-              {isProcessingBg && (
-                <div className="absolute inset-0 bg-stone-900/70 flex flex-col items-center justify-center text-white z-10">
-                  <span className="w-5 h-5 border-2 border-t-transparent border-emerald-400 rounded-full animate-spin"></span>
-                  <span className="text-[8px] font-bold mt-1 uppercase tracking-wider text-emerald-400 animate-pulse">Processing AI...</span>
+              {/* Gradient Overlay for Readability */}
+              <div className="absolute inset-0 bg-linear-to-t from-black/75 via-black/20 to-transparent pointer-events-none" />
+
+              {/* Cover Banner Action Overlay */}
+              <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+                {coverPhoto && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewImage({
+                        url: coverPhoto,
+                        title: `${formatMemberName(displayName || name, gender, maritalStatus)} - Cover Photo`,
+                        subtitle: 'Full High-Resolution Cover Banner'
+                      });
+                    }}
+                    className="p-1.5 px-2.5 rounded-xl bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[10px] font-bold border border-white/20 transition-all flex items-center gap-1 cursor-pointer shadow-md"
+                    title="View Banner in High Resolution"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">View Banner</span>
+                  </button>
+                )}
+
+                {canEdit && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPresetCovers(!showPresetCovers);
+                      }}
+                      className="p-1.5 px-2.5 rounded-xl bg-amber-600/90 hover:bg-amber-500 backdrop-blur-md text-white text-[10px] font-bold border border-amber-400/40 transition-all flex items-center gap-1 cursor-pointer shadow-md"
+                      title="Choose Preset Banner"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                      <span className="hidden sm:inline">Presets</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        document.getElementById('cover-file-input')?.click();
+                      }}
+                      className="p-1.5 px-2.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 backdrop-blur-md text-white text-[10px] font-bold border border-emerald-400/40 transition-all flex items-center gap-1 cursor-pointer shadow-md"
+                      title="Upload or Change Cover Photo"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{coverPhoto ? 'Upload' : 'Add Cover'}</span>
+                    </button>
+
+                    {coverPhoto && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveCover();
+                        }}
+                        className="p-1.5 px-2 rounded-xl bg-rose-600/80 hover:bg-rose-600 backdrop-blur-md text-white text-[10px] font-bold border border-rose-400/40 transition-all flex items-center gap-1 cursor-pointer shadow-md"
+                        title="Remove Cover Banner"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Preset Cover Banner Picker Panel */}
+              {showPresetCovers && canEdit && (
+                <div 
+                  className="absolute inset-x-0 bottom-0 top-0 bg-stone-950/95 backdrop-blur-md z-30 p-3 sm:p-4 overflow-y-auto animate-fade-in flex flex-col justify-between"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-[11px] uppercase tracking-wider">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Select Preset Cover Banner</span>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => setShowPresetCovers(false)}
+                        className="p-1 text-stone-400 hover:text-white rounded-lg bg-stone-800 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {PRESET_COVER_BANNERS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => handleSelectPresetCover(preset.url)}
+                          className={`relative h-16 rounded-xl overflow-hidden border-2 transition-all group cursor-pointer text-left ${
+                            coverPhoto === preset.url ? 'border-emerald-500 ring-2 ring-emerald-500/40' : 'border-stone-700 hover:border-stone-400'
+                          }`}
+                        >
+                          <img 
+                            src={preset.url} 
+                            alt={preset.title} 
+                            className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/20 to-transparent p-1.5 flex flex-col justify-end">
+                            <span className="text-white font-bold text-[9px] truncate drop-shadow-xs">{preset.title}</span>
+                          </div>
+                          {coverPhoto === preset.url && (
+                            <div className="absolute top-1 right-1 w-4 h-4 bg-emerald-500 text-white rounded-full flex items-center justify-center">
+                              <Check className="w-2.5 h-2.5" />
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-stone-800 text-[10px] text-stone-400">
+                    <span>Or click Upload to upload your custom image</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPresetCovers(false);
+                        document.getElementById('cover-file-input')?.click();
+                      }}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Camera className="w-3 h-3" />
+                      <span>Upload Custom Image</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* Hover overlay if editable and not uploading or processing */}
-              {canEdit && !isAvatarUploading && !isProcessingBg && (
-                <div className="absolute inset-0 bg-stone-900/60 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <Camera className="w-5 h-5 text-emerald-200" />
-                  <span className="text-[9px] font-black tracking-wider uppercase mt-1">Update</span>
+              {/* Cover Uploading Spinner */}
+              {isCoverUploading && (
+                <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-xs flex flex-col items-center justify-center text-white z-20">
+                  <span className="w-6 h-6 border-2 border-t-transparent border-emerald-400 rounded-full animate-spin"></span>
+                  <span className="text-[10px] font-bold mt-2 uppercase tracking-wider text-emerald-300">Uploading Cover Banner...</span>
                 </div>
               )}
             </div>
 
-            {/* Hidden Input File Element */}
+            {/* Hidden Input File for Cover Photo */}
             {canEdit && (
               <input 
                 type="file" 
-                id="avatar-file-input" 
+                id="cover-file-input" 
                 className="hidden" 
                 accept="image/*" 
-                onChange={handleImageUpload} 
+                onChange={handleCoverUpload} 
               />
             )}
+
+            {/* Cover Error Message */}
+            {coverUploadError && (
+              <div className="p-2 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-[10px] font-semibold border-t border-rose-200 dark:border-rose-900 flex items-center justify-between">
+                <span>⚠️ {coverUploadError}</span>
+                <button 
+                  type="button" 
+                  onClick={() => setCoverUploadError(null)} 
+                  className="font-bold underline uppercase text-[9px] cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Avatar & Profile Identity Overlapping Cover */}
+            <div className="px-4 pb-4 pt-0 flex flex-col sm:flex-row items-center sm:items-end justify-between gap-3 -mt-12 sm:-mt-14 relative z-10 text-center sm:text-left">
+              <div className="flex flex-col sm:flex-row items-center sm:items-end gap-3.5">
+                {/* Avatar Box with Click to View High-Res */}
+                <div 
+                  onClick={() => {
+                    const activeAvatar = avatar || getDefaultAvatar(gender);
+                    if (activeAvatar) {
+                      setPreviewImage({
+                        url: activeAvatar,
+                        title: `${formatMemberName(displayName || name, gender, maritalStatus)} - Profile Photo`,
+                        subtitle: member.role || 'Shalom Youth Fellowship Member'
+                      });
+                    } else if (canEdit) {
+                      document.getElementById('avatar-file-input')?.click();
+                    }
+                  }}
+                  className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center text-3xl font-black border-4 border-white dark:border-stone-900 shadow-xl select-none relative overflow-hidden group/avatar transition-all duration-300 cursor-pointer shrink-0 ${
+                    member.status === 'approved' 
+                      ? 'bg-emerald-100 text-emerald-800' 
+                      : member.status === 'rejected'
+                      ? 'bg-rose-100 text-rose-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                  title="Click to view high-resolution photo"
+                >
+                  {avatar || getDefaultAvatar(gender) ? (
+                    <img 
+                      src={avatar || getDefaultAvatar(gender)} 
+                      alt={name} 
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover/avatar:scale-110" 
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <span>{name.charAt(0).toUpperCase()}</span>
+                  )}
+
+                  {/* Uploading Overlay */}
+                  {isAvatarUploading && (
+                    <div className="absolute inset-0 bg-stone-900/70 flex flex-col items-center justify-center text-white z-10">
+                      <span className="w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin"></span>
+                      <span className="text-[8px] font-bold mt-1 uppercase tracking-wider">Uploading</span>
+                    </div>
+                  )}
+
+                  {/* AI Processing Overlay */}
+                  {isProcessingBg && (
+                    <div className="absolute inset-0 bg-stone-900/70 flex flex-col items-center justify-center text-white z-10">
+                      <span className="w-5 h-5 border-2 border-t-transparent border-emerald-400 rounded-full animate-spin"></span>
+                      <span className="text-[8px] font-bold mt-1 uppercase tracking-wider text-emerald-400 animate-pulse">Processing AI...</span>
+                    </div>
+                  )}
+
+                  {/* Hover Overlay */}
+                  {!isAvatarUploading && !isProcessingBg && (
+                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-xs flex flex-col items-center justify-center text-white opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-200">
+                      <Maximize2 className="w-5 h-5 text-emerald-300 mb-0.5" />
+                      <span className="text-[9px] font-black tracking-wider uppercase">View Photo</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Primary Name & Info */}
+                <div className="sm:pb-1">
+                  <h2 className="text-lg sm:text-xl font-extrabold text-stone-900 dark:text-white flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                    <span>{formatMemberName(displayName || name, gender, maritalStatus)}</span>
+                    <RoleBadge role={role} />
+                  </h2>
+                  <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center justify-center sm:justify-start gap-1.5 mt-0.5">
+                    <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>{bial ? `Bial: ${bial}` : 'Shalom Youth Fellowship'}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons on Banner */}
+              <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('avatar-file-input')?.click()}
+                    className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-stone-200 dark:border-stone-700"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Change Photo</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Hidden Avatar File Input */}
+          {canEdit && (
+            <input 
+              type="file" 
+              id="avatar-file-input" 
+              className="hidden" 
+              accept="image/*" 
+              onChange={handleImageUpload} 
+            />
+          )}
 
             {/* Avatar upload status, progress, error, and preview helper */}
             {canEdit && (isAvatarUploading || avatarUploadError || avatar) && (
@@ -2681,7 +3031,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             isOpen={isCommSettingsOpen} 
             onClose={() => setIsCommSettingsOpen(false)} 
           />
-          </div>
 
         </div>
 
@@ -2721,8 +3070,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-2 w-full">
-              {/* Left Side: Member Actions (ID Card & Direct Calling) */}
+              {/* Left Side: Member Actions (ID Card, Share & Direct Calling) */}
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowShareModal(true)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5" /> Share Profile
+                </button>
                 {member.status === 'approved' && (
                   <button
                     type="button"
@@ -2732,8 +3088,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     <IdCard className="w-3.5 h-3.5" /> Print/View ID Card
                   </button>
                 )}
-
-
               </div>
 
               {/* Right Side: Edit & Close Actions */}
@@ -2763,6 +3117,34 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             member={member}
             isOpen={showIdCard}
             onClose={() => setShowIdCard(false)}
+          />
+        )}
+
+        {/* Share Profile Modal */}
+        {showShareModal && (
+          <ShareProfileModal
+            member={member}
+            isOpen={showShareModal}
+            onClose={() => setShowShareModal(false)}
+            onOpenIdCard={() => {
+              setShowShareModal(false);
+              setShowIdCard(true);
+            }}
+          />
+        )}
+
+        {/* High-Resolution Image Preview Modal */}
+        {previewImage && (
+          <ImagePreviewModal
+            imageUrl={previewImage.url}
+            title={previewImage.title}
+            subtitle={previewImage.subtitle}
+            isOpen={!!previewImage}
+            onClose={() => setPreviewImage(null)}
+            onShare={() => {
+              setPreviewImage(null);
+              setShowShareModal(true);
+            }}
           />
         )}
 

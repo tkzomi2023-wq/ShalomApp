@@ -1941,9 +1941,8 @@ Return normalized float values between 0.0 and 1.0 relative to the image boundar
 `;
 
     const modelsToTry = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash"
+      "gemini-3.6-flash",
+      "gemini-flash-latest"
     ];
 
     let result = null;
@@ -2070,8 +2069,10 @@ The resulting image MUST be a stunning, clean anime character illustration of th
 `;
 
     const modelsToTry = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash"
+      "gemini-3.1-flash-lite-image",
+      "gemini-3.1-flash-image",
+      "gemini-3.6-flash",
+      "gemini-flash-latest"
     ];
 
     let generatedImage = null;

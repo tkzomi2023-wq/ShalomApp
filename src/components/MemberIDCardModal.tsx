@@ -397,14 +397,30 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
                   className="w-72 h-[456px] bg-white text-stone-900 rounded-2xl shadow-xl flex flex-col justify-between overflow-hidden border border-stone-200/80 relative shrink-0"
                   style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
                 >
-                  {/* Decorative curved top background representing peace/youth */}
-                  <div className="absolute top-0 inset-x-0 h-40 bg-linear-to-b from-emerald-800 to-emerald-600 overflow-hidden">
-                    {/* Semi circle ambient rings */}
-                    <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full border-8 border-emerald-500/10"></div>
-                    <div className="absolute -top-6 -left-6 w-24 h-24 rounded-full bg-emerald-500/10"></div>
+                  {/* Decorative cover photo / gradient top banner */}
+                  <div className="absolute top-0 inset-x-0 h-40 overflow-hidden bg-stone-900">
+                    {member.cover_photo ? (
+                      <>
+                        <img
+                          src={member.cover_photo}
+                          alt="Member Cover Photo"
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          crossOrigin="anonymous"
+                        />
+                        {/* Gradient overlay for contrast and text legibility */}
+                        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-emerald-950/40 to-transparent" />
+                      </>
+                    ) : (
+                      <div className="w-full h-full bg-linear-to-b from-emerald-800 via-emerald-700 to-emerald-600 relative">
+                        {/* Semi circle ambient rings */}
+                        <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full border-8 border-emerald-500/10"></div>
+                        <div className="absolute -top-6 -left-6 w-24 h-24 rounded-full bg-emerald-500/10"></div>
+                      </div>
+                    )}
                     
                     {/* Tiny watermark */}
-                    <div className="absolute bottom-2 right-3 text-emerald-300/35 uppercase text-[7px] font-extrabold tracking-widest">
+                    <div className="absolute bottom-2 right-3 text-white/60 uppercase text-[7px] font-extrabold tracking-widest drop-shadow-xs">
                       Shalom Youth Member ID
                     </div>
                   </div>
@@ -510,8 +526,23 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
                   className="w-72 h-[456px] bg-white text-stone-900 rounded-2xl shadow-xl flex flex-col justify-between overflow-hidden border border-stone-200/80 relative shrink-0"
                   style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
                 >
-                  {/* Matching Emerald Header accent */}
-                  <div className="h-2 bg-emerald-600 w-full"></div>
+                  {/* Matching Banner / Emerald Header accent */}
+                  <div className="h-6 w-full relative overflow-hidden bg-emerald-700">
+                    {member.cover_photo ? (
+                      <>
+                        <img
+                          src={member.cover_photo}
+                          alt="Cover Banner"
+                          className="w-full h-full object-cover opacity-80"
+                          referrerPolicy="no-referrer"
+                          crossOrigin="anonymous"
+                        />
+                        <div className="absolute inset-0 bg-emerald-950/40" />
+                      </>
+                    ) : (
+                      <div className="w-full h-full bg-emerald-600" />
+                    )}
+                  </div>
 
                   <div className="p-4 flex flex-col items-center flex-grow justify-center space-y-4">
                     

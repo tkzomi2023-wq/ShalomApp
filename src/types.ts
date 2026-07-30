@@ -31,6 +31,7 @@ export interface Member {
   dob?: string;
   address?: string;
   avatar?: string;
+  cover_photo?: string;
   email_notifications?: boolean;
   birthday_email_notifications?: boolean;
   hide_notifications_ui?: boolean;

@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   dob TEXT,
   address TEXT,
   avatar TEXT,
+  cover_photo TEXT,
   email_notifications BOOLEAN DEFAULT true,
   hide_notifications_ui BOOLEAN DEFAULT false,
   bial TEXT,
@@ -65,6 +66,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 );
 
 -- Safe upgrade for existing databases
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS cover_photo TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bial TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS theme TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS custom_title TEXT;
@@ -1008,6 +1011,7 @@ class HybridDatabaseManager {
       dob: member.dob,
       address: member.address,
       avatar: member.avatar,
+      cover_photo: member.cover_photo || '',
       email_notifications: member.email_notifications !== undefined ? member.email_notifications : true,
       birthday_email_notifications: member.birthday_email_notifications !== undefined ? member.birthday_email_notifications : true,
       hide_notifications_ui: member.hide_notifications_ui !== undefined ? member.hide_notifications_ui : false,
@@ -1106,6 +1110,7 @@ class HybridDatabaseManager {
         dob: newMember.dob,
         address: newMember.address,
         avatar: newMember.avatar,
+        cover_photo: newMember.cover_photo,
         email_notifications: newMember.email_notifications,
         birthday_email_notifications: newMember.birthday_email_notifications,
         hide_notifications_ui: newMember.hide_notifications_ui,
@@ -1131,6 +1136,7 @@ class HybridDatabaseManager {
         dob: newMember.dob,
         address: newMember.address,
         avatar: newMember.avatar,
+        cover_photo: newMember.cover_photo,
         email_notifications: newMember.email_notifications,
         birthday_email_notifications: newMember.birthday_email_notifications,
         hide_notifications_ui: newMember.hide_notifications_ui,
@@ -1504,6 +1510,7 @@ class HybridDatabaseManager {
             dob: profile.dob,
             address: profile.address,
             avatar: profile.avatar,
+            cover_photo: profile.cover_photo,
             email_notifications: profile.email_notifications
           })
           .eq('id', newId);

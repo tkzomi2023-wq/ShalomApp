@@ -104,13 +104,18 @@ export async function resolveMetaDataForPath(
     siteUrl: cleanBase
   };
 
+  const urlQueryIndex = (rawPath || '').indexOf('?');
+  const queryString = urlQueryIndex !== -1 ? (rawPath || '').substring(urlQueryIndex) : '';
+  const queryParams = new URLSearchParams(queryString);
+  const profileQueryId = queryParams.get('profile') || queryParams.get('user') || queryParams.get('member');
+
   const segments = cleanPath.split('/').filter(Boolean);
   const firstSeg = (segments[0] || '').toLowerCase();
   const secondSeg = segments[1] ? decodeURIComponent(segments[1]) : '';
 
-  // 1. User Profile Pages (/profile/:id, /profile/:username, /members/:id)
-  if (firstSeg === 'profile' || firstSeg === 'members' || firstSeg === 'member') {
-    const userIdOrName = secondSeg || 'me';
+  // 1. User Profile Pages (/profile/:id, /profile/:username, /members/:id, or ?profile=:id)
+  if (firstSeg === 'profile' || firstSeg === 'members' || firstSeg === 'member' || profileQueryId) {
+    const userIdOrName = profileQueryId || secondSeg || 'me';
     let profileData: any = null;
 
     if (userIdOrName !== 'me') {
@@ -394,8 +399,8 @@ export async function resolveMetaDataForPath(
 
   // Construct OG Image URL for this page
   let ogImageEndpointPath = '/api/og';
-  if (firstSeg === 'profile' && secondSeg) {
-    ogImageEndpointPath = `/api/og/profile/${encodeURIComponent(secondSeg)}`;
+  if ((firstSeg === 'profile' || profileQueryId) && (secondSeg || profileQueryId)) {
+    ogImageEndpointPath = `/api/og/profile/${encodeURIComponent(profileQueryId || secondSeg)}`;
   } else if ((firstSeg === 'services' || firstSeg === 'service' || firstSeg === 'schedules') && secondSeg) {
     ogImageEndpointPath = `/api/og/service/${encodeURIComponent(secondSeg)}`;
   } else if ((firstSeg === 'events' || firstSeg === 'event') && secondSeg) {
