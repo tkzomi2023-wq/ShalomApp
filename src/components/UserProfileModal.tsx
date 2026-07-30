@@ -9,7 +9,7 @@ import { Member, UserRole, ALL_ROLES, formatMemberName, ActivityLog, getDefaultA
 import { useAuth } from '../lib/auth';
 import { useCalling } from '../context/CallingContext';
 import { supabase, db } from '../lib/supabase';
-import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Copy, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2, PhoneCall, Video, SlidersHorizontal, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Trash2, Volume2, AlertCircle } from 'lucide-react';
+import { X, User, Mail, Phone, Calendar, MapPin, HeartPulse, Heart, UserCheck, ShieldCheck, Edit3, Check, Copy, Camera, Bell, Coins, History, Clock, Sparkles, Download, Scissors, IdCard, Wand2, PhoneCall, Video, SlidersHorizontal, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff, Trash2, Volume2, AlertCircle, Cake } from 'lucide-react';
 import { formatLastSeenInfo } from '../lib/dateUtils';
 import { RoleBadge } from './RoleBadge';
 import { CallButtons } from './calling/CallButtons';
@@ -20,6 +20,7 @@ import { FinancialRecord, financialsDb, MONTHS, BIAL_IDS } from '../lib/financia
 import { getActivityLogs, addActivityLog } from '../lib/activity';
 import { MemberIDCardModal } from './MemberIDCardModal';
 import { convertToAnimeCharacter } from '../utils/cartoonFilter';
+import { setDynamicPageTitle } from '../lib/title';
 
 interface UserProfileModalProps {
   member: Member;
@@ -63,6 +64,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [showIdCard, setShowIdCard] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && member?.name) {
+      setDynamicPageTitle(`${member.name} Profile`);
+    } else {
+      setDynamicPageTitle(null);
+    }
+    return () => {
+      setDynamicPageTitle(null);
+    };
+  }, [isOpen, member?.name]);
 
   const handleCopyEmail = (e: React.MouseEvent, email: string) => {
     e.stopPropagation();
@@ -508,6 +520,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>(member.status);
   const [avatar, setAvatar] = useState(member.avatar || '');
   const [emailNotifications, setEmailNotifications] = useState<boolean>(member.email_notifications !== false);
+  const [birthdayEmailNotifications, setBirthdayEmailNotifications] = useState<boolean>(member.birthday_email_notifications !== false);
   const [hideNotificationsUI, setHideNotificationsUI] = useState<boolean>(member.hide_notifications_ui === true);
   const [activeTab, setActiveTab] = useState<'personal' | 'roles' | 'financial' | 'calling'>('personal');
   const [isCommSettingsOpen, setIsCommSettingsOpen] = useState(false);
@@ -618,6 +631,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
     setAvatar(cleanAvatar);
     setEmailNotifications(member.email_notifications !== false);
+    setBirthdayEmailNotifications(member.birthday_email_notifications !== false);
     setHideNotificationsUI(member.hide_notifications_ui === true);
     setBial(member.bial || '');
     setCustomTitle(member.custom_title || '');
@@ -921,6 +935,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         status: isUserAdmin ? status : member.status,
         avatar: finalAvatar,
         email_notifications: emailNotifications,
+        birthday_email_notifications: birthdayEmailNotifications,
         hide_notifications_ui: hideNotificationsUI,
         bial: canEditBial ? (bial || undefined) : member.bial,
         custom_title: isFounder ? (customTitle.trim() || undefined) : member.custom_title,
@@ -1287,13 +1302,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                           {/* Original Image Card */}
                           <div className="border border-stone-150 dark:border-stone-850 rounded-xl p-2 bg-stone-50/50 dark:bg-stone-950/40 flex flex-col items-center">
                             <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">Original</span>
-                            <div className="h-20 w-20 rounded-lg border border-stone-150 dark:border-stone-800 overflow-hidden bg-stone-100">
-                              <img 
-                                src={originalPreviewUrl || avatar} 
-                                alt="Original" 
-                                className="h-full w-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
+                            <div className="h-20 w-20 rounded-lg border border-stone-150 dark:border-stone-800 overflow-hidden bg-stone-100 flex items-center justify-center">
+                              {(originalPreviewUrl || avatar) ? (
+                                <img 
+                                  src={originalPreviewUrl || avatar} 
+                                  alt="Original" 
+                                  className="h-full w-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <span className="text-[9px] text-stone-400 font-bold">No Image</span>
+                              )}
                             </div>
                           </div>
 
@@ -1428,13 +1447,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                             {/* Original Image Card */}
                             <div className="border border-stone-150 dark:border-stone-850 rounded-xl p-2 bg-stone-50/50 dark:bg-stone-950/40 flex flex-col items-center">
                               <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">Original</span>
-                              <div className="h-20 w-20 rounded-lg border border-stone-150 dark:border-stone-800 overflow-hidden bg-stone-100">
-                                <img 
-                                  src={originalPreviewUrl || avatar} 
-                                  alt="Original" 
-                                  className="h-full w-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                />
+                              <div className="h-20 w-20 rounded-lg border border-stone-150 dark:border-stone-800 overflow-hidden bg-stone-100 flex items-center justify-center">
+                                {(originalPreviewUrl || avatar) ? (
+                                  <img 
+                                    src={originalPreviewUrl || avatar} 
+                                    alt="Original" 
+                                    className="h-full w-full object-cover"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <span className="text-[9px] text-stone-400 font-bold">No Image</span>
+                                )}
                               </div>
                             </div>
 
@@ -2298,7 +2321,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   {/* Email Notifications Toggle */}
                   <div className="flex items-center justify-between p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80">
                     <div className="space-y-0.5">
-                      <span className="font-bold text-stone-850 dark:text-stone-150">Email Notifications</span>
+                      <span className="font-bold text-stone-850 dark:text-stone-150">General Email Notifications</span>
                       <p className="text-[10px] text-stone-450 dark:text-stone-400">Receive schedule and service updates instantly</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -2307,6 +2330,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                         checked={emailNotifications} 
                         disabled={!canEdit}
                         onChange={e => {
+                          if (currentUser?.id !== member.id && !isUserAdmin) {
+                            alert("You can only update your own profile.");
+                            return;
+                          }
                           const newVal = e.target.checked;
                           setEmailNotifications(newVal);
                           // Direct auto-save if editing is not active
@@ -2314,6 +2341,41 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                             onUpdate({
                               ...member,
                               email_notifications: newVal
+                            });
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-stone-200 peer-focus:outline-hidden rounded-full peer dark:bg-stone-750 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Birthday Email Notifications Toggle */}
+                  <div className="flex items-center justify-between p-3 bg-stone-50 dark:bg-stone-950/10 rounded-xl border border-stone-150 dark:border-stone-800/80">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <Cake className="w-3.5 h-3.5 text-pink-500" />
+                        <span className="font-bold text-stone-850 dark:text-stone-150">Birthday Email Notifications</span>
+                      </div>
+                      <p className="text-[10px] text-stone-450 dark:text-stone-400">Receive automatic birthday wishes and celebration email alerts</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={birthdayEmailNotifications} 
+                        disabled={!canEdit}
+                        onChange={e => {
+                          if (currentUser?.id !== member.id && !isUserAdmin) {
+                            alert("You can only update your own profile.");
+                            return;
+                          }
+                          const newVal = e.target.checked;
+                          setBirthdayEmailNotifications(newVal);
+                          // Direct auto-save if editing is not active
+                          if (!isEditing) {
+                            onUpdate({
+                              ...member,
+                              birthday_email_notifications: newVal
                             });
                           }
                         }}

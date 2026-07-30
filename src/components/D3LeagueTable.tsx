@@ -176,12 +176,14 @@ export const D3LeagueTable: React.FC<D3LeagueTableProps> = ({ standings }) => {
       // Team logo and name
       const teamTd = row.append("td").attr("class", "py-3 px-3 font-extrabold text-stone-850 dark:text-stone-100");
       const teamContainer = teamTd.append("div").attr("class", "flex items-center gap-2.5");
-      teamContainer
-        .append("img")
-        .attr("src", d.team.logo || "")
-        .attr("alt", d.team.name)
-        .attr("referrerpolicy", "no-referrer")
-        .attr("class", "w-5 h-5 object-contain");
+      if (d.team.logo) {
+        teamContainer
+          .append("img")
+          .attr("src", d.team.logo)
+          .attr("alt", d.team.name)
+          .attr("referrerpolicy", "no-referrer")
+          .attr("class", "w-5 h-5 object-contain");
+      }
       teamContainer
         .append("span")
         .attr("class", "truncate max-w-[120px] md:max-w-[180px]")

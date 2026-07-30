@@ -1322,7 +1322,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                     <div key={match.id} className="mt-6 flex flex-col md:flex-row items-center justify-between gap-6">
                       <div className="flex items-center justify-center gap-6 w-full md:w-auto">
                         <div className="text-center w-24">
-                          <img src={match.homeTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                          <img src={match.homeTeam?.logo || undefined} alt="" className="w-12 h-12 mx-auto object-contain" />
                           <h3 className="text-sm font-black mt-2 truncate">{getTeamName(match.homeTeam)}</h3>
                         </div>
                         
@@ -1333,7 +1333,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                         </div>
 
                         <div className="text-center w-24">
-                          <img src={match.awayTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                          <img src={match.awayTeam?.logo || undefined} alt="" className="w-12 h-12 mx-auto object-contain" />
                           <h3 className="text-sm font-black mt-2 truncate">{getTeamName(match.awayTeam)}</h3>
                         </div>
                       </div>
@@ -1417,7 +1417,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
 
                               <div className="flex items-center justify-around py-3">
                                 <div className="text-center w-20">
-                                  <img src={match.homeTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                                  <img src={match.homeTeam?.logo || undefined} alt="" className="w-12 h-12 mx-auto object-contain" />
                                   <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{getTeamName(match.homeTeam)}</p>
                                 </div>
                                 
@@ -1441,7 +1441,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                                 </div>
 
                                 <div className="text-center w-20">
-                                  <img src={match.awayTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                                  <img src={match.awayTeam?.logo || undefined} alt="" className="w-12 h-12 mx-auto object-contain" />
                                   <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{getTeamName(match.awayTeam)}</p>
                                 </div>
                               </div>
@@ -1597,12 +1597,12 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
 
                               <div className="flex items-center justify-around py-2">
                                 <div className="text-center w-20">
-                                  <img src={match.homeTeam?.logo || ""} alt="" className="w-10 h-10 mx-auto object-contain" />
+                                  <img src={match.homeTeam?.logo || undefined} alt="" className="w-10 h-10 mx-auto object-contain" />
                                   <p className="text-xs font-bold mt-1 text-stone-800 dark:text-stone-200 truncate">{getTeamName(match.homeTeam)}</p>
                                 </div>
                                 <span className="text-xs font-black text-stone-400">VS</span>
                                 <div className="text-center w-20">
-                                  <img src={match.awayTeam?.logo || ""} alt="" className="w-10 h-10 mx-auto object-contain" />
+                                  <img src={match.awayTeam?.logo || undefined} alt="" className="w-10 h-10 mx-auto object-contain" />
                                   <p className="text-xs font-bold mt-1 text-stone-800 dark:text-stone-200 truncate">{getTeamName(match.awayTeam)}</p>
                                 </div>
                               </div>
@@ -1864,7 +1864,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
 
                           <div className="flex items-center justify-around py-3">
                             <div className="text-center w-20">
-                              <img src={match.homeTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                              <img src={match.homeTeam?.logo || undefined} alt="" className="w-12 h-12 mx-auto object-contain" />
                               <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{getTeamName(match.homeTeam)}</p>
                             </div>
                             
@@ -1888,7 +1888,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                             </div>
 
                             <div className="text-center w-20">
-                              <img src={match.awayTeam?.logo || ""} alt="" className="w-12 h-12 mx-auto object-contain" />
+                              <img src={match.awayTeam?.logo || undefined} alt="" className="w-12 h-12 mx-auto object-contain" />
                               <p className="text-xs font-black mt-2 text-stone-900 dark:text-white truncate">{getTeamName(match.awayTeam)}</p>
                             </div>
                           </div>
@@ -2069,7 +2069,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                               <td className="py-2.5 font-bold text-stone-400">{idx + 1}</td>
                               <td className="py-2.5">
                                 <div className="flex items-center gap-2">
-                                  <img src={t.team.logo || ""} alt="" className="w-4 h-4 object-contain" />
+                                  <img src={t.team.logo || undefined} alt="" className="w-4 h-4 object-contain" />
                                   <span className="font-extrabold text-stone-800 dark:text-stone-200">{getTeamName(t.team)}</span>
                                 </div>
                               </td>
@@ -2164,7 +2164,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 {teamPredicted ? (
                                   <>
-                                    <img src={teamPredicted.logo || ""} alt="" className="w-4 h-4 object-contain" />
+                                    <img src={teamPredicted.logo || undefined} alt="" className="w-4 h-4 object-contain" />
                                     <span className="text-xs font-black text-stone-900 dark:text-white">
                                       {getTeamName(teamPredicted)}
                                       {pred.predicted_home_score !== null && pred.predicted_away_score !== null && (
@@ -2285,7 +2285,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                     {stats && stats.mostPredictedTeam ? (
                       <div className="space-y-4 pt-4">
                         <div className="flex items-center gap-4 bg-stone-50 dark:bg-stone-900 p-4 rounded-xl">
-                          <img src={stats.mostPredictedTeam.team.logo || ""} alt="" className="w-12 h-12 object-contain" />
+                          <img src={stats.mostPredictedTeam.team.logo || undefined} alt="" className="w-12 h-12 object-contain" />
                           <div>
                             <p className="text-[10px] text-stone-500 font-bold uppercase">Most Predicted Team</p>
                             <h4 className="text-base font-black text-stone-900 dark:text-white">{getTeamName(stats.mostPredictedTeam.team)}</h4>
@@ -2840,7 +2840,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <img src={predictingMatch.homeTeam?.logo || ""} alt="" className="w-8 h-8 object-contain" />
+                    <img src={predictingMatch.homeTeam?.logo || undefined} alt="" className="w-8 h-8 object-contain" />
                     <span className="font-extrabold text-sm">{getTeamName(predictingMatch.homeTeam)}</span>
                   </div>
                   {selectedPrediction === predictingMatch.home_team_id && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
@@ -2872,7 +2872,7 @@ export const FootballModule: React.FC<FootballModuleProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <img src={predictingMatch.awayTeam?.logo || ""} alt="" className="w-8 h-8 object-contain" />
+                    <img src={predictingMatch.awayTeam?.logo || undefined} alt="" className="w-8 h-8 object-contain" />
                     <span className="font-extrabold text-sm">{getTeamName(predictingMatch.awayTeam)}</span>
                   </div>
                   {selectedPrediction === predictingMatch.away_team_id && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}

@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth, AuthProvider } from './lib/auth';
 import { db, supabase } from './lib/supabase';
 import { Member, UserRole, isOBUser, DEFAULT_ADMIN_EMAIL, ALL_ROLES, formatMemberName, BirthdayWish, ChatMessage, getDefaultAvatar, getCleanAvatar } from './types';
+import { cleanTitle, TAB_PAGE_TITLES, BRAND_DEFAULT } from './lib/title';
+import { updateClientHeadMeta } from './lib/seo';
 import { getActivityLogs, addActivityLog, clearActivityLogs } from './lib/activity';
 import { RoleBadge } from './components/RoleBadge';
 import { SQLSetupModal } from './components/SQLSetupModal';
@@ -36,6 +38,10 @@ import { CustomDialogProvider, customConfirm, customAlert } from './context/Cust
 import { IncomingCallModal } from './components/calling/IncomingCallModal';
 import { ActiveCallModal } from './components/calling/ActiveCallModal';
 import { CallHistoryPage } from './components/calling/CallHistoryPage';
+import { CommandPaletteModal } from './components/CommandPaletteModal';
+import { KeyboardShortcutsHelpModal } from './components/KeyboardShortcutsHelpModal';
+import { ManualProvisionModal } from './components/ManualProvisionModal';
+import { OgPreviewModal } from './components/OgPreviewModal';
 
 // Recharts for analytics representation
 import { 
@@ -103,7 +109,12 @@ import {
   Trophy,
   Heart,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Keyboard,
+  Search,
+  Bookmark,
+  BookmarkCheck,
+  BookmarkX
 } from 'lucide-react';
 
 const isBirthdayToday = (dobString?: string, todayDate: Date = new Date()): boolean => {
@@ -224,6 +235,13 @@ function AppContent() {
     }
   };
 
+  const cleanMetaString = (str?: string): string => {
+    if (!str) return '';
+    return str
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFD]/g, '')
+      .trim();
+  };
+
   const applyMetaToDom = (data: {
     title?: string;
     description?: string;
@@ -233,6 +251,10 @@ function AppContent() {
     siteUrl?: string;
   }) => {
     if (!data) return;
+
+    const cleanedTitle = cleanMetaString(data.title);
+    const cleanedDescription = cleanMetaString(data.description);
+    const cleanedKeywords = cleanMetaString(data.keywords);
 
     let sUrl = (data.siteUrl || '').trim();
     if (sUrl && !sUrl.startsWith('http://') && !sUrl.startsWith('https://')) {
@@ -256,8 +278,8 @@ function AppContent() {
     const fullOgImage = toFullUrl(data.ogImage);
     const fullFavicon = toFullUrl(data.favicon);
 
-    if (data.title) {
-      document.title = data.title;
+    if (cleanedTitle) {
+      setBrandTitle(cleanedTitle);
     }
 
     const setMetaTag = (selector: string, attrName: string, attrVal: string, contentVal?: string) => {
@@ -271,17 +293,17 @@ function AppContent() {
       el.setAttribute('content', contentVal);
     };
 
-    setMetaTag('meta[name="description"]', 'name', 'description', data.description);
-    setMetaTag('meta[name="keywords"]', 'name', 'keywords', data.keywords);
+    setMetaTag('meta[name="description"]', 'name', 'description', cleanedDescription);
+    setMetaTag('meta[name="keywords"]', 'name', 'keywords', cleanedKeywords);
 
-    setMetaTag('meta[property="og:title"]', 'property', 'og:title', data.title);
-    setMetaTag('meta[property="og:description"]', 'property', 'og:description', data.description);
+    setMetaTag('meta[property="og:title"]', 'property', 'og:title', cleanedTitle);
+    setMetaTag('meta[property="og:description"]', 'property', 'og:description', cleanedDescription);
     setMetaTag('meta[property="og:image"]', 'property', 'og:image', fullOgImage);
     setMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', fullOgImage);
     setMetaTag('meta[property="og:url"]', 'property', 'og:url', sUrl);
 
-    setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', data.title);
-    setMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', data.description);
+    setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', cleanedTitle);
+    setMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', cleanedDescription);
     setMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', fullOgImage);
     setMetaTag('meta[name="twitter:url"]', 'name', 'twitter:url', sUrl);
 
@@ -503,17 +525,36 @@ function AppContent() {
     }
   };
   const [currentTab, setCurrentTab] = useState<'directory' | 'financials' | 'schedule' | 'birthday-tasks' | 'meta-settings' | 'football' | 'prayer-requests' | 'calling' | 'admin-control'>(() => {
+    const VALID_TABS = ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling', 'admin-control'];
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling', 'admin-control'].includes(tab)) {
+    if (tab && VALID_TABS.includes(tab)) {
       return tab as any;
     }
+    // Deep-linking fallback: automatically switch to 'schedule' tab if schedule parameters exist in URL query or hash
+    if (params.get('scheduleId') || params.get('schedule') || params.get('id')) {
+      return 'schedule';
+    }
     const hash = window.location.hash.replace('#', '');
-    if (hash && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling', 'admin-control'].includes(hash)) {
+    if (hash && VALID_TABS.includes(hash)) {
       return hash as any;
+    }
+    if (hash.includes('schedule') || hash.includes('scheduleId')) {
+      return 'schedule';
+    }
+    try {
+      const savedTab = localStorage.getItem('sy_current_tab');
+      if (savedTab && VALID_TABS.includes(savedTab)) {
+        return savedTab as any;
+      }
+    } catch (e) {
+      // ignore
     }
     return 'directory';
   });
+
+  const [brandTitle, setBrandTitle] = useState<string>(BRAND_DEFAULT);
+  const [customOverrideTitle, setCustomOverrideTitle] = useState<string | null>(null);
 
   const [directoryStatusFilter, setDirectoryStatusFilter] = useState<'All' | 'pending' | 'approved' | 'rejected'>('All');
 
@@ -533,6 +574,11 @@ function AppContent() {
     const url = new URL(window.location.href);
     url.searchParams.set('tab', currentTab);
     window.history.replaceState({ tab: currentTab }, '', url.toString());
+    try {
+      localStorage.setItem('sy_current_tab', currentTab);
+    } catch (e) {
+      // ignore
+    }
   }, [currentTab]);
 
   useEffect(() => {
@@ -541,11 +587,58 @@ function AppContent() {
       const tab = params.get('tab');
       if (tab && ['directory', 'financials', 'schedule', 'birthday-tasks', 'meta-settings', 'football', 'prayer-requests', 'calling', 'admin-control'].includes(tab)) {
         setCurrentTab(tab as any);
+      } else if (params.get('scheduleId') || params.get('schedule') || params.get('id')) {
+        setCurrentTab('schedule');
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Listen for custom title overrides from dynamic sub-components (modals, schedule details, etc.)
+  useEffect(() => {
+    const handleTitleChange = (e: any) => {
+      if (e.detail) {
+        setCustomOverrideTitle(e.detail.title ? cleanTitle(e.detail.title) : null);
+      }
+    };
+    window.addEventListener('sy_page_title_change', handleTitleChange);
+    return () => window.removeEventListener('sy_page_title_change', handleTitleChange);
+  }, []);
+
+  // Reset custom title whenever currentTab changes
+  useEffect(() => {
+    setCustomOverrideTitle(null);
+  }, [currentTab]);
+
+  // Centralized SEO Document Title Sync & Open Graph Meta Updates
+  useEffect(() => {
+    const brand = cleanTitle(brandTitle) || BRAND_DEFAULT;
+    let pageTitle = customOverrideTitle;
+
+    if (!pageTitle) {
+      pageTitle = TAB_PAGE_TITLES[currentTab] || BRAND_DEFAULT;
+    }
+
+    const cleanedPage = cleanTitle(pageTitle);
+    let fullTitle = brand;
+
+    if (cleanedPage && cleanedPage !== brand && !cleanedPage.includes(brand)) {
+      fullTitle = `${cleanedPage} | ${brand}`;
+    } else if (cleanedPage) {
+      fullTitle = cleanedPage;
+    }
+
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app';
+    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/';
+    const ogImageUrl = `${origin}/api/og${currentPath === '/' ? '' : currentPath}`;
+
+    updateClientHeadMeta({
+      title: fullTitle,
+      canonicalUrl: typeof window !== 'undefined' ? window.location.href : 'https://jsagyouth.netlify.app',
+      ogImage: ogImageUrl
+    });
+  }, [currentTab, customOverrideTitle, brandTitle]);
   
   // Keep track of the current date to auto-dismiss birthday banners and effects when the day rolls over.
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -625,6 +718,9 @@ function AppContent() {
   const [profileEditMode, setProfileEditMode] = useState(false);
   const [isAuthView, setIsAuthView] = useState<'login' | 'register'>('login');
   const [addNewMemberOpen, setAddNewMemberOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
+  const [isOgPreviewOpen, setIsOgPreviewOpen] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showBalloons, setShowBalloons] = useState(true);
   const [blessingsReceived, setBlessingsReceived] = useState(false);
@@ -679,6 +775,41 @@ function AppContent() {
   const [activeThreadParent, setActiveThreadParent] = useState<ChatMessage | null>(null);
   const [newReplyText, setNewReplyText] = useState("");
 
+  // Personal Saved / Bookmarked Messages States
+  const [showSavedMessagesView, setShowSavedMessagesView] = useState(false);
+  const [savedMessageIds, setSavedMessageIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (user?.id) {
+      try {
+        const stored = localStorage.getItem(`sy_saved_messages_${user.id}`);
+        if (stored) {
+          setSavedMessageIds(JSON.parse(stored));
+        } else {
+          setSavedMessageIds([]);
+        }
+      } catch (e) {
+        setSavedMessageIds([]);
+      }
+    } else {
+      setSavedMessageIds([]);
+    }
+  }, [user?.id]);
+
+  const handleToggleSaveMessage = (messageId: string) => {
+    if (!user?.id) return;
+    setSavedMessageIds(prev => {
+      const exists = prev.includes(messageId);
+      const updated = exists ? prev.filter(id => id !== messageId) : [...prev, messageId];
+      try {
+        localStorage.setItem(`sy_saved_messages_${user.id}`, JSON.stringify(updated));
+      } catch (e) {
+        // ignore
+      }
+      return updated;
+    });
+  };
+
   // Message retention policy states
   const [isRetentionModalOpen, setIsRetentionModalOpen] = useState(false);
   const [retentionDays, setRetentionDays] = useState<number>(0);
@@ -697,6 +828,128 @@ function AppContent() {
     const interval = setInterval(updateHeartbeat, 20000);
     return () => clearInterval(interval);
   }, [user?.id, user?.email]);
+
+  // Global Keyboard Shortcuts (Ctrl+K search, Ctrl+N new member, Ctrl+/ shortcuts help, Ctrl+Shift+<Tab>)
+  useEffect(() => {
+    if (!user) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeElem = document.activeElement;
+      const isEditingText = activeElem && (
+        activeElem.tagName === 'INPUT' ||
+        activeElem.tagName === 'TEXTAREA' ||
+        activeElem.tagName === 'SELECT' ||
+        (activeElem as HTMLElement).isContentEditable
+      );
+
+      const isMac = typeof window !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const hasCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // Ctrl+K / Cmd+K -> Open Command Palette
+      if (hasCmdOrCtrl && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      // Ctrl+/ or Cmd+/ -> Open Keyboard Shortcuts Guide
+      if (hasCmdOrCtrl && e.key === '/') {
+        e.preventDefault();
+        setIsShortcutsHelpOpen((prev) => !prev);
+        return;
+      }
+
+      // Ctrl+N / Cmd+N -> Provision New Member (if authorized)
+      if (hasCmdOrCtrl && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        const isAdminOrOB = isOBUser(user.role) || user.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || user.email?.toLowerCase() === 'tkpaite2016@gmail.com';
+        if (isAdminOrOB) {
+          setAddNewMemberOpen(true);
+        } else {
+          customAlert({
+            title: 'Permission Denied',
+            message: 'Only administrators and office bearers can provision new youth members.',
+            type: 'warning'
+          });
+        }
+        return;
+      }
+
+      // Navigation Shortcuts (Ctrl+Shift+<Key> or Cmd+Shift+<Key>)
+      if (hasCmdOrCtrl && e.shiftKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'd') {
+          e.preventDefault();
+          setCurrentTab('directory');
+          return;
+        }
+        if (key === 's') {
+          e.preventDefault();
+          setCurrentTab('schedule');
+          return;
+        }
+        if (key === 'r' && isPrayerRequestsEnabled) {
+          e.preventDefault();
+          setCurrentTab('prayer-requests');
+          return;
+        }
+        if (key === 'c' && isCallingEnabled) {
+          e.preventDefault();
+          setCurrentTab('calling');
+          return;
+        }
+        if (key === 'p' && isFootballEnabled) {
+          e.preventDefault();
+          setCurrentTab('football');
+          return;
+        }
+        if (key === 'f' && (isOBUser(user.role) || user.role === 'ECM')) {
+          e.preventDefault();
+          setCurrentTab('financials');
+          return;
+        }
+        if (key === 'a' && (isOBUser(user.role) || user.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || user.email?.toLowerCase() === 'tkpaite2016@gmail.com')) {
+          e.preventDefault();
+          setCurrentTab('admin-control');
+          return;
+        }
+        if (key === 'o') {
+          e.preventDefault();
+          setIsOgPreviewOpen(prev => !prev);
+          return;
+        }
+      }
+
+      // Single '/' key when not editing text -> Focus directory search input or open Command Palette
+      if (e.key === '/' && !hasCmdOrCtrl && !e.shiftKey && !isEditingText) {
+        e.preventDefault();
+        const searchInput = document.getElementById('member-directory-search-input') as HTMLInputElement;
+        if (searchInput && currentTab === 'directory') {
+          searchInput.focus();
+        } else {
+          setIsCommandPaletteOpen(true);
+        }
+        return;
+      }
+
+      // Escape key -> Close any open shortcut modals
+      if (e.key === 'Escape') {
+        if (isCommandPaletteOpen) setIsCommandPaletteOpen(false);
+        if (isShortcutsHelpOpen) setIsShortcutsHelpOpen(false);
+        if (addNewMemberOpen) setAddNewMemberOpen(false);
+        if (isOgPreviewOpen) setIsOgPreviewOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    const handleOpenOgInspector = () => setIsOgPreviewOpen(true);
+    window.addEventListener('sy_open_og_inspector', handleOpenOgInspector);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('sy_open_og_inspector', handleOpenOgInspector);
+    };
+  }, [user, currentTab, isCommandPaletteOpen, isShortcutsHelpOpen, addNewMemberOpen, isOgPreviewOpen, isPrayerRequestsEnabled, isCallingEnabled, isFootballEnabled]);
 
   // Load retention settings when modal is opened
   useEffect(() => {
@@ -2102,66 +2355,83 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-linear-to-b from-stone-50 to-stone-100 dark:from-stone-900 dark:to-stone-950 flex flex-col items-center justify-center p-6 transition-colors duration-250">
-        <div className="w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-2xl p-8 text-center space-y-6 relative overflow-hidden">
-          {/* Subtle Accent Line */}
-          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-500"></div>
+      <div className="min-h-screen bg-linear-to-b from-stone-50 via-emerald-950/5 to-stone-100 dark:from-stone-950 dark:via-emerald-950/20 dark:to-stone-900 flex flex-col items-center justify-center p-6 transition-colors duration-250">
+        <div className="w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl border border-stone-200/90 dark:border-stone-800 shadow-2xl p-8 text-center space-y-6 relative overflow-hidden backdrop-blur-xl">
+          {/* Top Gradient Shimmer Bar */}
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600 animate-pulse"></div>
 
           {loadingStatus === 'error' ? (
             <div className="space-y-5 py-2">
-              <div className="w-14 h-14 mx-auto rounded-full bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 flex items-center justify-center text-red-500">
-                <AlertCircle className="w-7 h-7" />
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 flex items-center justify-center text-red-500 shadow-inner">
+                <AlertCircle className="w-8 h-8 animate-bounce" />
               </div>
               <div className="space-y-2">
-                <h3 className="text-base font-bold text-stone-950 dark:text-white">Connection Taking Longer Than Expected</h3>
-                <p className="text-xs text-stone-500 dark:text-stone-400 leading-relaxed font-semibold">
-                  We had trouble establishing a secure database connection. This can happen due to poor network conditions or temporary backend latency.
+                <h3 className="text-base font-black text-stone-950 dark:text-white">Database Connection Timeout</h3>
+                <p className="text-xs text-stone-500 dark:text-stone-400 leading-relaxed font-medium">
+                  We had trouble connecting to the Shalom Youth Database. Please verify your internet connection and try reconnecting.
                 </p>
               </div>
               <button
                 onClick={handleManualRetry}
                 disabled={isRetryingFromUI}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-70 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/10 hover:shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3 px-5 bg-emerald-600 hover:bg-emerald-500 active:scale-98 disabled:opacity-70 text-white font-black text-xs rounded-2xl shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRetryingFromUI ? 'animate-spin' : ''}`} />
-                {isRetryingFromUI ? 'Reconnecting to Database...' : 'Retry Connection Now'}
+                <RefreshCw className={`w-4 h-4 ${isRetryingFromUI ? 'animate-spin' : ''}`} />
+                {isRetryingFromUI ? 'Reconnecting to Database...' : 'Retry Database Connection'}
               </button>
             </div>
           ) : (
-            <div className="space-y-5 py-4">
-              {/* Spinner container */}
-              <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                <div className="absolute inset-0 rounded-full border-4 border-emerald-100 dark:border-emerald-950/30"></div>
-                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-600 dark:border-t-emerald-400 animate-spin"></div>
-                <Database className="w-6 h-6 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+            <div className="space-y-6 py-3">
+              {/* Animated Connection Shield & Spinner Badge */}
+              <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+                {/* Outer Glow Ring */}
+                <div className="absolute inset-0 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/20 animate-ping opacity-75"></div>
+                
+                {/* Outer Spinning Border */}
+                <div className="absolute -inset-1 rounded-2xl border-2 border-emerald-500/20 dark:border-emerald-500/30"></div>
+                <div className="absolute -inset-1 rounded-2xl border-2 border-transparent border-t-emerald-500 dark:border-t-emerald-400 animate-spin"></div>
+                
+                {/* Core Badge */}
+                <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-700 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-600/25 relative z-10">
+                  <Database className="w-8 h-8 text-white animate-pulse" />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-xs font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
-                  {loadingStatus === 'connecting' && "Connecting"}
-                  {loadingStatus === 'slow' && "Preparing Workspace"}
-                  {loadingStatus === 'retrying' && "Reconnecting"}
-                </p>
-                <h3 className="text-sm font-bold text-stone-800 dark:text-stone-200">
-                  {loadingStatus === 'connecting' && "Accessing Shalom Youth Database..."}
-                  {loadingStatus === 'slow' && "We're preparing your workspace. Please wait a moment..."}
-                  {loadingStatus === 'retrying' && "Connection taking longer than expected. Retrying..."}
-                </h3>
-                <p className="text-[11px] text-stone-400 dark:text-stone-500 font-semibold leading-normal">
-                  {loadingStatus === 'connecting' && "Verifying security credentials and syncing current session details..."}
-                  {loadingStatus === 'slow' && "Resolving temporary latency. If it takes too long, you can manually trigger a retry."}
-                  {loadingStatus === 'retrying' && "Starting fallback connection sequence..."}
-                </p>
+              {/* Status Header & Live Indicator Badge */}
+              <div className="space-y-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200/60 dark:border-emerald-800/60 rounded-full text-[11px] font-black tracking-wider uppercase text-emerald-700 dark:text-emerald-300">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span>Initiating Database Connection</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-black text-stone-900 dark:text-stone-100 tracking-tight">
+                    Shalom Youth Database Sync
+                  </h3>
+                  <p className="text-xs text-stone-500 dark:text-stone-400 font-medium leading-relaxed">
+                    {loadingStatus === 'connecting' && "Verifying security credentials and establishing live database link..."}
+                    {loadingStatus === 'slow' && "Preparing your workspace. Synchronizing member profiles & logs..."}
+                    {loadingStatus === 'retrying' && "Re-establishing database handshake. Please hold on..."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Shimmer Progress Track */}
+              <div className="w-full bg-stone-150 dark:bg-stone-800 h-1.5 rounded-full overflow-hidden relative">
+                <div className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600 rounded-full w-3/4 animate-pulse"></div>
               </div>
 
               {(loadingStatus === 'slow' || loadingStatus === 'retrying') && (
                 <button
                   onClick={handleManualRetry}
                   disabled={isRetryingFromUI}
-                  className="w-full py-2 px-4 bg-stone-100 hover:bg-stone-200 dark:bg-stone-850 dark:hover:bg-stone-800 disabled:opacity-70 text-stone-700 dark:text-stone-300 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer border border-stone-200 dark:border-stone-750"
+                  className="w-full py-2.5 px-4 bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 disabled:opacity-70 text-stone-800 dark:text-stone-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer border border-stone-200 dark:border-stone-700"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isRetryingFromUI ? 'animate-spin' : ''}`} />
-                  {isRetryingFromUI ? 'Reconnecting...' : 'Retry Connection'}
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRetryingFromUI ? 'animate-spin' : ''}`} />
+                  {isRetryingFromUI ? 'Reconnecting...' : 'Force Reconnect'}
                 </button>
               )}
             </div>
@@ -2256,20 +2526,20 @@ function AppContent() {
 
   // --- AUTHENTICATED SCREEN (Main Dashboard Workspace) ---
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-between transition-colors duration-200" id="dashboard_root">
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-between transition-colors duration-200 overflow-x-hidden w-full max-w-full min-w-0" id="dashboard_root">
       
       {/* Universal Sticky Header Grid */}
-      <header className="bg-emerald-900 text-white px-3 py-2.5 sm:px-4 sm:py-4 sticky top-0 z-40 shadow-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
+      <header className="bg-emerald-900 text-white px-2.5 py-2 sm:px-4 sm:py-3 sticky top-0 z-40 shadow-md w-full max-w-full overflow-hidden">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-1.5 sm:gap-3 w-full min-w-0">
           
           {/* Logo */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold text-sm sm:text-lg text-emerald-300 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold text-xs sm:text-lg text-emerald-300 shrink-0">
               SY
             </div>
-            <div className="shrink-0">
-              <h1 className="text-sm sm:text-base font-extrabold tracking-tight leading-none">Shalom Youth</h1>
-              <span className="text-[9px] sm:text-[10px] text-emerald-250 font-bold uppercase tracking-wider">Members Console</span>
+            <div className="shrink-0 hidden sm:block">
+              <h1 className="text-xs sm:text-sm md:text-base font-extrabold tracking-tight leading-none whitespace-nowrap">Shalom Youth</h1>
+              <span className="text-[8px] sm:text-[9px] md:text-[10px] text-emerald-250 font-bold uppercase tracking-wider block leading-tight">Members Console</span>
             </div>
           </div>
 
@@ -2296,7 +2566,45 @@ function AppContent() {
           </button>
 
           {/* Right Section / Profile avatar / Logout */}
-          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 min-w-0">
+            {/* Command Palette Trigger */}
+            <button
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border border-white/15 text-xs font-semibold cursor-pointer transition-all shadow-2xs shrink-0 select-none"
+              title="Search Members, Navigation & Commands (Ctrl+K)"
+            >
+              <Search className="w-3.5 h-3.5 text-emerald-300" />
+              <span className="hidden xl:inline">Search</span>
+              <kbd className="hidden xl:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-mono font-bold bg-white/15 text-white/90 rounded border border-white/20">
+                {typeof window !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl+K'}
+              </kbd>
+            </button>
+
+            {/* Quick Add Member Button for Admins */}
+            {user && (isOBUser(user.role) || user.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || user.email?.toLowerCase() === 'tkpaite2016@gmail.com') && (
+              <button
+                onClick={() => setAddNewMemberOpen(true)}
+                className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white border border-emerald-400/40 text-xs font-extrabold cursor-pointer transition-all shadow-2xs shrink-0 select-none"
+                title="Provision New Youth Member (Ctrl+N)"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">New Member</span>
+                <kbd className="hidden 2xl:inline-flex items-center text-[9px] font-mono font-bold bg-black/20 text-white px-1 py-0.5 rounded">
+                  {typeof window !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? '⌘N' : 'Ctrl+N'}
+                </kbd>
+              </button>
+            )}
+
+            {/* Shortcuts Guide Button */}
+            <button
+              onClick={() => setIsShortcutsHelpOpen(true)}
+              className="p-1.5 sm:p-2 bg-emerald-950/50 hover:bg-emerald-800/80 text-emerald-200 hover:text-white rounded-xl transition-all cursor-pointer border border-emerald-800/60 shadow-2xs shrink-0 flex items-center justify-center"
+              title="Keyboard Shortcuts Guide (Ctrl+/)"
+              aria-label="Keyboard Shortcuts"
+            >
+              <Keyboard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </button>
+
             {user && !user.hide_notifications_ui && (
               <NotificationBell 
                 currentUser={user} 
@@ -2309,7 +2617,7 @@ function AppContent() {
               />
             )}
 
-            <div className="text-right hidden sm:block shrink-0">
+            <div className="text-right hidden xl:block shrink-0">
               <span className="block text-xs font-bold text-white leading-none">{formatMemberName(user.display_name || user.name, user.gender, user.marital_status)}</span>
               <div className="flex items-center justify-end gap-1 mt-1">
                 <RoleBadge role={user.role} className="scale-85 origin-right py-0 px-1.5" />
@@ -2328,7 +2636,7 @@ function AppContent() {
                 setProfileEditMode(false);
                 setSelectedProfileMember(user);
               }}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden bg-emerald-80 text-emerald-200 hover:text-white font-black flex items-center justify-center text-xs border-2 border-emerald-700/50 cursor-pointer shrink-0"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden bg-emerald-80 text-emerald-200 hover:text-white font-black flex items-center justify-center text-xs border-2 border-emerald-700/50 cursor-pointer shrink-0"
               title="My Account Details"
             >
               {getCleanAvatar(user.avatar) || getDefaultAvatar(user.gender) ? (
@@ -2365,11 +2673,11 @@ function AppContent() {
                 setProfileEditMode(true);
                 setSelectedProfileMember(user);
               }}
-              className="inline-flex items-center gap-1 px-1.5 py-1.5 sm:gap-1.5 sm:px-3 sm:py-2 bg-emerald-950/40 hover:bg-emerald-800/80 text-emerald-100 hover:text-white rounded-xl text-[10px] sm:text-xs font-bold border border-emerald-800/60 cursor-pointer transition-all shadow-xs shrink-0"
+              className="p-1.5 sm:p-2 lg:px-2.5 lg:py-1.5 bg-emerald-950/40 hover:bg-emerald-800/80 text-emerald-100 hover:text-white rounded-xl text-[10px] sm:text-xs font-bold border border-emerald-800/60 cursor-pointer transition-all shadow-xs shrink-0 flex items-center gap-1"
               title="Edit My Profile Details"
             >
               <UserCog className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Edit Profile</span>
+              <span className="hidden lg:inline">Edit Profile</span>
             </button>
 
             {user.role === 'standard' && (
@@ -2395,7 +2703,7 @@ function AppContent() {
       </header>
 
       {/* Primary Workspace Stage */}
-      <main className="max-w-7xl mx-auto w-full px-4 py-6 flex-grow space-y-6">
+      <main className="max-w-7xl mx-auto w-full px-2.5 sm:px-4 py-4 sm:py-6 flex-grow space-y-4 sm:space-y-6 min-w-0 max-w-full overflow-hidden">
 
         {/* Floating Festive Balloon Background Theme Effect */}
         {user.dob && isBirthdayToday(user.dob, currentDate) && showBalloons && (
@@ -2766,9 +3074,9 @@ function AppContent() {
             )}
 
             {/* View Swapper & Preferences Toggles */}
-            <div className="flex flex-col gap-3 mb-6">
+            <div className="flex flex-col gap-3 mb-6 min-w-0 max-w-full overflow-hidden">
               {/* Navigation Tabs bar */}
-              <div className="flex bg-white dark:bg-stone-900 p-1 rounded-xl sm:rounded-2xl shadow-2xs border border-stone-200 dark:border-stone-800 max-w-full overflow-x-auto no-scrollbar w-full scroll-smooth">
+              <div className="flex bg-white dark:bg-stone-900 p-1 rounded-xl sm:rounded-2xl shadow-2xs border border-stone-200 dark:border-stone-800 max-w-full overflow-x-auto no-scrollbar w-full scroll-smooth min-w-0">
                 <button
                   onClick={() => setCurrentTab('directory')}
                   className={`py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs transition-all cursor-pointer text-center whitespace-nowrap shrink-0 ${currentTab === 'directory' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'}`}
@@ -2836,7 +3144,7 @@ function AppContent() {
 
               {/* Preferences Toggle / Layout Customize Menu - Rendered strictly BELOW tabs */}
               {currentTab === 'directory' && (
-                <div className="flex flex-wrap items-center gap-2 sm:gap-3 py-2 px-3 sm:px-4 rounded-xl sm:rounded-2xl bg-stone-100/90 dark:bg-stone-900/90 border border-stone-200/80 dark:border-stone-800 text-[11px] font-bold text-stone-600 dark:text-stone-300 w-full shadow-2xs">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 py-2 px-3 sm:px-4 rounded-xl sm:rounded-2xl bg-stone-100/90 dark:bg-stone-900/90 border border-stone-200/80 dark:border-stone-800 text-[11px] font-bold text-stone-600 dark:text-stone-300 w-full max-w-full overflow-x-auto min-w-0 shadow-2xs no-scrollbar">
                   <span className="flex items-center gap-1.5 text-stone-500 dark:text-stone-400 shrink-0 mr-1">
                     <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Layout Preferences:</span>
@@ -3151,8 +3459,8 @@ function AppContent() {
           </>
         ) : null}
 
-        {/* Dynamic informational support block with repositioned Mobile App Download */}
-        <section className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 text-emerald-200 p-6 sm:p-7 rounded-3xl border border-emerald-800/80 shadow-xl space-y-5">
+        {/* Dynamic informational support block */}
+        <section className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 text-emerald-200 p-6 sm:p-7 rounded-3xl border border-emerald-800/80 shadow-xl">
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
             
             {/* Guidelines Text */}
@@ -3186,38 +3494,6 @@ function AppContent() {
               </div>
             </div>
 
-          </div>
-
-          {/* Repositioned Mobile App Download Controls within Guidelines Section */}
-          <div className="pt-4 border-t border-emerald-800/60 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-xs text-emerald-300/90 font-medium text-center sm:text-left">
-              <Smartphone className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Get the official Android APK or install the Web App directly on your mobile device.</span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto shrink-0 justify-end">
-              <a
-                href="/api/download-apk"
-                download="Shalom_Youth_App_v2.4.apk"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-emerald-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer group"
-                title="Directly download Android APK file"
-              >
-                <Download className="w-4 h-4 transition-transform group-hover:-translate-y-0.5" />
-                <span>Download Mobile App (.apk)</span>
-              </a>
-
-              <button
-                type="button"
-                onClick={() => setIsDownloadModalOpen(true)}
-                className="w-full sm:w-auto px-4 py-2.5 bg-white/10 hover:bg-white/20 active:scale-95 text-white font-extrabold text-xs rounded-xl border border-white/15 backdrop-blur-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                title="View installation guide & iOS options"
-              >
-                <span>Install Options & Guide</span>
-                <ChevronRight className="w-4 h-4 text-emerald-300" />
-              </button>
-            </div>
           </div>
         </section>
 
@@ -3522,7 +3798,156 @@ function AppContent() {
                 ? 'ring-2 ring-indigo-500 dark:ring-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.45)] border border-indigo-400/50'
                 : 'shadow-2xl border-0 sm:border border-stone-200 dark:border-stone-800'
             }`}>
-              {/* Chat Header */}
+              {showSavedMessagesView ? (
+                <>
+                  {/* Saved Messages Header */}
+                  <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-orange-700 px-4 py-3 text-white flex items-center justify-between shadow-md">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <button
+                        onClick={() => setShowSavedMessagesView(false)}
+                        className="p-1 hover:bg-white/10 rounded-full transition-colors cursor-pointer text-white flex items-center justify-center shrink-0"
+                        title="Back to Global Chat"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                      <div className="min-w-0">
+                        <h3 className="font-extrabold text-xs sm:text-sm tracking-tight flex items-center gap-1.5 truncate">
+                          <Bookmark className="w-4 h-4 fill-amber-200 text-amber-100 shrink-0" />
+                          <span>Saved Messages</span>
+                        </h3>
+                        <p className="text-[9px] text-amber-100 font-medium truncate">Personal bookmarks ({savedMessageIds.length})</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowSavedMessagesView(false);
+                        setIsChatOpen(false);
+                      }}
+                      className="text-white/80 hover:text-white transition-colors text-xs font-bold p-1 bg-white/10 hover:bg-white/20 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer border border-white/10 shrink-0"
+                      title="Close Chat"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Saved Messages List Body */}
+                  <div className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-stone-50/50 dark:bg-stone-950/20 animate-fade-in">
+                    {(() => {
+                      const savedList = chatMessages.filter(m => savedMessageIds.includes(m.id));
+                      if (savedList.length === 0) {
+                        return (
+                          <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3 my-auto">
+                            <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl shadow-xs">
+                              <Bookmark className="w-6 h-6 fill-amber-500/20" />
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-xs font-black text-stone-700 dark:text-stone-300">No Saved Messages Yet</p>
+                              <p className="text-[10px] text-stone-400 dark:text-stone-500 max-w-[220px] leading-relaxed mx-auto">
+                                Click <span className="font-bold text-amber-600 dark:text-amber-400">Save</span> on any chat message to bookmark important announcements, verses, or notes for yourself.
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between px-1">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                              <span>🔖 Your Saved Items ({savedList.length})</span>
+                            </span>
+                            <button
+                              onClick={() => {
+                                if (window.confirm("Are you sure you want to clear all your saved messages?")) {
+                                  setSavedMessageIds([]);
+                                  if (user?.id) localStorage.removeItem(`sy_saved_messages_${user.id}`);
+                                }
+                              }}
+                              className="text-[9px] font-bold text-stone-400 hover:text-rose-600 dark:text-stone-500 dark:hover:text-rose-400 transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Clear All</span>
+                            </button>
+                          </div>
+
+                          {savedList.map((msg) => {
+                            const senderMember = members.find((m) => m.id === msg.user_id);
+                            const avatarUrl = getCleanAvatar(senderMember?.avatar) || msg.user_avatar || (senderMember ? getDefaultAvatar(senderMember.gender) : '');
+                            const isOwn = msg.user_id === user.id;
+
+                            return (
+                              <div
+                                key={`saved-${msg.id}`}
+                                className="bg-white dark:bg-stone-850 p-3 rounded-2xl border border-stone-200/80 dark:border-stone-800 shadow-xs hover:border-amber-300 dark:hover:border-amber-800 transition-all space-y-2 group text-left"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-stone-200 dark:border-stone-700 flex items-center justify-center bg-violet-600 text-white text-[9px] font-black">
+                                      {avatarUrl ? (
+                                        <img src={avatarUrl} alt={msg.user_name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                      ) : (
+                                        msg.user_name ? msg.user_name.charAt(0).toUpperCase() : '?'
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-[11px] font-black text-stone-800 dark:text-stone-200 truncate leading-tight">
+                                        {isOwn ? 'You' : msg.user_name}
+                                      </p>
+                                      <p className="text-[8.5px] text-stone-400 dark:text-stone-500 font-mono">
+                                        {formatTimeAgo(msg.created_at)}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      onClick={() => {
+                                        setShowSavedMessagesView(false);
+                                        if (msg.parent_id) {
+                                          const parentMsg = chatMessages.find(m => m.id === msg.parent_id);
+                                          if (parentMsg) {
+                                            setActiveThreadParent(parentMsg);
+                                          }
+                                        }
+                                        setTimeout(() => {
+                                          const el = document.querySelector(`[data-message-id="${msg.id}"]`);
+                                          if (el) {
+                                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            el.classList.add('ring-2', 'ring-amber-400', 'scale-102');
+                                            setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400', 'scale-102'), 2000);
+                                          }
+                                        }, 150);
+                                      }}
+                                      className="px-2 py-1 rounded-md bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-800 dark:text-amber-300 text-[9.5px] font-black transition-all flex items-center gap-1 cursor-pointer"
+                                      title="Jump to message in chat"
+                                    >
+                                      <span>Jump</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleToggleSaveMessage(msg.id)}
+                                      className="p-1 rounded-md text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:text-stone-500 dark:hover:text-rose-400 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                                      title="Remove from saved messages"
+                                    >
+                                      <BookmarkX className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="text-xs text-stone-700 dark:text-stone-300 font-medium break-words leading-relaxed pl-2 border-l-2 border-amber-400/60 dark:border-amber-500/50 my-1">
+                                  {renderFormattedMessage(msg.message)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Chat Header */}
               <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 px-4 py-3 text-white flex items-center justify-between shadow-md">
                 <div className="flex items-center gap-2.5">
                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-ping absolute"></div>
@@ -3556,6 +3981,24 @@ function AppContent() {
 
                       {isChatHeaderMenuOpen && (
                         <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-stone-850 rounded-xl shadow-2xl border border-stone-200 dark:border-stone-800 py-1.5 z-50 animate-scale-up text-left">
+                          <button
+                            onClick={() => {
+                              setShowSavedMessagesView(true);
+                              setIsChatHeaderMenuOpen(false);
+                            }}
+                            className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800/50 hover:text-stone-900 transition-colors flex items-center justify-between cursor-pointer border-b border-stone-100 dark:border-stone-800"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Bookmark className="w-3.5 h-3.5 text-amber-500 shrink-0 fill-amber-500/20" />
+                              <span>Saved Messages</span>
+                            </div>
+                            {savedMessageIds.length > 0 && (
+                              <span className="bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-black px-1.5 py-0.5 rounded-full border border-amber-200/50">
+                                {savedMessageIds.length}
+                              </span>
+                            )}
+                          </button>
+
                           <button
                             onClick={() => {
                               setShowGuidelines(true);
@@ -3982,6 +4425,23 @@ function AppContent() {
                                    );
                                  })}
 
+                                 <div className="w-px h-4 bg-stone-200 dark:bg-stone-700 mx-1 shrink-0" />
+                                 <button
+                                   type="button"
+                                   onClick={() => {
+                                     handleToggleSaveMessage(msg.id);
+                                     setActiveReactionMsgId(null);
+                                   }}
+                                   className={`h-7 w-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                     savedMessageIds.includes(msg.id)
+                                       ? 'text-amber-500 hover:text-stone-500 dark:text-amber-400 dark:hover:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-850 bg-amber-50 dark:bg-amber-950/20'
+                                       : 'text-stone-500 hover:text-amber-500 dark:text-stone-400 dark:hover:text-amber-400 hover:bg-stone-100 dark:hover:bg-stone-850'
+                                   }`}
+                                   title={savedMessageIds.includes(msg.id) ? "Remove from Saved Messages" : "Save / Bookmark Message"}
+                                 >
+                                   <Bookmark className={`w-3.5 h-3.5 ${savedMessageIds.includes(msg.id) ? 'fill-amber-500 text-amber-500' : ''}`} />
+                                 </button>
+
                                  {(isOwnMessage || isCurrentUserAdmin) && (
                                    <>
                                      <div className="w-px h-4 bg-stone-200 dark:bg-stone-700 mx-1 shrink-0" />
@@ -4066,8 +4526,27 @@ function AppContent() {
                              {/* Timing & Read Receipts */}
                              <div className={`flex items-center gap-1 mt-0.5 px-1 select-none ${isOwnMessage ? 'justify-start' : 'justify-end'}`}>
                                <span className="text-[8px] text-stone-400 dark:text-stone-500 font-mono">
-                                 {showFullTimestamps ? formatFullTimestamp(msg.created_at) : formatTimeAgo(msg.created_at)}</span>{!isDeleted && (<button type="button" onClick={() => setActiveThreadParent(msg)} className={`text-[9px] font-extrabold flex items-center gap-0.5 transition-colors cursor-pointer ml-1.5 ${threadAlerts.includes(msg.id) ? 'text-amber-500 hover:text-amber-600 dark:text-amber-400 font-black animate-pulse' : 'text-stone-400 hover:text-violet-600 dark:text-stone-500 dark:hover:text-violet-400'}`} title="Reply to message"><MessageSquare className={`w-2.5 h-2.5 shrink-0 ${threadAlerts.includes(msg.id) ? 'text-amber-500 fill-amber-500' : ''}`} /><span>Reply {threadAlerts.includes(msg.id) && '• New'}</span></button>)}<span className="hidden">
+                                 {showFullTimestamps ? formatFullTimestamp(msg.created_at) : formatTimeAgo(msg.created_at)}
                                </span>
+                               {!isDeleted && (
+                                 <>
+                                   <button type="button" onClick={() => setActiveThreadParent(msg)} className={`text-[9px] font-extrabold flex items-center gap-0.5 transition-colors cursor-pointer ml-1.5 ${threadAlerts.includes(msg.id) ? 'text-amber-500 hover:text-amber-600 dark:text-amber-400 font-black animate-pulse' : 'text-stone-400 hover:text-violet-600 dark:text-stone-500 dark:hover:text-violet-400'}`} title="Reply to message"><MessageSquare className={`w-2.5 h-2.5 shrink-0 ${threadAlerts.includes(msg.id) ? 'text-amber-500 fill-amber-500' : ''}`} /><span>Reply {threadAlerts.includes(msg.id) && '• New'}</span></button>
+
+                                   <button
+                                     type="button"
+                                     onClick={() => handleToggleSaveMessage(msg.id)}
+                                     className={`text-[9px] font-extrabold flex items-center gap-0.5 transition-colors cursor-pointer ml-1.5 ${
+                                       savedMessageIds.includes(msg.id)
+                                         ? 'text-amber-600 hover:text-amber-700 dark:text-amber-400 font-black'
+                                         : 'text-stone-400 hover:text-amber-500 dark:text-stone-500 dark:hover:text-amber-400'
+                                     }`}
+                                     title={savedMessageIds.includes(msg.id) ? "Remove from Saved Messages" : "Save / Bookmark Message"}
+                                   >
+                                     <Bookmark className={`w-2.5 h-2.5 shrink-0 ${savedMessageIds.includes(msg.id) ? 'fill-amber-500 text-amber-500' : ''}`} />
+                                     <span>{savedMessageIds.includes(msg.id) ? 'Saved' : 'Save'}</span>
+                                   </button>
+                                 </>
+                               )}
                                {isOwnMessage && (
                                  <span 
                                    className={`text-[9px] font-bold cursor-help ${
@@ -4210,8 +4689,10 @@ function AppContent() {
                   <Send className="w-3.5 h-3.5" />
                 </button>
               </form>
-            </div>
+            </>
           )}
+        </div>
+      )}
 
           {/* Thread Panel View */}
           {isChatOpen && activeThreadParent && (
@@ -4574,6 +5055,51 @@ function AppContent() {
           </div>
         </div>
       )}
+      {/* Global Command Palette & Search Modal */}
+      <CommandPaletteModal
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        members={members}
+        currentUser={user}
+        onNavigateTab={(tab) => setCurrentTab(tab)}
+        onSelectMember={(member) => {
+          setCurrentTab('directory');
+          setSelectedProfileMember(member);
+        }}
+        onOpenNewMember={() => setAddNewMemberOpen(true)}
+        onOpenShortcutsHelp={() => setIsShortcutsHelpOpen(true)}
+        onToggleTheme={toggleTheme}
+        theme={theme}
+        onOpenSQLModal={() => setIsSQLModalOpen(true)}
+        onOpenBialModal={() => setIsBialDiagnosticOpen(true)}
+        onRefreshDatabase={loadDatabase}
+      />
+
+      {/* Keyboard Shortcuts Cheat Sheet Guide Modal */}
+      <KeyboardShortcutsHelpModal
+        isOpen={isShortcutsHelpOpen}
+        onClose={() => setIsShortcutsHelpOpen(false)}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        onOpenNewMember={() => setAddNewMemberOpen(true)}
+        isAdmin={!!(user && (isOBUser(user.role) || user.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() || user.email?.toLowerCase() === 'tkpaite2016@gmail.com'))}
+      />
+
+      {/* Manual Provisioning Modal (Direct Admin Member Registration) */}
+      <ManualProvisionModal
+        isOpen={addNewMemberOpen}
+        onClose={() => setAddNewMemberOpen(false)}
+        currentUser={user}
+        onRefresh={loadDatabase}
+        setLogs={setLogs}
+      />
+
+      {/* Dynamic Open Graph (OG) Inspector Modal */}
+      <OgPreviewModal
+        isOpen={isOgPreviewOpen}
+        onClose={() => setIsOgPreviewOpen(false)}
+        currentTab={currentTab}
+      />
+
       {/* Real-time Voice & Video Call Overlays */}
       <IncomingCallModal />
       <ActiveCallModal />

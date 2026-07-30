@@ -8,6 +8,7 @@ import { motion } from 'motion/react';
 import { toPng, toBlob } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { ServiceSchedule, schedulesDb } from '../lib/schedule';
+import { setDynamicPageTitle } from '../lib/title';
 import { Member } from '../types';
 import { db } from '../lib/supabase';
 import { 
@@ -325,7 +326,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
   const [members, setMembers] = useState<Member[]>([]);
 
   const handleCopyShareLink = async (item: ServiceSchedule) => {
-    const url = `${window.location.origin}${window.location.pathname}?scheduleId=${item.id}`;
+    const url = `${window.location.origin}${window.location.pathname}?tab=schedule&scheduleId=${item.id}`;
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(url);
@@ -356,7 +357,12 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
     if (schedules.length === 0) return;
 
     const params = new URLSearchParams(window.location.search);
-    const targetId = params.get('scheduleId') || params.get('id');
+    let targetId = params.get('scheduleId') || params.get('schedule') || params.get('id');
+    if (!targetId && window.location.hash) {
+      const hash = window.location.hash.replace('#', '');
+      const hashParams = new URLSearchParams(hash);
+      targetId = hashParams.get('scheduleId') || hashParams.get('schedule') || hashParams.get('id') || (hash.startsWith('schedule-') ? hash.replace('schedule-', '') : null);
+    }
 
     if (targetId) {
       const found = schedules.find(s => s.id === targetId);
@@ -382,6 +388,17 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
       }
     }
   }, [schedules]);
+
+  useEffect(() => {
+    if (expandedRecordId) {
+      const found = schedules.find(s => s.id === expandedRecordId);
+      if (found) {
+        setDynamicPageTitle(found.title);
+        return;
+      }
+    }
+    setDynamicPageTitle(null);
+  }, [expandedRecordId, schedules]);
 
   useEffect(() => {
     const loadMembers = async () => {
@@ -674,7 +691,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
         doc.setTextColor(180, 83, 9); // Dark amber title
         doc.setFont('Helvetica', 'bold');
         doc.setFontSize(9);
-        doc.text('📢 ANNOUNCEMENTS & MEMORANDA', 26, y + 6);
+        doc.text('SERVICE ANNOUNCEMENTS', 26, y + 6);
         
         doc.setTextColor(68, 64, 60); // Neutral dark
         doc.setFont('Helvetica', 'normal');
@@ -742,7 +759,7 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
       // 2. Draft the highly professional, beautifully formatted, community-optimized text.
       const formattedDate = formatFullDate(item.date);
-      const currentUrl = `${window.location.origin}${window.location.pathname}?scheduleId=${item.id}`;
+      const currentUrl = `${window.location.origin}${window.location.pathname}?tab=schedule&scheduleId=${item.id}`;
 
       let shareText = `✨ *SHALOM YOUTH FELLOWSHIP* ✨\n`;
       shareText += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
@@ -1387,13 +1404,13 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
                         {/* Highlighted Service Announcement Card */}
                         {item.notes && (
-                          <div className="bg-amber-50/40 dark:bg-amber-950/10 border border-amber-100/80 dark:border-amber-900/20 p-4 rounded-2xl shadow-3xs flex items-start gap-3">
-                            <div className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 p-2 rounded-xl shrink-0">
+                          <div className="group bg-amber-50/40 dark:bg-amber-950/10 border border-amber-100/80 dark:border-amber-900/20 p-4 rounded-2xl shadow-3xs flex items-start gap-3 hover:border-amber-400/60 dark:hover:border-amber-500/40 hover:bg-amber-50/80 dark:hover:bg-amber-950/20 hover:shadow-xs transition-all duration-300">
+                            <div className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 p-2 rounded-xl shrink-0 group-hover:scale-110 group-hover:rotate-6 transition-transform duration-300">
                               <Megaphone className="w-4 h-4" />
                             </div>
                             <div className="space-y-1.5 flex-1">
-                              <p className="text-[10px] text-amber-800 dark:text-amber-300 font-extrabold uppercase tracking-widest leading-relaxed">
-                                📢 Service Announcements
+                              <p className="text-[10px] text-amber-800 dark:text-amber-300 font-extrabold uppercase tracking-widest leading-relaxed flex items-center gap-1.5 group-hover:translate-x-1 transition-transform duration-200">
+                                <span>📢 Service Announcements</span>
                               </p>
                               <div className="text-stone-700 dark:text-stone-300 text-xs leading-relaxed font-semibold space-y-1">
                                 {item.notes.split('\n').filter(line => line.trim() !== '').map((line, index) => (
@@ -1648,9 +1665,9 @@ export function SchedulePage({ currentUser, onAddLog }: SchedulePageProps) {
 
                       {/* Service Announcements Segment Card */}
                       {item.notes && (
-                        <div className="bg-amber-950/30 border border-amber-500/30 p-4 rounded-2xl space-y-2 shadow-md">
-                          <div className="flex items-center gap-2">
-                            <Megaphone className="w-4 h-4 text-amber-400 shrink-0" />
+                        <div className="group bg-amber-950/30 border border-amber-500/30 p-4 rounded-2xl space-y-2 shadow-md hover:border-amber-400/60 transition-all duration-300">
+                          <div className="flex items-center gap-2 group-hover:translate-x-1 transition-transform duration-200">
+                            <Megaphone className="w-4 h-4 text-amber-400 shrink-0 group-hover:scale-110 group-hover:rotate-6 transition-transform duration-300" />
                             <p className="text-[10px] text-amber-400 font-black uppercase tracking-widest">📢 Service Announcements</p>
                           </div>
                           <div className="text-stone-200 text-xs font-semibold leading-relaxed space-y-1 pl-1">

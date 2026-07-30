@@ -7,6 +7,8 @@ import nodemailer from "nodemailer";
 import { supabase } from "./src/lib/supabase";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createFootballRouter, initFootballSchedulers } from "./src/lib/footballServer";
+import { resolveMetaDataForPath, PageMetaData } from "./src/lib/ogMetaResolver";
+import { generateOgImagePng, clearOgCache } from "./src/lib/ogImageGenerator";
 
 const app = express();
 const PORT = 3000;
@@ -85,6 +87,7 @@ interface MetaConfig {
   description: string;
   keywords: string;
   ogImage: string;
+  defaultOgImage?: string;
   favicon: string;
   siteUrl: string;
   isFootballEnabled?: boolean;
@@ -97,6 +100,7 @@ const defaultMeta: MetaConfig = {
   description: "Connecting youth, empowering faith, and celebrating fellowship at Shalom Youth Fellowship (Assembly of God Church)",
   keywords: "Shalom Youth, Youth Fellowship, Mizoram Assemblies of God Church, JSAG, CA, Christian Youth",
   ogImage: "https://jsagyouth.netlify.app/og-image.png",
+  defaultOgImage: "https://jsagyouth.netlify.app/og-image.png",
   favicon: "https://jsagyouth.netlify.app/favicon.png",
   siteUrl: "https://jsagyouth.netlify.app",
   isFootballEnabled: true,
@@ -113,6 +117,7 @@ function getMetaConfig(): MetaConfig {
         description: (data.description || defaultMeta.description).trim(),
         keywords: (data.keywords || defaultMeta.keywords).trim(),
         ogImage: data.ogImage || defaultMeta.ogImage,
+        defaultOgImage: data.defaultOgImage || data.default_og_image || defaultMeta.defaultOgImage,
         favicon: data.favicon || defaultMeta.favicon,
         siteUrl: data.siteUrl || defaultMeta.siteUrl,
         isFootballEnabled: typeof data.isFootballEnabled === 'boolean' ? data.isFootballEnabled : (data.is_football_enabled === false ? false : true),
@@ -152,11 +157,14 @@ function normalizeMetaConfig(cfg: Partial<MetaConfig>, baseConfig?: MetaConfig):
     return fallback;
   };
 
+  const rawDefaultOg = cfg.defaultOgImage !== undefined ? cfg.defaultOgImage : ((cfg as any).default_og_image !== undefined ? (cfg as any).default_og_image : current.defaultOgImage || defaultMeta.defaultOgImage);
+
   return {
     title: (cfg.title !== undefined ? cfg.title : current.title || defaultMeta.title).trim(),
     description: (cfg.description !== undefined ? cfg.description : current.description || defaultMeta.description).trim(),
     keywords: (cfg.keywords !== undefined ? cfg.keywords : current.keywords || defaultMeta.keywords).trim(),
     ogImage: toFullUrl(cfg.ogImage !== undefined ? cfg.ogImage : current.ogImage || defaultMeta.ogImage),
+    defaultOgImage: toFullUrl(rawDefaultOg),
     favicon: toFullUrl(cfg.favicon !== undefined ? cfg.favicon : current.favicon || defaultMeta.favicon),
     siteUrl: sUrl || current.siteUrl || defaultMeta.siteUrl,
     isFootballEnabled: parseBool(cfg.isFootballEnabled !== undefined ? cfg.isFootballEnabled : (cfg as any).is_football_enabled, current.isFootballEnabled),
@@ -316,6 +324,54 @@ function injectMetaTags(html: string, config: MetaConfig): string {
     <meta name="twitter:title" content="${escapeHtml(normConfig.title)}" />
     <meta name="twitter:description" content="${escapeHtml(normConfig.description)}" />
     <meta name="twitter:image" content="${escapeHtml(normConfig.ogImage)}" />
+  `;
+
+  if (cleanHtml.includes("<head>")) {
+    return cleanHtml.replace("<head>", `<head>${metaString}`);
+  }
+  return cleanHtml;
+}
+
+function injectPageMetaTags(html: string, meta: PageMetaData, configFavicon?: string): string {
+  let cleanHtml = html.replace(/<title>[\s\S]*?<\/title>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta name="description"[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta name="keywords"[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta property="og:[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<meta name="twitter:[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<link rel="canonical"[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<link rel="icon"[\s\S]*?>/gi, "");
+  cleanHtml = cleanHtml.replace(/<link rel="shortcut icon"[\s\S]*?>/gi, "");
+
+  const favicon = configFavicon || meta.siteUrl + "/favicon.png";
+
+  const metaString = `
+    <title>${escapeHtml(meta.title)}</title>
+    <meta name="description" content="${escapeHtml(meta.description)}" />
+    <meta name="keywords" content="${escapeHtml(meta.keywords)}" />
+    <link rel="canonical" href="${escapeHtml(meta.canonicalUrl)}" />
+    <link rel="icon" href="${escapeHtml(favicon)}" />
+    <link rel="shortcut icon" href="${escapeHtml(favicon)}" />
+    
+    <!-- Open Graph / Facebook / WhatsApp / Telegram / Discord / LinkedIn / Slack -->
+    <meta property="og:type" content="${escapeHtml(meta.ogType || 'website')}" />
+    <meta property="og:site_name" content="Shalom Youth Fellowship - JSAG" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="${escapeHtml(meta.canonicalUrl)}" />
+    <meta property="og:title" content="${escapeHtml(meta.title)}" />
+    <meta property="og:description" content="${escapeHtml(meta.description)}" />
+    <meta property="og:image" content="${escapeHtml(meta.ogImage)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(meta.ogImageSecure)}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="631" />
+    <meta property="og:image:type" content="image/png" />
+    
+    <!-- Twitter / X Cards -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="${escapeHtml(meta.canonicalUrl)}" />
+    <meta name="twitter:title" content="${escapeHtml(meta.title)}" />
+    <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
+    <meta name="twitter:image" content="${escapeHtml(meta.ogImage)}" />
+    <meta name="twitter:image:alt" content="${escapeHtml(meta.title)}" />
   `;
 
   if (cleanHtml.includes("<head>")) {
@@ -667,8 +723,8 @@ async function checkAndSendBirthdayEmails(force = false): Promise<{
       };
     }
 
-    // 3. Identify email recipients (approved members with emails and notifications enabled)
-    const activeRecipients = approvedMembers.filter(m => m.email && m.email_notifications !== false);
+    // 3. Identify email recipients (approved members with emails and both email & birthday notifications enabled)
+    const activeRecipients = approvedMembers.filter(m => m.email && m.email_notifications !== false && (m as any).birthday_email_notifications !== false);
     const recipientEmails = activeRecipients.map(m => m.email.trim().toLowerCase());
 
     if (recipientEmails.length === 0) {
@@ -1659,6 +1715,7 @@ async function syncMetaConfigFromDb() {
         description: data.description,
         keywords: data.keywords,
         ogImage: data.og_image,
+        defaultOgImage: data.default_og_image,
         favicon: data.favicon,
         siteUrl: data.site_url,
         isFootballEnabled: typeof data.is_football_enabled === 'boolean' ? data.is_football_enabled : current.isFootballEnabled,
@@ -1738,6 +1795,7 @@ app.get("/api/meta-config", async (req, res) => {
         description: data.description,
         keywords: data.keywords,
         ogImage: data.og_image,
+        defaultOgImage: data.default_og_image,
         favicon: data.favicon,
         siteUrl: data.site_url,
         isFootballEnabled: typeof data.is_football_enabled === 'boolean' ? data.is_football_enabled : current.isFootballEnabled,
@@ -1754,13 +1812,13 @@ app.get("/api/meta-config", async (req, res) => {
 });
 
 app.post("/api/meta-config", async (req, res) => {
-  const { requesterEmail, title, description, keywords, ogImage, favicon, siteUrl, isFootballEnabled, isPrayerRequestsEnabled, isCallingEnabled } = req.body;
+  const { requesterEmail, title, description, keywords, ogImage, defaultOgImage, favicon, siteUrl, isFootballEnabled, isPrayerRequestsEnabled, isCallingEnabled } = req.body;
   if (!requesterEmail || requesterEmail.toLowerCase() !== "tkpaite2016@gmail.com") {
     return res.status(403).json({ error: "Access Denied: Meta configuration is restricted to tkpaite2016@gmail.com." });
   }
 
   try {
-    const normConfig = normalizeMetaConfig({ title, description, keywords, ogImage, favicon, siteUrl, isFootballEnabled, isPrayerRequestsEnabled, isCallingEnabled });
+    const normConfig = normalizeMetaConfig({ title, description, keywords, ogImage, defaultOgImage, favicon, siteUrl, isFootballEnabled, isPrayerRequestsEnabled, isCallingEnabled });
     // 1. Sync files locally (meta_config.json, manifest.json, index.html)
     syncMetaFiles(normConfig);
 
@@ -1773,6 +1831,7 @@ app.post("/api/meta-config", async (req, res) => {
         description: normConfig.description,
         keywords: normConfig.keywords,
         og_image: normConfig.ogImage,
+        default_og_image: normConfig.defaultOgImage,
         favicon: normConfig.favicon,
         site_url: normConfig.siteUrl,
         is_football_enabled: normConfig.isFootballEnabled,
@@ -2046,6 +2105,54 @@ The resulting image MUST be a stunning, clean anime character illustration of th
 app.post("/api/convert-cartoon", handleAnimeTransformation);
 app.post("/api/convert-anime", handleAnimeTransformation);
 
+// Dynamic Open Graph (OG) Image Generation Endpoints (1200 x 631 PNG)
+app.get(["/api/og", "/api/og/*"], async (req: express.Request, res: express.Response) => {
+  try {
+    let targetPath = req.path.replace(/^\/api\/og/, "");
+    if (!targetPath || targetPath === "/") {
+      if (req.query.path) {
+        targetPath = String(req.query.path);
+      } else if (req.query.type) {
+        targetPath = `/${req.query.type}${req.query.id ? '/' + req.query.id : ''}`;
+      } else {
+        targetPath = "/";
+      }
+    }
+
+    const host = req.headers.host || "jsagyouth.netlify.app";
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const baseUrl = `${protocol}://${host}`;
+
+    const meta = await resolveMetaDataForPath(targetPath, baseUrl);
+    const pngBuffer = await generateOgImagePng(meta.ogImageOptions);
+
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800");
+    res.setHeader("X-OG-Image-Resolution", "1200x631");
+    return res.send(pngBuffer);
+  } catch (err: any) {
+    console.error("[OG Image Endpoint Error]:", err);
+    try {
+      const fallbackMeta = await resolveMetaDataForPath("/", "https://jsagyouth.netlify.app");
+      const fallbackBuffer = await generateOgImagePng(fallbackMeta.ogImageOptions);
+      res.setHeader("Content-Type", "image/png");
+      return res.send(fallbackBuffer);
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to generate OG Image" });
+    }
+  }
+});
+
+app.post("/api/og/clear-cache", (req: express.Request, res: express.Response) => {
+  try {
+    const { key } = req.body || {};
+    clearOgCache(key);
+    res.json({ success: true, message: "OG Image Cache cleared" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Explicit API Route Handlers for 404 and 500 Errors (ensures strict JSON responses)
 app.use("/api/*", (req: express.Request, res: express.Response) => {
   res.status(404).json({ error: `API route ${req.method} ${req.baseUrl || req.originalUrl} not found` });
@@ -2057,24 +2164,74 @@ app.use("/api/*", (err: any, req: express.Request, res: express.Response, next: 
 });
 
 
-// Vite integration middleware & static hosting
+// Vite integration middleware & static hosting with dynamic server-side meta injection
+let viteDevServer: any = null;
+
 async function startServer() {
+  // Page Meta Middleware: Injects dynamic OG & Twitter meta tags into HTML responses
+  app.use(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.method !== "GET" || req.path.startsWith("/api") || req.path.includes(".")) {
+      return next();
+    }
+
+    const acceptsHtml = req.headers.accept?.includes("text/html");
+    const isCrawler = req.headers["user-agent"]?.match(/(facebookexternalhit|twitterbot|whatsapp|telegrambot|discordbot|slackbot|linkedinbot)/i);
+
+    if (!acceptsHtml && !isCrawler) {
+      return next();
+    }
+
+    try {
+      const host = req.headers.host || "jsagyouth.netlify.app";
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const baseUrl = `${protocol}://${host}`;
+
+      const pageMeta = await resolveMetaDataForPath(req.path, baseUrl);
+      const config = getMetaConfig();
+
+      if (process.env.NODE_ENV !== "production" && viteDevServer) {
+        const indexPath = path.join(process.cwd(), "index.html");
+        if (fs.existsSync(indexPath)) {
+          let html = fs.readFileSync(indexPath, "utf-8");
+          html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
+          html = injectPageMetaTags(html, pageMeta, config.favicon);
+          return res.status(200).set({ "Content-Type": "text/html" }).send(html);
+        }
+      } else if (process.env.NODE_ENV === "production") {
+        const indexPath = path.join(process.cwd(), "dist", "index.html");
+        if (fs.existsSync(indexPath)) {
+          let html = fs.readFileSync(indexPath, "utf-8");
+          html = injectPageMetaTags(html, pageMeta, config.favicon);
+          return res.status(200).set({ "Content-Type": "text/html" }).send(html);
+        }
+      }
+    } catch (err) {
+      console.error("Error serving dynamic page meta HTML:", err);
+    }
+    next();
+  });
+
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
+    viteDevServer = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
-    app.use(vite.middlewares);
+    app.use(viteDevServer.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", async (req, res) => {
       const htmlPath = path.join(distPath, "index.html");
       try {
         if (fs.existsSync(htmlPath)) {
           let html = fs.readFileSync(htmlPath, "utf-8");
+          const host = req.headers.host || "jsagyouth.netlify.app";
+          const protocol = req.headers["x-forwarded-proto"] || "https";
+          const baseUrl = `${protocol}://${host}`;
+          const pageMeta = await resolveMetaDataForPath(req.path, baseUrl);
           const config = getMetaConfig();
-          html = injectMetaTags(html, config);
+          html = injectPageMetaTags(html, pageMeta, config.favicon);
+          res.setHeader("Content-Type", "text/html");
           res.send(html);
         } else {
           res.status(404).send("Not Found");

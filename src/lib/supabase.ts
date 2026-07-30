@@ -470,6 +470,7 @@ CREATE TABLE IF NOT EXISTS public.meta_configs (
 ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_football_enabled BOOLEAN DEFAULT true;
 ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_prayer_requests_enabled BOOLEAN DEFAULT true;
 ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_calling_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS default_og_image TEXT;
 
 -- Enable RLS for meta_configs
 ALTER TABLE public.meta_configs ENABLE ROW LEVEL SECURITY;
@@ -753,7 +754,7 @@ class HybridDatabaseManager {
   }
 
   // Check if live Supabase is fully reachable and online (with robust progressive retries & fallbacks)
-  async testConnection(retries = 2, delayMs = 400): Promise<boolean> {
+  async testConnection(retries = 1, delayMs = 200): Promise<boolean> {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const { error } = await supabase.from('profiles').select('id').limit(1);
@@ -982,6 +983,7 @@ class HybridDatabaseManager {
       address: member.address,
       avatar: member.avatar,
       email_notifications: member.email_notifications !== undefined ? member.email_notifications : true,
+      birthday_email_notifications: member.birthday_email_notifications !== undefined ? member.birthday_email_notifications : true,
       hide_notifications_ui: member.hide_notifications_ui !== undefined ? member.hide_notifications_ui : false,
       bial: member.bial,
       theme: member.theme,
@@ -1079,6 +1081,7 @@ class HybridDatabaseManager {
         address: newMember.address,
         avatar: newMember.avatar,
         email_notifications: newMember.email_notifications,
+        birthday_email_notifications: newMember.birthday_email_notifications,
         hide_notifications_ui: newMember.hide_notifications_ui,
         bial: newMember.bial,
         theme: newMember.theme,
@@ -1103,6 +1106,7 @@ class HybridDatabaseManager {
         address: newMember.address,
         avatar: newMember.avatar,
         email_notifications: newMember.email_notifications,
+        birthday_email_notifications: newMember.birthday_email_notifications,
         hide_notifications_ui: newMember.hide_notifications_ui,
         bial: newMember.bial,
         theme: newMember.theme,
@@ -1185,7 +1189,7 @@ class HybridDatabaseManager {
           const errorMsg = (err.message || err.details || '').toLowerCase();
           
           let removedAny = false;
-          const columnsToTest = ['hide_notifications_ui', 'theme', 'bial', 'user_id', 'username', 'display_name'];
+          const columnsToTest = ['birthday_email_notifications', 'hide_notifications_ui', 'theme', 'bial', 'user_id', 'username', 'display_name'];
           
           for (const col of columnsToTest) {
             if (errorMsg.includes(col.toLowerCase())) {

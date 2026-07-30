@@ -520,7 +520,7 @@ export function NotificationBell({
           // Auto-trigger load when opening
           fetchSchedules();
         }}
-        className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-emerald-200 hover:text-white transition-all cursor-pointer relative focus:outline-none focus:ring-2 focus:ring-emerald-400 border border-white/10 shrink-0"
+        className="p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/10 text-emerald-200 hover:text-white transition-all cursor-pointer relative focus:outline-none focus:ring-2 focus:ring-emerald-400 border border-white/10 shrink-0"
         title="Organization Notifications"
       >
         <Bell className={`w-4.5 h-4.5 ${unreadCount > 0 ? 'animate-bounce' : ''}`} />

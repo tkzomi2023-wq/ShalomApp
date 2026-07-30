@@ -75,10 +75,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoadingStatus('connecting');
       }
 
-      // Test connection with generous 12-second timeout to avoid premature cold-start timeouts
+      // Fast connection test (1 retry, 200ms delay) to initiate DB connection instantly on first load
       let isSupabaseOnline = false;
       try {
-        isSupabaseOnline = await withTimeout(db.testConnection(2, 400), 12000, "Database Connection Timeout");
+        isSupabaseOnline = await withTimeout(db.testConnection(1, 200), 5000, "Database Connection Timeout");
       } catch (connErr) {
         console.warn("Database connection test failed or timed out. Proceeding with fallback check.", connErr);
         isSupabaseOnline = false;

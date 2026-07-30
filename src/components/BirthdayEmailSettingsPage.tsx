@@ -639,7 +639,7 @@ export default function BirthdayEmailSettingsPage({ currentUser, members = [] }:
       return;
     }
 
-    const activeRecipients = approvedMembers.filter(m => m.email && m.email_notifications !== false);
+    const activeRecipients = approvedMembers.filter(m => m.email && m.email_notifications !== false && m.birthday_email_notifications !== false);
 
     let statusText = '';
 

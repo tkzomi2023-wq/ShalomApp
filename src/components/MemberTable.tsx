@@ -29,7 +29,9 @@ import {
   ShieldCheck,
   IdCard,
   Sparkles,
-  Clock
+  Clock,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { formatLastSeenInfo } from '../lib/dateUtils';
 import { financialsDb, BialConfig } from '../lib/financials';
@@ -119,6 +121,15 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'last_seen'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [density, setDensity] = useState<'compact' | 'comfortable'>(() => {
+    const saved = localStorage.getItem('sy_member_table_density');
+    return (saved === 'compact' || saved === 'comfortable') ? saved : 'comfortable';
+  });
+
+  const handleDensityChange = (newDensity: 'compact' | 'comfortable') => {
+    setDensity(newDensity);
+    localStorage.setItem('sy_member_table_density', newDensity);
+  };
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [updateConfirm, setUpdateConfirm] = useState<{
     memberId: string;
@@ -135,6 +146,17 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   const [isBatchApproveConfirmOpen, setIsBatchApproveConfirmOpen] = useState(false);
   const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
 
+  // Expandable Row State for Mobile / Compact Detail View
+  const [expandedMemberIds, setExpandedMemberIds] = useState<string[]>([]);
+
+  const toggleExpandMember = (memberId: string) => {
+    setExpandedMemberIds(prev =>
+      prev.includes(memberId)
+        ? prev.filter(id => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(20);
@@ -146,7 +168,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
   const [financialRecords, setFinancialRecords] = useState<any[]>([]);
   const [bialConfigs, setBialConfigs] = useState<BialConfig[]>([]);
 
-  const animKey = `${currentPage}_${viewMode}_${searchTerm}_${statusFilter}_${roleGroupFilter}`;
+  const animKey = `${currentPage}_${viewMode}_${density}_${searchTerm}_${statusFilter}_${roleGroupFilter}`;
 
   const AVAILABLE_COLUMNS = [
     { id: 'name', label: 'Name' },
@@ -527,15 +549,19 @@ export const MemberTable: React.FC<MemberTableProps> = ({
               <Search className="w-4 h-4" />
             </span>
             <input
+              id="member-directory-search-input"
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search members by name, email, phone, blood group..."
-              className="w-full pl-9 pr-4 py-2.5 text-xs bg-stone-50 dark:bg-stone-950/40 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 border border-stone-200 dark:border-stone-800 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-stone-900"
+              placeholder="Search members by name, email, phone, blood group... (/ or Ctrl+K)"
+              className="w-full pl-9 pr-16 py-2.5 text-xs bg-stone-50 dark:bg-stone-950/40 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 border border-stone-200 dark:border-stone-800 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-stone-900"
             />
+            <kbd className="absolute inset-y-0 right-0 my-auto mr-2.5 h-5 px-1.5 hidden sm:inline-flex items-center text-[10px] font-mono font-bold bg-stone-200/80 dark:bg-stone-800 text-stone-500 dark:text-stone-400 rounded border border-stone-300/80 dark:border-stone-700 pointer-events-none">
+              /
+            </kbd>
           </div>
           
-          <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-auto shrink-0">
             {currentUser && isOBUser(currentUser.role) && (
               <button
                 onClick={() => {
@@ -550,6 +576,36 @@ export const MemberTable: React.FC<MemberTableProps> = ({
               </button>
             )}
 
+            {/* Density Toggle */}
+            <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-850 p-1 rounded-xl" title="Row & spacing density">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-stone-400 dark:text-stone-500 pl-1.5 pr-0.5 hidden sm:inline">Density:</span>
+              <button
+                type="button"
+                onClick={() => handleDensityChange('compact')}
+                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all cursor-pointer ${
+                  density === 'compact'
+                    ? 'bg-white dark:bg-stone-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                    : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-white'
+                }`}
+                title="Compact row spacing for high data density"
+              >
+                Compact
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDensityChange('comfortable')}
+                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all cursor-pointer ${
+                  density === 'comfortable'
+                    ? 'bg-white dark:bg-stone-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                    : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-white'
+                }`}
+                title="Comfortable row spacing for relaxed viewing"
+              >
+                Comfortable
+              </button>
+            </div>
+
+            {/* View Mode Toggle */}
             <div className="flex items-center gap-1.5 bg-stone-100 dark:bg-stone-850 p-1 rounded-xl">
               <button
                 onClick={() => setViewMode('list')}
@@ -793,7 +849,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
               <thead>
                 <tr className="bg-stone-50 dark:bg-stone-950/20 text-stone-400 font-extrabold uppercase tracking-wider border-b border-stone-150 dark:border-stone-850">
                   {isCurrentUserAdmin && (
-                    <th className="py-2.5 sm:py-3 px-2 sm:px-4 w-10 text-center">
+                    <th className={`${density === 'compact' ? 'py-1.5 px-2 sm:px-3' : 'py-2.5 sm:py-3 px-2 sm:px-4'} w-10 text-center`}>
                       <input
                         type="checkbox"
                         checked={isAllOnPageSelected}
@@ -803,13 +859,13 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       />
                     </th>
                   )}
-                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Member Info</th>
-                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Approval Status</th>
-                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Assigned Role</th>
-                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Last Active</th>
-                  <th className="py-2.5 sm:py-3 px-2 sm:px-4">Bial Area</th>
-                  <th className="py-2.5 sm:py-3 px-2 sm:px-4 hidden md:table-cell">Address Details</th>
-                  <th className="py-2.5 sm:py-3 px-2 sm:px-4 text-right">Actions</th>
+                  <th className={density === 'compact' ? 'py-1.5 px-2 sm:px-3 text-[10px]' : 'py-2.5 sm:py-3 px-2 sm:px-4'}>Member Info</th>
+                  <th className={`${density === 'compact' ? 'py-1.5 px-2 sm:px-3 text-[10px]' : 'py-2.5 sm:py-3 px-2 sm:px-4'} hidden sm:table-cell`}>Approval Status</th>
+                  <th className={`${density === 'compact' ? 'py-1.5 px-2 sm:px-3 text-[10px]' : 'py-2.5 sm:py-3 px-2 sm:px-4'} hidden sm:table-cell`}>Assigned Role</th>
+                  <th className={`${density === 'compact' ? 'py-1.5 px-2 sm:px-3 text-[10px]' : 'py-2.5 sm:py-3 px-2 sm:px-4'} hidden md:table-cell`}>Last Active</th>
+                  <th className={`${density === 'compact' ? 'py-1.5 px-2 sm:px-3 text-[10px]' : 'py-2.5 sm:py-3 px-2 sm:px-4'} hidden lg:table-cell`}>Bial Area</th>
+                  <th className={`${density === 'compact' ? 'py-1.5 px-2 sm:px-3 text-[10px]' : 'py-2.5 sm:py-3 px-2 sm:px-4'} hidden xl:table-cell`}>Address Details</th>
+                  <th className={`${density === 'compact' ? 'py-1.5 px-2 sm:px-3 text-[10px]' : 'py-2.5 sm:py-3 px-2 sm:px-4'} text-right`}>Actions</th>
                 </tr>
               </thead>
               <motion.tbody 
@@ -821,17 +877,19 @@ export const MemberTable: React.FC<MemberTableProps> = ({
               >
                 {paginatedMembers.map(member => {
                   const isDefaultAdmin = member.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+                  const cellPaddingClass = density === 'compact' ? 'py-1 sm:py-1.5 px-2 sm:px-3' : 'py-2 sm:py-3.5 px-2 sm:px-4';
+                  const isExpanded = expandedMemberIds.includes(member.id);
 
                   return (
+                    <React.Fragment key={member.id}>
                     <motion.tr 
                       variants={itemVariants}
-                      whileHover={{ scale: 1.002, x: 2, backgroundColor: "rgba(16, 185, 129, 0.04)" }}
+                      whileHover={{ scale: 1.001, backgroundColor: "rgba(16, 185, 129, 0.04)" }}
                       transition={{ type: "tween", ease: "easeOut", duration: 0.12 }}
-                      key={member.id} 
-                      className={`hover:bg-emerald-50/20 dark:hover:bg-stone-850/40 transition-colors ${selectedMemberIds.includes(member.id) ? 'bg-emerald-50/10 dark:bg-emerald-950/10' : ''}`}
+                      className={`hover:bg-emerald-50/20 dark:hover:bg-stone-850/40 transition-colors ${selectedMemberIds.includes(member.id) ? 'bg-emerald-50/10 dark:bg-emerald-950/10' : ''} ${isExpanded ? 'bg-amber-50/20 dark:bg-amber-950/10' : ''}`}
                     >
                       {isCurrentUserAdmin && (
-                        <td className="py-2 sm:py-3.5 px-2 sm:px-4 w-10 text-center">
+                        <td className={`${cellPaddingClass} w-10 text-center`}>
                           <input
                             type="checkbox"
                             checked={selectedMemberIds.includes(member.id)}
@@ -848,11 +906,11 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                         </td>
                       )}
                       {/* Member Identifiers */}
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                      <td className={cellPaddingClass}>
                         <div className="flex items-center gap-2 sm:gap-3">
                           <div 
                             onClick={() => onOpenProfile(member)}
-                            className={`w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? '' : 'p-1.5 sm:p-2.5'} font-bold flex items-center justify-center text-xs sm:text-sm cursor-pointer select-none`}
+                            className={`${density === 'compact' ? 'w-7 h-7 sm:w-8 sm:h-8 text-xs' : 'w-8 h-8 sm:w-10 sm:h-10 text-xs sm:text-sm'} shrink-0 rounded-full overflow-hidden bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 ${getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? '' : 'p-1.5 sm:p-2.5'} font-bold flex items-center justify-center cursor-pointer select-none`}
                           >
                             {getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender) ? (
                               <img src={getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -864,7 +922,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
                               <button
                                 onClick={() => onOpenProfile(member)}
-                                className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left text-[11px] sm:text-xs truncate max-w-[100px] sm:max-w-none"
+                                className="font-bold text-stone-900 dark:text-white hover:text-emerald-600 block text-left text-[11px] sm:text-xs truncate max-w-[120px] xs:max-w-[160px] sm:max-w-none"
                               >
                                 {formatMemberName(member.display_name || member.name, member.gender, member.marital_status)}
                               </button>
@@ -878,7 +936,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                               />
                             </div>
                             <div className="flex items-center gap-1 text-stone-400 text-[9px] sm:text-[11px] min-w-0">
-                              <span className="truncate max-w-[130px] sm:max-w-[200px]" title={member.email}>
+                              <span className="truncate max-w-[110px] xs:max-w-[150px] sm:max-w-[200px]" title={member.email}>
                                 {member.email}
                               </span>
                               {member.email && (
@@ -896,14 +954,31 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                   )}
                                 </button>
                               )}
-                              {member.phone && <span className="shrink-0">• {member.phone}</span>}
+                            </div>
+
+                            {/* Mobile Compact Status & Role Badge Row */}
+                            <div className="flex sm:hidden items-center gap-1 mt-1 flex-wrap">
+                              {member.status === 'approved' ? (
+                                <span className="text-[8.5px] font-extrabold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-400 px-1.5 py-0.25 rounded border border-emerald-200/50 dark:border-emerald-900/30">
+                                  Approved
+                                </span>
+                              ) : member.status === 'rejected' ? (
+                                <span className="text-[8.5px] font-extrabold text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-400 px-1.5 py-0.25 rounded border border-rose-200/50 dark:border-rose-900/30">
+                                  Rejected
+                                </span>
+                              ) : (
+                                <span className="text-[8.5px] font-extrabold text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-400 px-1.5 py-0.25 rounded border border-amber-200/50 dark:border-amber-900/30">
+                                  Pending
+                                </span>
+                              )}
+                              <RoleBadge role={member.role} />
                             </div>
                           </div>
                         </div>
                       </td>
 
                       {/* Approval Status */}
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                      <td className={`${cellPaddingClass} hidden sm:table-cell`}>
                         <div className="flex items-center gap-1">
                           {member.status === 'approved' ? (
                             <span className="inline-flex items-center gap-0.5 sm:gap-1 text-emerald-600 font-bold text-[9px] sm:text-[10px] uppercase tracking-wide bg-emerald-50 dark:bg-emerald-950/20 px-1 sm:px-2 py-0.5 rounded-md">
@@ -922,7 +997,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       </td>
 
                       {/* Role selection Dropdown for Admin */}
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                      <td className={`${cellPaddingClass} hidden sm:table-cell`}>
                         {canChangeRole && !isDefaultAdmin ? (
                           <div className="flex flex-col gap-1 items-start">
                             <select
@@ -970,7 +1045,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       </td>
 
                       {/* Last Active Timestamp */}
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                      <td className={`${cellPaddingClass} hidden md:table-cell`}>
                         {(() => {
                           const isOnline = onlineUserIds.includes(member.id);
                           const info = formatLastSeenInfo(member.last_seen, isOnline);
@@ -1001,20 +1076,47 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                       </td>
 
                       {/* Bial Area info */}
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-4">
+                      <td className={`${cellPaddingClass} hidden lg:table-cell`}>
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
                           {getMemberBial(member)}
                         </span>
                       </td>
 
                       {/* Address info */}
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-4 text-stone-500 text-[11px] max-w-xs truncate hidden md:table-cell">
+                      <td className={`${cellPaddingClass} text-stone-500 text-[11px] max-w-xs truncate hidden xl:table-cell`}>
                         {member.address || <span className="italic text-stone-300">No Address Provided</span>}
                       </td>
 
-                      {/* Immediate action triggers */}
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-4 text-right">
+                      {/* Immediate action triggers & Expand detail view toggle */}
+                      <td className={`${cellPaddingClass} text-right`}>
                         <div className="flex items-center justify-end gap-1 sm:gap-1.5">
+                          {/* Row Expand Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpandMember(member.id);
+                            }}
+                            className={`p-1 sm:p-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-0.5 text-[10px] font-extrabold ${
+                              isExpanded
+                                ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-800'
+                                : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 text-stone-600 dark:text-stone-300'
+                            }`}
+                            title={isExpanded ? "Collapse Row Details" : "Expand Full Row Details"}
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp className="w-3.5 h-3.5" />
+                                <span className="hidden xs:inline sm:hidden">Less</span>
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-3.5 h-3.5" />
+                                <span className="hidden xs:inline sm:hidden">More</span>
+                              </>
+                            )}
+                          </button>
+
                           {isCurrentUserAdmin && member.status === 'pending' && (
                             <>
                               <button
@@ -1022,14 +1124,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                                 className="p-1 px-1.5 sm:px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[9px] sm:text-[10px] uppercase tracking-wide flex items-center gap-0.5 sm:gap-1 transition-all cursor-pointer whitespace-nowrap"
                                 title="Approve Membership"
                               >
-                                <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Approve
-                              </button>
-                              <button
-                                onClick={() => handleQuickReject(member.id, member.role)}
-                                className="p-1 px-1 sm:px-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg text-[9px] sm:text-[10px] hover:text-stone-900 transition-colors cursor-pointer"
-                                title="Reject Membership"
-                              >
-                                Reject
+                                <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> <span className="hidden xs:inline">Approve</span>
                               </button>
                             </>
                           )}
@@ -1037,7 +1132,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                           {currentUser && (isCurrentUserAdmin || currentUser.id === member.id || currentUser.email.toLowerCase() === member.email.toLowerCase()) && (
                             <button
                               onClick={() => onOpenProfile(member, true)}
-                              className="p-1 sm:p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
+                              className="p-1 sm:p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg transition-colors cursor-pointer hidden xs:inline-flex"
                               title="Detailed Member profile card"
                             >
                               <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1052,7 +1147,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             <button
                               type="button"
                               onClick={() => setIdCardMember(member)}
-                              className="p-1 sm:p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-all cursor-pointer"
+                              className="p-1 sm:p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-all cursor-pointer hidden xs:inline-flex"
                               title="View & Print Member ID Card"
                             >
                               <IdCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1083,7 +1178,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                             ) : (
                               <button
                                 onClick={() => setDeleteConfirmId(member.id)}
-                                className="p-1 sm:p-1.5 text-stone-450 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer"
+                                className="p-1 sm:p-1.5 text-stone-450 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer hidden xs:inline-flex"
                                 title="Delete Record"
                               >
                                 <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1092,8 +1187,179 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                           )}
                         </div>
                       </td>
-
                     </motion.tr>
+
+                    {/* Expandable Mobile & Compact Detail Row */}
+                    {isExpanded && (
+                      <tr className="bg-amber-50/20 dark:bg-stone-850/60 border-b border-stone-200 dark:border-stone-800 animate-fade-in">
+                        <td colSpan={10} className="p-2 sm:p-3.5">
+                          <div className="bg-white dark:bg-stone-900 border border-amber-200/80 dark:border-stone-800 rounded-xl p-3 sm:p-4 space-y-3 shadow-xs">
+                            {/* Expanded Header Summary */}
+                            <div className="flex items-center justify-between pb-2 border-b border-stone-150 dark:border-stone-800 gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="font-extrabold text-xs text-stone-900 dark:text-stone-100 truncate">
+                                  {formatMemberName(member.display_name || member.name, member.gender, member.marital_status)}
+                                </span>
+                                <RoleBadge role={member.role} />
+                              </div>
+                              <button
+                                onClick={() => toggleExpandMember(member.id)}
+                                className="text-[10px] font-bold text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 cursor-pointer flex items-center gap-1 shrink-0 bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-md"
+                              >
+                                <span>Close</span>
+                                <ChevronUp className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            {/* Details Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
+                              {/* Status & Role Section */}
+                              <div className="bg-stone-50 dark:bg-stone-850/60 p-2.5 rounded-lg space-y-1.5 border border-stone-100 dark:border-stone-800">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-stone-400 block">Status & Role</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {member.status === 'approved' ? (
+                                    <span className="inline-flex items-center gap-1 text-emerald-600 font-bold text-[10px] bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-md">
+                                      <CheckCircle2 className="w-3 h-3" /> Approved
+                                    </span>
+                                  ) : member.status === 'rejected' ? (
+                                    <span className="inline-flex items-center gap-1 text-rose-600 font-bold text-[10px] bg-rose-50 dark:bg-rose-950/30 px-2 py-0.5 rounded-md">
+                                      <XCircle className="w-3 h-3" /> Rejected
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-amber-600 font-bold text-[10px] bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-md">
+                                      <ShieldAlert className="w-3 h-3" /> Pending Review
+                                    </span>
+                                  )}
+                                </div>
+
+                                {canChangeRole && !isDefaultAdmin && (
+                                  <div className="pt-1 flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold text-stone-500">Change Role:</span>
+                                    <select
+                                      value={member.role}
+                                      onChange={(e) => {
+                                        const targetRole = e.target.value as UserRole;
+                                        if (targetRole !== member.role) {
+                                          setUpdateConfirm({
+                                            memberId: member.id,
+                                            memberName: member.name,
+                                            currentRole: member.role,
+                                            currentStatus: member.status,
+                                            targetRole: targetRole,
+                                            targetStatus: member.status,
+                                            type: 'role'
+                                          });
+                                        }
+                                      }}
+                                      className="bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded p-1 text-[10px] font-bold text-stone-700 dark:text-stone-300 cursor-pointer"
+                                    >
+                                      {ALL_ROLES.map(r => (
+                                        <option key={r} value={r}>
+                                          {r === 'standard' ? 'standard (Member)' : r}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Contact Information */}
+                              <div className="bg-stone-50 dark:bg-stone-850/60 p-2.5 rounded-lg space-y-1.5 border border-stone-100 dark:border-stone-800">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-stone-400 block">Contact Info</span>
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between gap-1 text-[10.5px]">
+                                    <span className="text-stone-500 dark:text-stone-400 truncate" title={member.email}>{member.email}</span>
+                                    {member.email && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleCopyEmail(e, member.email)}
+                                        className="p-1 text-stone-400 hover:text-emerald-600 cursor-pointer"
+                                        title="Copy Email"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="font-bold text-stone-700 dark:text-stone-200 text-[10.5px]">{member.phone || 'No Phone'}</span>
+                                    {member.status === 'approved' && currentUser && currentUser.id !== member.id && (
+                                      <CallButtons member={member} size="sm" />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Bial Area & Address */}
+                              <div className="bg-stone-50 dark:bg-stone-850/60 p-2.5 rounded-lg space-y-1.5 border border-stone-100 dark:border-stone-800 sm:col-span-2 md:col-span-1">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-stone-400 block">Bial Area & Address</span>
+                                <p className="text-[10.5px] font-bold text-stone-700 dark:text-stone-200">
+                                  Bial: <span className="text-emerald-600 dark:text-emerald-400">{getMemberBial(member)}</span>
+                                </p>
+                                <p className="text-[10.5px] text-stone-500 dark:text-stone-400 break-words">
+                                  {member.address || <span className="italic text-stone-400">No Address Provided</span>}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Footer Actions */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-stone-150 dark:border-stone-800 text-xs">
+                              <div className="flex items-center gap-1.5 text-[10px] text-stone-500">
+                                <Clock className="w-3 h-3 text-stone-400" />
+                                <span>
+                                  Last Seen: {formatLastSeenInfo(member.last_seen, onlineUserIds.includes(member.id)).relativeTime}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {isCurrentUserAdmin && member.status === 'pending' && (
+                                  <>
+                                    <button
+                                      onClick={() => handleQuickApprove(member.id, member.role)}
+                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] uppercase tracking-wide flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Check className="w-3 h-3" /> Approve
+                                    </button>
+                                    <button
+                                      onClick={() => handleQuickReject(member.id, member.role)}
+                                      className="px-2.5 py-1 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold rounded-lg text-[10px] hover:bg-stone-300 cursor-pointer"
+                                    >
+                                      Reject
+                                    </button>
+                                  </>
+                                )}
+
+                                <button
+                                  onClick={() => onOpenProfile(member, true)}
+                                  className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-750 text-stone-700 dark:text-stone-200 font-bold rounded-lg text-[10px] flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Edit2 className="w-3 h-3" /> Edit Profile
+                                </button>
+
+                                {member.status === 'approved' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setIdCardMember(member)}
+                                    className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold border border-emerald-200 dark:border-emerald-800/60 rounded-lg text-[10px] flex items-center gap-1 hover:bg-emerald-100 cursor-pointer"
+                                  >
+                                    <IdCard className="w-3 h-3 text-emerald-600" /> ID Badge
+                                  </button>
+                                )}
+
+                                {isCurrentUserAdmin && !isDefaultAdmin && (
+                                  <button
+                                    onClick={() => setDeleteConfirmId(member.id)}
+                                    className="px-2.5 py-1 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 font-bold rounded-lg text-[10px] flex items-center gap-1 hover:bg-rose-100 cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> Delete
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </motion.tbody>
@@ -1120,7 +1386,7 @@ export const MemberTable: React.FC<MemberTableProps> = ({
                 whileHover={{ y: -4, scale: 1.015, boxShadow: "0 12px 20px -8px rgba(0, 0, 0, 0.08)" }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
                 key={member.id}
-                className={`bg-white dark:bg-stone-900 border rounded-2xl p-5 hover:border-emerald-250 dark:hover:border-emerald-900 hover:shadow-md transition-all flex flex-col justify-between space-y-4 ${selectedMemberIds.includes(member.id) ? 'border-emerald-500 ring-2 ring-emerald-500/10' : 'border-stone-150 dark:border-stone-850'}`}
+                className={`bg-white dark:bg-stone-900 border rounded-2xl ${density === 'compact' ? 'p-3.5 space-y-2.5' : 'p-5 space-y-4'} hover:border-emerald-250 dark:hover:border-emerald-900 hover:shadow-md transition-all flex flex-col justify-between ${selectedMemberIds.includes(member.id) ? 'border-emerald-500 ring-2 ring-emerald-500/10' : 'border-stone-150 dark:border-stone-850'}`}
               >
                 {/* Header Profile Identity */}
                 <div className="flex items-start gap-3.5">

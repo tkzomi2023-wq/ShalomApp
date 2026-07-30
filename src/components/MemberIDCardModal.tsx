@@ -424,12 +424,18 @@ export const MemberIDCardModal: React.FC<MemberIDCardModalProps> = ({ member, is
                   <div className="flex flex-col items-center justify-center mt-2 relative z-10 px-4">
                     {/* Frame for Profile Picture */}
                     <div className="w-28 h-28 rounded-full border-4 border-white bg-white shadow-md overflow-hidden relative group">
-                      <img
-                        src={getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)}
-                        alt={member.name}
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
+                      {(getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)) ? (
+                        <img
+                          src={getCleanAvatar(member.avatar) || getDefaultAvatar(member.gender)}
+                          alt={member.name}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-emerald-100 text-emerald-800 font-black text-2xl flex items-center justify-center">
+                          {member.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-3.5 text-center w-full">

@@ -7,6 +7,7 @@ interface MetaConfig {
   description: string;
   keywords: string;
   ogImage: string;
+  defaultOgImage?: string;
   favicon: string;
   siteUrl: string;
   isFootballEnabled?: boolean;
@@ -26,6 +27,39 @@ const isNetlify = typeof window !== 'undefined' && (
   window.location.hostname.includes('github.io') ||
   (window.location.hostname.endsWith('.app') && !window.location.hostname.includes('run.app') && !window.location.hostname.includes('google'))
 );
+
+const PRESET_DEFAULT_OG_IMAGES = [
+  {
+    id: 'emerald-shield',
+    name: 'Emerald Shield Banner',
+    url: 'https://images.unsplash.com/photo-1515162305285-0293e4767cc2?q=80&w=1200&auto=format&fit=crop',
+    desc: 'Classic Shalom Emerald & Gold Crest'
+  },
+  {
+    id: 'worship-sanctuary',
+    name: 'Sanctuary Worship Night',
+    url: 'https://images.unsplash.com/photo-1438232992991-995b7058bbb3?q=80&w=1200&auto=format&fit=crop',
+    desc: 'Praise & Worship Gathering'
+  },
+  {
+    id: 'youth-fellowship',
+    name: 'Youth Bible Study',
+    url: 'https://images.unsplash.com/photo-1511649475669-e288648b2339?q=80&w=1200&auto=format&fit=crop',
+    desc: 'Fellowship & Scripture Study'
+  },
+  {
+    id: 'football-league',
+    name: 'Shalom League Banner',
+    url: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?q=80&w=1200&auto=format&fit=crop',
+    desc: 'Sports & Football Fellowship'
+  },
+  {
+    id: 'dynamic-engine',
+    name: 'Dynamic OG Engine',
+    url: '/api/og',
+    desc: 'Server-Rendered 1200x631 Canvas'
+  }
+];
 
 export const toFullUrl = (url?: string, siteUrl?: string): string => {
   if (!url) return '';
@@ -51,6 +85,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     description: '',
     keywords: '',
     ogImage: '',
+    defaultOgImage: '',
     favicon: '',
     siteUrl: ''
   });
@@ -63,6 +98,10 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
   const [isOgUploading, setIsOgUploading] = useState<boolean>(false);
   const [ogUploadProgress, setOgUploadProgress] = useState<number>(0);
   const [ogUploadError, setOgUploadError] = useState<string | null>(null);
+
+  const [isDefaultOgUploading, setIsDefaultOgUploading] = useState<boolean>(false);
+  const [defaultOgUploadProgress, setDefaultOgUploadProgress] = useState<number>(0);
+  const [defaultOgUploadError, setDefaultOgUploadError] = useState<string | null>(null);
 
   const [isFaviconUploading, setIsFaviconUploading] = useState<boolean>(false);
   const [faviconUploadProgress, setFaviconUploadProgress] = useState<number>(0);
@@ -102,6 +141,43 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     } finally {
       setIsOgUploading(false);
       setTimeout(() => setOgUploadProgress(0), 800);
+    }
+  };
+
+  const handleDefaultOgImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsDefaultOgUploading(true);
+    setDefaultOgUploadError(null);
+    setDefaultOgUploadProgress(10);
+
+    const progressInterval = setInterval(() => {
+      setDefaultOgUploadProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return prev;
+        }
+        return prev + 15;
+      });
+    }, 120);
+
+    try {
+      const filePath = `meta/default-og-image.png`;
+      const imageUrl = await db.uploadToStorage('thumbnails', filePath, file);
+      const freshImageUrl = `${imageUrl.split('?')[0]}?v=${Date.now()}`;
+      const fullDefaultOg = toFullUrl(freshImageUrl, config.siteUrl);
+      
+      clearInterval(progressInterval);
+      setDefaultOgUploadProgress(100);
+      setConfig(prev => ({ ...prev, defaultOgImage: fullDefaultOg }));
+    } catch (err: any) {
+      clearInterval(progressInterval);
+      console.error('Error uploading custom Default OG fallback image:', err);
+      setDefaultOgUploadError(`Upload Failed: ${err.message || 'Check connection.'}`);
+    } finally {
+      setIsDefaultOgUploading(false);
+      setTimeout(() => setDefaultOgUploadProgress(0), 800);
     }
   };
 
@@ -150,6 +226,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         const data = await safeJsonParse(response);
         const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app');
         const resolvedOgImage = toFullUrl(data.ogImage, resolvedSiteUrl);
+        const resolvedDefaultOgImage = toFullUrl(data.defaultOgImage || data.default_og_image, resolvedSiteUrl);
         const resolvedFavicon = toFullUrl(data.favicon, resolvedSiteUrl);
         
         setConfig({
@@ -157,6 +234,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
           description: data.description || '',
           keywords: data.keywords || '',
           ogImage: resolvedOgImage,
+          defaultOgImage: resolvedDefaultOgImage,
           favicon: resolvedFavicon,
           siteUrl: resolvedSiteUrl
         });
@@ -165,6 +243,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         localStorage.setItem('sy_local_meta_config', JSON.stringify({
           ...data,
           ogImage: resolvedOgImage,
+          defaultOgImage: resolvedDefaultOgImage,
           favicon: resolvedFavicon,
           siteUrl: resolvedSiteUrl
         }));
@@ -184,6 +263,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
             description: data.description || '',
             keywords: data.keywords || '',
             ogImage: toFullUrl(data.ogImage, resolvedSiteUrl),
+            defaultOgImage: toFullUrl(data.defaultOgImage || data.default_og_image, resolvedSiteUrl),
             favicon: toFullUrl(data.favicon, resolvedSiteUrl),
             siteUrl: resolvedSiteUrl
           });
@@ -214,6 +294,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     }
 
     const fullOgImage = toFullUrl(config.ogImage, cleanSiteUrl);
+    const fullDefaultOgImage = toFullUrl(config.defaultOgImage, cleanSiteUrl);
     const fullFavicon = toFullUrl(config.favicon, cleanSiteUrl);
 
     const normConfig: MetaConfig = {
@@ -221,6 +302,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       description: config.description.trim(),
       keywords: config.keywords.trim(),
       ogImage: fullOgImage,
+      defaultOgImage: fullDefaultOgImage,
       favicon: fullFavicon,
       siteUrl: cleanSiteUrl
     };
@@ -296,6 +378,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
           description: normConfig.description,
           keywords: normConfig.keywords,
           og_image: normConfig.ogImage,
+          default_og_image: normConfig.defaultOgImage,
           favicon: normConfig.favicon,
           site_url: normConfig.siteUrl,
           is_football_enabled: normConfig.isFootballEnabled,
@@ -414,14 +497,24 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
             <p className="text-xs text-stone-500 dark:text-stone-400">Configure global SEO, titles, descriptions, keywords, and share preview images</p>
           </div>
         </div>
-        <button
-          onClick={fetchConfig}
-          disabled={loading}
-          className="p-2 px-4 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 text-xs font-semibold rounded-xl border border-stone-200 dark:border-stone-700 transition-all flex items-center gap-2 cursor-pointer"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Reload Settings
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('sy_open_og_inspector'))}
+            className="p-2 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            Inspect OG Image &amp; Tags
+          </button>
+          <button
+            onClick={fetchConfig}
+            disabled={loading}
+            className="p-2 px-4 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 text-xs font-semibold rounded-xl border border-stone-200 dark:border-stone-700 transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Reload Settings
+          </button>
+        </div>
       </div>
 
       {feedback && (
@@ -536,6 +629,105 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                 )}
               </div>
 
+              {/* Default OG Image Fallback Section (1200x631) */}
+              <div className="space-y-3 p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/40">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    <label className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wide">
+                      Default Fallback OG Image (1200 × 631)
+                    </label>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100">
+                    1200 × 631 px
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-stone-600 dark:text-stone-300 leading-relaxed">
+                  Select or upload a default fallback image (1200x631). The <code className="font-mono bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded text-[10px]">generateOgImage</code> function will automatically use this fallback image whenever database data for a page (missing member profile, unknown event, etc.) is missing or incomplete.
+                </p>
+
+                {/* Preset Image Options */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider block">
+                    Quick Preset Fallback Templates:
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {PRESET_DEFAULT_OG_IMAGES.map((preset) => {
+                      const fullPresetUrl = toFullUrl(preset.url, config.siteUrl);
+                      const isSelected = (config.defaultOgImage || config.ogImage) === fullPresetUrl || config.defaultOgImage === preset.url;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setConfig(prev => ({ ...prev, defaultOgImage: fullPresetUrl }))}
+                          className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between h-20 relative overflow-hidden group ${
+                            isSelected
+                              ? 'border-purple-600 dark:border-purple-500 bg-purple-50 dark:bg-purple-950/60 ring-2 ring-purple-500/30'
+                              : 'border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 hover:border-purple-300 dark:hover:border-purple-700'
+                          }`}
+                        >
+                          {preset.url !== '/api/og' ? (
+                            <img src={preset.url} alt={preset.name} className="absolute inset-0 w-full h-full object-cover opacity-20 group-hover:opacity-30 transition-opacity" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-900/20 to-purple-900/20" />
+                          )}
+                          <div className="relative z-10 flex items-center justify-between w-full">
+                            <span className="text-[11px] font-black text-stone-900 dark:text-white truncate">{preset.name}</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />}
+                          </div>
+                          <span className="relative z-10 text-[9px] text-stone-500 dark:text-stone-400 truncate">{preset.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* URL Input & Upload Row */}
+                <div className="space-y-2 pt-1">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={config.defaultOgImage || ''}
+                      onChange={(e) => setConfig({ ...config, defaultOgImage: e.target.value })}
+                      placeholder="e.g. https://... or /og-image.png (Fallback 1200x631)"
+                      className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
+                    />
+                    <ImageIcon className="w-4 h-4 text-amber-500 dark:text-amber-400 absolute left-3 top-3.5" />
+                  </div>
+
+                  {/* File Upload zone for Default OG Fallback Image */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <label className="relative flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-all self-start">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isDefaultOgUploading ? `Uploading (${defaultOgUploadProgress}%)` : 'Upload Custom Fallback Image (1200x631)'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={isDefaultOgUploading}
+                        onChange={handleDefaultOgImageUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    {isDefaultOgUploading && (
+                      <div className="w-24 bg-stone-100 dark:bg-stone-800 rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-amber-600 dark:bg-amber-500 h-full transition-all" style={{ width: `${defaultOgUploadProgress}%` }}></div>
+                      </div>
+                    )}
+                    {defaultOgUploadError && (
+                      <p className="text-[10px] text-red-650 dark:text-rose-400 font-bold">{defaultOgUploadError}</p>
+                    )}
+                  </div>
+
+                  {config.defaultOgImage && (
+                    <div className="p-2 bg-amber-100/60 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 rounded-lg text-[10px] font-mono text-amber-900 dark:text-amber-200 break-all flex items-center gap-1.5">
+                      <span className="font-bold shrink-0">Resolved Fallback Link:</span>
+                      <span>{toFullUrl(config.defaultOgImage, config.siteUrl)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-xs font-bold text-stone-600 dark:text-stone-300 block">Favicon URL (Browser Tab Icon)</label>
                 <div className="flex gap-2">
@@ -611,6 +803,49 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
 
           {/* Social Live Preview - Right Column */}
           <div className="lg:col-span-5 space-y-6">
+            {/* Default OG Fallback Preview Card (1200x631) */}
+            <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-850 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+                  <h4 className="font-extrabold text-stone-800 dark:text-stone-200 text-xs uppercase tracking-wide">
+                    Default Fallback OG Card (1200 × 631)
+                  </h4>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                  Auto-Fallback Active
+                </span>
+              </div>
+
+              <div className="relative rounded-xl overflow-hidden border border-stone-200 dark:border-stone-800 bg-stone-900 aspect-[1200/631] flex items-center justify-center group">
+                {(config.defaultOgImage || config.ogImage) ? (
+                  <img
+                    src={config.defaultOgImage || config.ogImage}
+                    alt="Default OG Fallback Preview"
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="text-center p-4 space-y-1">
+                    <ImageIcon className="w-8 h-8 text-stone-500 mx-auto" />
+                    <p className="text-xs text-stone-400 font-bold">No Fallback Image Configured</p>
+                  </div>
+                )}
+                
+                <div className="absolute inset-0 bg-gradient-to-t from-stone-950/85 via-stone-950/20 to-transparent flex flex-col justify-end p-3 text-white">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-black drop-shadow-sm">generateOgImage Fallback Banner</p>
+                      <p className="text-[10px] text-amber-300 font-medium">Used when database data for a page is missing/incomplete</p>
+                    </div>
+                    <span className="text-[9px] font-mono px-2 py-1 rounded bg-black/60 border border-white/20">
+                      1200 × 631 px
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* WhatsApp / Chat App Link Preview */}
             <div className="bg-white dark:bg-stone-900 p-5 rounded-2xl border border-stone-150 dark:border-stone-850 shadow-xs space-y-3">
               <div className="flex items-center gap-2 border-b border-stone-100 dark:border-stone-800 pb-2.5">
