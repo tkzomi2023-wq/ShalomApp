@@ -76,7 +76,7 @@ export const toFullUrl = (url?: string, siteUrl?: string): string => {
   }
   base = base.replace(/\/+$/, '');
   const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  return base ? `${base}${cleanPath}` : `https://jsagyouth.netlify.app${cleanPath}`;
+  return base ? `${base}${cleanPath}` : (typeof window !== 'undefined' ? `${window.location.origin}${cleanPath}` : cleanPath);
 };
 
 export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = ({ currentUser }) => {
@@ -224,7 +224,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       const response = await apiFetch('/api/meta-config');
       if (response.ok) {
         const data = await safeJsonParse(response);
-        const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app');
+        const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : '');
         const resolvedOgImage = toFullUrl(data.ogImage, resolvedSiteUrl);
         const resolvedDefaultOgImage = toFullUrl(data.defaultOgImage || data.default_og_image, resolvedSiteUrl);
         const resolvedFavicon = toFullUrl(data.favicon, resolvedSiteUrl);
@@ -257,7 +257,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         const cached = localStorage.getItem('sy_local_meta_config');
         if (cached) {
           const data = JSON.parse(cached);
-          const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app');
+          const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : '');
           setConfig({
             title: data.title || '',
             description: data.description || '',
@@ -779,7 +779,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                       required
                       value={config.siteUrl}
                       onChange={(e) => setConfig({ ...config, siteUrl: e.target.value })}
-                      placeholder="e.g. https://shalomyouthfellowship.mzp"
+                      placeholder={`e.g. ${typeof window !== 'undefined' ? window.location.origin : 'https://yourdomain.com'}`}
                       className="w-full text-xs p-3 pl-9 rounded-xl border border-stone-200 dark:border-stone-800 focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-stone-50 dark:bg-stone-950/50 text-stone-900 dark:text-stone-100"
                     />
                     <LinkIcon className="w-4 h-4 text-stone-400 dark:text-stone-500 absolute left-3 top-3.5" />
@@ -865,7 +865,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
                   <div className="p-3 space-y-1 bg-[#f0f2f5] dark:bg-stone-850">
                     <div className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">{config.title || 'Shalom Youth Fellowship - MZP'}</div>
                     <div className="text-[10px] text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">{config.description || 'Describe your youth fellowship page...'}</div>
-                    <div className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider truncate">{config.siteUrl ? config.siteUrl.replace(/^https?:\/\//i, '') : 'shalomyouthfellowship.mzp'}</div>
+                    <div className="text-[9px] text-stone-400 dark:text-stone-500 uppercase tracking-wider truncate">{config.siteUrl ? config.siteUrl.replace(/^https?:\/\//i, '') : (typeof window !== 'undefined' ? window.location.host : 'shalomyouth.app')}</div>
                   </div>
                 </div>
               </div>
@@ -879,7 +879,7 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
               </div>
 
               <div className="p-4 bg-stone-50 dark:bg-stone-950/50 rounded-xl space-y-1 border border-stone-200/60 dark:border-stone-800">
-                <div className="text-xs text-stone-500 dark:text-stone-400 truncate">{config.siteUrl || 'https://shalomyouthfellowship.mzp'}</div>
+                <div className="text-xs text-stone-500 dark:text-stone-400 truncate">{config.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://shalomyouth.app')}</div>
                 <div className="text-base font-medium text-[#1a0dab] dark:text-[#8ab4f8] hover:underline cursor-pointer leading-tight line-clamp-1">{config.title || 'Shalom Youth Fellowship - MZP'}</div>
                 <div className="text-xs text-[#4d5156] dark:text-[#bdc1c6] line-clamp-2 leading-relaxed">{config.description || 'Describe your youth fellowship page...'}</div>
               </div>

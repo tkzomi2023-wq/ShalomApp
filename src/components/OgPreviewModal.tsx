@@ -33,7 +33,7 @@ export const OgPreviewModal: React.FC<OgPreviewModalProps> = ({ isOpen, onClose,
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [metaChecklist, setMetaChecklist] = useState<MetaCheckItem[]>([]);
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/';
 
   const updateModalData = () => {

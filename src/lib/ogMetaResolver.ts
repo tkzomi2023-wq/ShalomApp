@@ -57,9 +57,11 @@ export function formatMemberName(
  */
 export async function resolveMetaDataForPath(
   rawPath: string,
-  baseUrl: string = 'https://jsagyouth.netlify.app'
+  baseUrl?: string
 ): Promise<PageMetaData> {
-  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const defaultOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const effectiveBase = baseUrl || defaultOrigin;
+  const cleanBase = effectiveBase.replace(/\/+$/, '');
   const cleanPath = (rawPath || '/').split('?')[0].split('#')[0];
   const canonicalUrl = `${cleanBase}${cleanPath === '/' ? '' : cleanPath}`;
 

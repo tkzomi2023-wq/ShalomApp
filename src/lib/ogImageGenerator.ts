@@ -146,13 +146,14 @@ export async function generateOgSvg(options: OgImageOptions): Promise<string> {
     isFallback,
     roleBadge,
     metaDetails = [],
-    siteUrl = 'jsagyouth.netlify.app'
+    siteUrl = ''
   } = options;
 
   const escTitle = escapeXml(title);
   const escSubtitle = escapeXml(subtitle);
   const escCategory = escapeXml(category || pageType.toUpperCase());
-  const escSiteUrl = escapeXml(siteUrl.replace(/^https?:\/\//, ''));
+  const displayHost = siteUrl ? siteUrl.replace(/^https?:\/\//, '') : (typeof window !== 'undefined' ? window.location.host : 'Shalom Youth');
+  const escSiteUrl = escapeXml(displayHost);
 
   // Pre-fetch avatar and cover image base64 if available
   const avatarBase64 = avatarUrl ? await fetchImageAsBase64(avatarUrl) : null;

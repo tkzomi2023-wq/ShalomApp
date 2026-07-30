@@ -272,7 +272,7 @@ function AppContent() {
         return trimmed;
       }
       const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-      return sUrl ? `${sUrl}${cleanPath}` : `https://jsagyouth.netlify.app${cleanPath}`;
+      return sUrl ? `${sUrl}${cleanPath}` : (typeof window !== 'undefined' ? `${window.location.origin}${cleanPath}` : cleanPath);
     };
 
     const fullOgImage = toFullUrl(data.ogImage);
@@ -629,13 +629,13 @@ function AppContent() {
       fullTitle = cleanedPage;
     }
 
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://jsagyouth.netlify.app';
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/';
-    const ogImageUrl = `${origin}/api/og${currentPath === '/' ? '' : currentPath}`;
+    const ogImageUrl = origin ? `${origin}/api/og${currentPath === '/' ? '' : currentPath}` : '/api/og';
 
     updateClientHeadMeta({
       title: fullTitle,
-      canonicalUrl: typeof window !== 'undefined' ? window.location.href : 'https://jsagyouth.netlify.app',
+      canonicalUrl: typeof window !== 'undefined' ? window.location.href : '',
       ogImage: ogImageUrl
     });
   }, [currentTab, customOverrideTitle, brandTitle]);

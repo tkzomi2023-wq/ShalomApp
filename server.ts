@@ -99,10 +99,10 @@ const defaultMeta: MetaConfig = {
   title: "Shalom Youth Fellowship - JSAG",
   description: "Connecting youth, empowering faith, and celebrating fellowship at Shalom Youth Fellowship (Assembly of God Church)",
   keywords: "Shalom Youth, Youth Fellowship, Mizoram Assemblies of God Church, JSAG, CA, Christian Youth",
-  ogImage: "https://jsagyouth.netlify.app/og-image.png",
-  defaultOgImage: "https://jsagyouth.netlify.app/og-image.png",
-  favicon: "https://jsagyouth.netlify.app/favicon.png",
-  siteUrl: "https://jsagyouth.netlify.app",
+  ogImage: "/api/og",
+  defaultOgImage: "/api/og",
+  favicon: "/favicon.png",
+  siteUrl: "",
   isFootballEnabled: true,
   isPrayerRequestsEnabled: true,
   isCallingEnabled: true
@@ -147,7 +147,7 @@ function normalizeMetaConfig(cfg: Partial<MetaConfig>, baseConfig?: MetaConfig):
       return trimmed;
     }
     const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-    return sUrl ? `${sUrl}${cleanPath}` : `https://jsagyouth.netlify.app${cleanPath}`;
+    return sUrl ? `${sUrl}${cleanPath}` : cleanPath;
   };
 
   const parseBool = (val: any, fallback: boolean) => {
@@ -1015,7 +1015,7 @@ async function checkAndNotifyUpcomingBirthdays(force = false): Promise<{
 
     for (const c of upcomingCelebrants) {
       const subject = `🔔 Birthday Alert: ${c.name} has a birthday in 3 days! 🎂`;
-      const appUrl = process.env.APP_URL || "https://jsagyouth.netlify.app";
+      const appUrl = process.env.APP_URL || getMetaConfig().siteUrl || "";
 
       const htmlContent = `
         <!DOCTYPE html>
@@ -1575,7 +1575,7 @@ app.post("/api/birthday-email/preview-email", async (req, res) => {
       role: "Youth Member",
     };
 
-    const appUrl = process.env.APP_URL || "https://jsagyouth.netlify.app";
+    const appUrl = process.env.APP_URL || getMetaConfig().siteUrl || "";
 
     const celebrantsHtml = `
       <div style="background-color: #f3f0ff; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #e9d5ff; text-align: center;">
@@ -2119,8 +2119,8 @@ app.get(["/api/og", "/api/og/*"], async (req: express.Request, res: express.Resp
       }
     }
 
-    const host = req.headers.host || "jsagyouth.netlify.app";
-    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const host = req.get("host") || req.hostname || "localhost:3000";
+    const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
     const baseUrl = `${protocol}://${host}`;
 
     const meta = await resolveMetaDataForPath(targetPath, baseUrl);
@@ -2133,7 +2133,7 @@ app.get(["/api/og", "/api/og/*"], async (req: express.Request, res: express.Resp
   } catch (err: any) {
     console.error("[OG Image Endpoint Error]:", err);
     try {
-      const fallbackMeta = await resolveMetaDataForPath("/", "https://jsagyouth.netlify.app");
+      const fallbackMeta = await resolveMetaDataForPath("/", "");
       const fallbackBuffer = await generateOgImagePng(fallbackMeta.ogImageOptions);
       res.setHeader("Content-Type", "image/png");
       return res.send(fallbackBuffer);
@@ -2182,8 +2182,8 @@ async function startServer() {
     }
 
     try {
-      const host = req.headers.host || "jsagyouth.netlify.app";
-      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.get("host") || req.hostname || "localhost:3000";
+      const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
       const baseUrl = `${protocol}://${host}`;
 
       const pageMeta = await resolveMetaDataForPath(req.path, baseUrl);
@@ -2225,8 +2225,8 @@ async function startServer() {
       try {
         if (fs.existsSync(htmlPath)) {
           let html = fs.readFileSync(htmlPath, "utf-8");
-          const host = req.headers.host || "jsagyouth.netlify.app";
-          const protocol = req.headers["x-forwarded-proto"] || "https";
+          const host = req.get("host") || req.hostname || "localhost:3000";
+          const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
           const baseUrl = `${protocol}://${host}`;
           const pageMeta = await resolveMetaDataForPath(req.path, baseUrl);
           const config = getMetaConfig();
