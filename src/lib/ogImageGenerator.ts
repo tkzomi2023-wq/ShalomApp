@@ -421,7 +421,7 @@ export async function generateOgImagePng(options: OgImageOptions): Promise<Buffe
   const svgString = await generateOgSvg(options);
   const pngBuffer = await sharp(Buffer.from(svgString))
     .resize(1200, 631)
-    .png({ quality: 95, compressionLevel: 8 })
+    .png({ quality: 80, compressionLevel: 9 })
     .toBuffer();
 
   setCachedOgImage(cacheKey, pngBuffer);

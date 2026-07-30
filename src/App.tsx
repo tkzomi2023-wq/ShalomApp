@@ -257,6 +257,9 @@ function AppContent() {
     const cleanedKeywords = cleanMetaString(data.keywords);
 
     let sUrl = (data.siteUrl || '').trim();
+    if (sUrl.includes('jsagyouth.netlify.app') || sUrl.includes('shalomyouth.netlify.app')) {
+      sUrl = '';
+    }
     if (sUrl && !sUrl.startsWith('http://') && !sUrl.startsWith('https://')) {
       sUrl = `https://${sUrl}`;
     }
@@ -268,6 +271,10 @@ function AppContent() {
     const toFullUrl = (url?: string): string => {
       if (!url) return '';
       const trimmed = url.trim();
+      if (trimmed.includes('jsagyouth.netlify.app') || trimmed.includes('shalomyouth.netlify.app')) {
+        const cleanPath = trimmed.replace(/^https?:\/\/[^\/]+/, '');
+        return sUrl ? `${sUrl}${cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath}` : (typeof window !== 'undefined' ? `${window.location.origin}${cleanPath}` : cleanPath);
+      }
       if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
         return trimmed;
       }
@@ -296,10 +303,14 @@ function AppContent() {
     setMetaTag('meta[name="description"]', 'name', 'description', cleanedDescription);
     setMetaTag('meta[name="keywords"]', 'name', 'keywords', cleanedKeywords);
 
+    setMetaTag('meta[property="og:site_name"]', 'property', 'og:site_name', cleanedTitle || 'Shalom Youth Fellowship - JSAG');
     setMetaTag('meta[property="og:title"]', 'property', 'og:title', cleanedTitle);
     setMetaTag('meta[property="og:description"]', 'property', 'og:description', cleanedDescription);
     setMetaTag('meta[property="og:image"]', 'property', 'og:image', fullOgImage);
-    setMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', fullOgImage);
+    setMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', fullOgImage.replace(/^http:/, 'https:'));
+    setMetaTag('meta[property="og:image:width"]', 'property', 'og:image:width', '1200');
+    setMetaTag('meta[property="og:image:height"]', 'property', 'og:image:height', '631');
+    setMetaTag('meta[property="og:image:type"]', 'property', 'og:image:type', 'image/png');
     setMetaTag('meta[property="og:url"]', 'property', 'og:url', sUrl);
 
     setMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', cleanedTitle);
@@ -338,13 +349,16 @@ function AppContent() {
 
       // 1. Try fetching from Supabase directly
       try {
-        const { data: dbMeta, error: dbErr } = await supabase
-          .from('meta_configs')
-          .select('*')
-          .eq('id', 'singleton')
-          .single();
+        let dbMeta: any = null;
+        const { data: d1 } = await supabase.from('meta_configs').select('*').eq('id', 'singleton').maybeSingle();
+        dbMeta = d1;
 
-        if (dbMeta && !dbErr) {
+        if (!dbMeta) {
+          const { data: d2 } = await supabase.from('meta_settings').select('*').eq('id', 'singleton').maybeSingle();
+          dbMeta = d2;
+        }
+
+        if (dbMeta) {
           const storedLocalConfig = localStorage.getItem('sy_local_meta_config');
           const parsedLocal = storedLocalConfig ? JSON.parse(storedLocalConfig) : null;
 
@@ -383,7 +397,7 @@ function AppContent() {
           localStorage.setItem('sy_local_meta_config', JSON.stringify(data));
         }
       } catch (e) {
-        console.warn('Direct Supabase fetch for meta_configs yielded:', e);
+        console.warn('Direct Supabase fetch for meta tables yielded:', e);
       }
 
       // 2. Fallback to API endpoint if not loaded yet

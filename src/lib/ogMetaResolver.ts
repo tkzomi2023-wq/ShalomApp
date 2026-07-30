@@ -65,14 +65,26 @@ export async function resolveMetaDataForPath(
   const cleanPath = (rawPath || '/').split('?')[0].split('#')[0];
   const canonicalUrl = `${cleanBase}${cleanPath === '/' ? '' : cleanPath}`;
 
-  // Fetch configured Default OG Fallback Image from meta_configs if available
+  // Fetch configured Default OG Fallback Image from meta_configs or meta_settings if available
   let configuredDefaultOgImage: string | undefined = undefined;
   try {
-    const { data: dbMeta } = await supabase
+    let dbMeta: any = null;
+    const { data: mc } = await supabase
       .from('meta_configs')
       .select('default_og_image, og_image')
       .eq('id', 'singleton')
       .maybeSingle();
+    dbMeta = mc;
+
+    if (!dbMeta) {
+      const { data: ms } = await supabase
+        .from('meta_settings')
+        .select('default_og_image, og_image')
+        .eq('id', 'singleton')
+        .maybeSingle();
+      dbMeta = ms;
+    }
+
     if (dbMeta) {
       configuredDefaultOgImage = dbMeta.default_og_image || dbMeta.og_image;
     }

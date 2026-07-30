@@ -135,6 +135,9 @@ function normalizeMetaConfig(cfg: Partial<MetaConfig>, baseConfig?: MetaConfig):
   const current = baseConfig || getMetaConfig();
 
   let sUrl = (cfg.siteUrl !== undefined ? cfg.siteUrl : current.siteUrl || defaultMeta.siteUrl || "").trim();
+  if (sUrl.includes("jsagyouth.netlify.app") || sUrl.includes("shalomyouth.netlify.app")) {
+    sUrl = "";
+  }
   if (sUrl && !sUrl.startsWith("http://") && !sUrl.startsWith("https://")) {
     sUrl = `https://${sUrl}`;
   }
@@ -143,6 +146,10 @@ function normalizeMetaConfig(cfg: Partial<MetaConfig>, baseConfig?: MetaConfig):
   const toFullUrl = (url?: string): string => {
     if (!url) return "";
     const trimmed = url.trim();
+    if (trimmed.includes("jsagyouth.netlify.app") || trimmed.includes("shalomyouth.netlify.app")) {
+      const cleanPath = trimmed.replace(/^https?:\/\/[^\/]+/, "");
+      return sUrl ? `${sUrl}${cleanPath.startsWith("/") ? cleanPath : "/" + cleanPath}` : (cleanPath || "/");
+    }
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
       return trimmed;
     }
@@ -342,7 +349,27 @@ function injectPageMetaTags(html: string, meta: PageMetaData, configFavicon?: st
   cleanHtml = cleanHtml.replace(/<link rel="icon"[\s\S]*?>/gi, "");
   cleanHtml = cleanHtml.replace(/<link rel="shortcut icon"[\s\S]*?>/gi, "");
 
-  const favicon = configFavicon || meta.siteUrl + "/favicon.png";
+  let canonicalOrigin = "";
+  try {
+    if (meta.canonicalUrl) {
+      const u = new URL(meta.canonicalUrl);
+      canonicalOrigin = u.origin;
+    }
+  } catch (e) {}
+
+  let resolvedOgImage = meta.ogImage || "";
+  if (canonicalOrigin) {
+    if (resolvedOgImage.startsWith("/")) {
+      resolvedOgImage = `${canonicalOrigin}${resolvedOgImage}`;
+    } else if (resolvedOgImage.includes("jsagyouth.netlify.app") || resolvedOgImage.includes("shalomyouth.netlify.app")) {
+      const pathPart = resolvedOgImage.replace(/^https?:\/\/[^\/]+/, "");
+      resolvedOgImage = `${canonicalOrigin}${pathPart.startsWith("/") ? pathPart : "/" + pathPart}`;
+    }
+  }
+
+  let resolvedOgImageSecure = resolvedOgImage.replace(/^http:/, "https:");
+
+  const favicon = configFavicon || (canonicalOrigin ? canonicalOrigin + "/favicon.png" : "/favicon.png");
 
   const metaString = `
     <title>${escapeHtml(meta.title)}</title>
@@ -359,8 +386,8 @@ function injectPageMetaTags(html: string, meta: PageMetaData, configFavicon?: st
     <meta property="og:url" content="${escapeHtml(meta.canonicalUrl)}" />
     <meta property="og:title" content="${escapeHtml(meta.title)}" />
     <meta property="og:description" content="${escapeHtml(meta.description)}" />
-    <meta property="og:image" content="${escapeHtml(meta.ogImage)}" />
-    <meta property="og:image:secure_url" content="${escapeHtml(meta.ogImageSecure)}" />
+    <meta property="og:image" content="${escapeHtml(resolvedOgImage)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(resolvedOgImageSecure)}" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="631" />
     <meta property="og:image:type" content="image/png" />
@@ -370,7 +397,7 @@ function injectPageMetaTags(html: string, meta: PageMetaData, configFavicon?: st
     <meta name="twitter:url" content="${escapeHtml(meta.canonicalUrl)}" />
     <meta name="twitter:title" content="${escapeHtml(meta.title)}" />
     <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
-    <meta name="twitter:image" content="${escapeHtml(meta.ogImage)}" />
+    <meta name="twitter:image" content="${escapeHtml(resolvedOgImage)}" />
     <meta name="twitter:image:alt" content="${escapeHtml(meta.title)}" />
   `;
 
@@ -1675,37 +1702,12 @@ setTimeout(() => {
 // Helper to pull meta config from Supabase on server boot
 async function syncMetaConfigFromDb() {
   try {
-    const { data, error } = await supabase
-      .from("meta_configs")
-      .select("*")
-      .eq("id", "singleton")
-      .single();
-
-    if (error) {
-      if (error.code === "PGRST116") {
-        console.log("[MetaConfig Sync] No meta_config row found in Supabase. Initializing table with default JSAG settings...");
-        const { error: insertError } = await supabase
-          .from("meta_configs")
-          .insert({
-            id: "singleton",
-            title: defaultMeta.title,
-            description: defaultMeta.description,
-            keywords: defaultMeta.keywords,
-            og_image: defaultMeta.ogImage,
-            favicon: defaultMeta.favicon,
-            site_url: defaultMeta.siteUrl,
-            updated_at: new Date().toISOString()
-          });
-        
-        if (insertError) {
-          console.error("[MetaConfig Sync] Failed to insert default JSAG meta configurations in Supabase:", insertError.message);
-        } else {
-          console.log("[MetaConfig Sync] Successfully populated 'meta_configs' table with default JSAG configurations.");
-        }
-      } else {
-        console.log("[MetaConfig Sync] Supabase table 'meta_configs' select returned error (may not be created yet):", error.message);
-      }
-      return;
+    let data: any = null;
+    let { data: d1 } = await supabase.from("meta_configs").select("*").eq("id", "singleton").maybeSingle();
+    data = d1;
+    if (!data) {
+      let { data: d2 } = await supabase.from("meta_settings").select("*").eq("id", "singleton").maybeSingle();
+      data = d2;
     }
 
     if (data) {
@@ -1781,15 +1783,25 @@ setInterval(() => {
 
 // REST API endpoints for Website Meta / OG Configurations
 app.get("/api/meta-config", async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from("meta_configs")
-      .select("*")
-      .eq("id", "singleton")
-      .single();
+  const host = req.get("host") || req.hostname || "localhost:3000";
+  const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
+  const requestOrigin = `${protocol}://${host}`;
 
-    if (data && !error) {
+  try {
+    let data: any = null;
+    let { data: d1 } = await supabase.from("meta_configs").select("*").eq("id", "singleton").maybeSingle();
+    data = d1;
+    if (!data) {
+      let { data: d2 } = await supabase.from("meta_settings").select("*").eq("id", "singleton").maybeSingle();
+      data = d2;
+    }
+
+    if (data) {
       const current = getMetaConfig();
+      const rawSiteUrl = (data.site_url || "").trim();
+      const isNetlifyDefault = rawSiteUrl.includes("jsagyouth.netlify.app") || rawSiteUrl.includes("shalomyouth.netlify.app");
+      const effectiveSiteUrl = (!rawSiteUrl || isNetlifyDefault) ? requestOrigin : rawSiteUrl;
+
       const dbConfig = normalizeMetaConfig({
         title: data.title,
         description: data.description,
@@ -1797,7 +1809,7 @@ app.get("/api/meta-config", async (req, res) => {
         ogImage: data.og_image,
         defaultOgImage: data.default_og_image,
         favicon: data.favicon,
-        siteUrl: data.site_url,
+        siteUrl: effectiveSiteUrl,
         isFootballEnabled: typeof data.is_football_enabled === 'boolean' ? data.is_football_enabled : current.isFootballEnabled,
         isPrayerRequestsEnabled: typeof data.is_prayer_requests_enabled === 'boolean' ? data.is_prayer_requests_enabled : current.isPrayerRequestsEnabled,
         isCallingEnabled: typeof data.is_calling_enabled === 'boolean' ? data.is_calling_enabled : current.isCallingEnabled
@@ -1808,7 +1820,12 @@ app.get("/api/meta-config", async (req, res) => {
   } catch (err) {
     console.warn("[MetaConfig API] Failed to fetch from Supabase, returning local config:", err);
   }
-  res.json(getMetaConfig());
+
+  const local = getMetaConfig();
+  if (!local.siteUrl || local.siteUrl.includes("jsagyouth.netlify.app") || local.siteUrl.includes("shalomyouth.netlify.app")) {
+    local.siteUrl = requestOrigin;
+  }
+  res.json(local);
 });
 
 app.post("/api/meta-config", async (req, res) => {
@@ -1822,39 +1839,41 @@ app.post("/api/meta-config", async (req, res) => {
     // 1. Sync files locally (meta_config.json, manifest.json, index.html)
     syncMetaFiles(normConfig);
 
-    // 2. Persist in Supabase Database
-    let { error: dbError } = await supabase
-      .from("meta_configs")
-      .upsert({
+    // 2. Persist in Supabase Database (upsert to both meta_configs and meta_settings)
+    const payload = {
+      id: "singleton",
+      title: normConfig.title,
+      description: normConfig.description,
+      keywords: normConfig.keywords,
+      og_image: normConfig.ogImage,
+      default_og_image: normConfig.defaultOgImage,
+      favicon: normConfig.favicon,
+      site_url: normConfig.siteUrl,
+      is_football_enabled: normConfig.isFootballEnabled,
+      is_prayer_requests_enabled: normConfig.isPrayerRequestsEnabled,
+      is_calling_enabled: normConfig.isCallingEnabled,
+      updated_at: new Date().toISOString()
+    };
+
+    let { error: dbError1 } = await supabase.from("meta_configs").upsert(payload);
+    let { error: dbError2 } = await supabase.from("meta_settings").upsert(payload);
+
+    let dbError = dbError1 && dbError2 ? dbError1 : null;
+
+    if (dbError && dbError.message && (dbError.message.includes("column") || dbError.message.includes("schema cache"))) {
+      console.info("[MetaConfig Sync] Optional visibility columns missing in Supabase. Retrying upsert with core meta fields...");
+      const corePayload = {
         id: "singleton",
         title: normConfig.title,
         description: normConfig.description,
         keywords: normConfig.keywords,
         og_image: normConfig.ogImage,
-        default_og_image: normConfig.defaultOgImage,
         favicon: normConfig.favicon,
         site_url: normConfig.siteUrl,
-        is_football_enabled: normConfig.isFootballEnabled,
-        is_prayer_requests_enabled: normConfig.isPrayerRequestsEnabled,
-        is_calling_enabled: normConfig.isCallingEnabled,
         updated_at: new Date().toISOString()
-      });
-
-    if (dbError && dbError.message && (dbError.message.includes("column") || dbError.message.includes("schema cache"))) {
-      console.info("[MetaConfig Sync] Optional visibility columns missing in Supabase table 'meta_configs'. Retrying upsert with core meta fields...");
-      const { error: fallbackError } = await supabase
-        .from("meta_configs")
-        .upsert({
-          id: "singleton",
-          title: normConfig.title,
-          description: normConfig.description,
-          keywords: normConfig.keywords,
-          og_image: normConfig.ogImage,
-          favicon: normConfig.favicon,
-          site_url: normConfig.siteUrl,
-          updated_at: new Date().toISOString()
-        });
-      dbError = fallbackError;
+      };
+      await supabase.from("meta_configs").upsert(corePayload);
+      await supabase.from("meta_settings").upsert(corePayload);
     }
 
     if (dbError) {
@@ -2106,9 +2125,9 @@ app.post("/api/convert-cartoon", handleAnimeTransformation);
 app.post("/api/convert-anime", handleAnimeTransformation);
 
 // Dynamic Open Graph (OG) Image Generation Endpoints (1200 x 631 PNG)
-app.get(["/api/og", "/api/og/*"], async (req: express.Request, res: express.Response) => {
+app.get(["/api/og", "/api/og/*", "/og-image.png", "/og-image"], async (req: express.Request, res: express.Response) => {
   try {
-    let targetPath = req.path.replace(/^\/api\/og/, "");
+    let targetPath = req.path.replace(/^\/api\/og/, "").replace(/^\/og-image(\.png)?/, "");
     if (!targetPath || targetPath === "/") {
       if (req.query.path) {
         targetPath = String(req.query.path);
@@ -2127,16 +2146,19 @@ app.get(["/api/og", "/api/og/*"], async (req: express.Request, res: express.Resp
     const pngBuffer = await generateOgImagePng(meta.ogImageOptions);
 
     res.setHeader("Content-Type", "image/png");
+    res.setHeader("Content-Length", pngBuffer.length.toString());
     res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800");
+    res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("X-OG-Image-Resolution", "1200x631");
-    return res.send(pngBuffer);
+    return res.status(200).send(pngBuffer);
   } catch (err: any) {
     console.error("[OG Image Endpoint Error]:", err);
     try {
       const fallbackMeta = await resolveMetaDataForPath("/", "");
       const fallbackBuffer = await generateOgImagePng(fallbackMeta.ogImageOptions);
       res.setHeader("Content-Type", "image/png");
-      return res.send(fallbackBuffer);
+      res.setHeader("Content-Length", fallbackBuffer.length.toString());
+      return res.status(200).send(fallbackBuffer);
     } catch (e) {
       return res.status(500).json({ error: "Failed to generate OG Image" });
     }

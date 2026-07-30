@@ -224,7 +224,12 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
       const response = await apiFetch('/api/meta-config');
       if (response.ok) {
         const data = await safeJsonParse(response);
-        const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+        const rawSiteUrl = data.siteUrl || '';
+        const isNetlifyDefault = rawSiteUrl.includes('jsagyouth.netlify.app') || rawSiteUrl.includes('shalomyouth.netlify.app');
+        const resolvedSiteUrl = (!rawSiteUrl || isNetlifyDefault) && typeof window !== 'undefined'
+          ? window.location.origin
+          : (rawSiteUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
+
         const resolvedOgImage = toFullUrl(data.ogImage, resolvedSiteUrl);
         const resolvedDefaultOgImage = toFullUrl(data.defaultOgImage || data.default_og_image, resolvedSiteUrl);
         const resolvedFavicon = toFullUrl(data.favicon, resolvedSiteUrl);
@@ -257,7 +262,11 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
         const cached = localStorage.getItem('sy_local_meta_config');
         if (cached) {
           const data = JSON.parse(cached);
-          const resolvedSiteUrl = data.siteUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+          const rawSiteUrl = data.siteUrl || '';
+          const isNetlifyDefault = rawSiteUrl.includes('jsagyouth.netlify.app') || rawSiteUrl.includes('shalomyouth.netlify.app');
+          const resolvedSiteUrl = (!rawSiteUrl || isNetlifyDefault) && typeof window !== 'undefined'
+            ? window.location.origin
+            : (rawSiteUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
           setConfig({
             title: data.title || '',
             description: data.description || '',
@@ -370,27 +379,28 @@ export const WebsiteMetaSettingsPage: React.FC<WebsiteMetaSettingsPageProps> = (
     // Attempt direct database write to Supabase first for absolute high-fidelity persistence
     let dbSyncSuccess = false;
     try {
-      const { error: dbError } = await supabase
-        .from('meta_configs')
-        .upsert({
-          id: 'singleton',
-          title: normConfig.title,
-          description: normConfig.description,
-          keywords: normConfig.keywords,
-          og_image: normConfig.ogImage,
-          default_og_image: normConfig.defaultOgImage,
-          favicon: normConfig.favicon,
-          site_url: normConfig.siteUrl,
-          is_football_enabled: normConfig.isFootballEnabled,
-          is_prayer_requests_enabled: normConfig.isPrayerRequestsEnabled,
-          is_calling_enabled: normConfig.isCallingEnabled,
-          updated_at: new Date().toISOString()
-        });
-      
-      if (!dbError) {
+      const payload = {
+        id: 'singleton',
+        title: normConfig.title,
+        description: normConfig.description,
+        keywords: normConfig.keywords,
+        og_image: normConfig.ogImage,
+        default_og_image: normConfig.defaultOgImage,
+        favicon: normConfig.favicon,
+        site_url: normConfig.siteUrl,
+        is_football_enabled: normConfig.isFootballEnabled,
+        is_prayer_requests_enabled: normConfig.isPrayerRequestsEnabled,
+        is_calling_enabled: normConfig.isCallingEnabled,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: dbError1 } = await supabase.from('meta_configs').upsert(payload);
+      const { error: dbError2 } = await supabase.from('meta_settings').upsert(payload);
+
+      if (!dbError1 || !dbError2) {
         dbSyncSuccess = true;
       } else {
-        console.warn('[WebsiteMeta] Direct Supabase upsert returned error:', dbError.message);
+        console.warn('[WebsiteMeta] Direct Supabase upsert returned errors:', dbError1?.message, dbError2?.message);
       }
     } catch (dbErr: any) {
       console.warn('[WebsiteMeta] Direct Supabase upsert exception:', dbErr.message || dbErr);

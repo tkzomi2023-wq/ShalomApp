@@ -452,19 +452,35 @@ CREATE POLICY "Allow authenticated delete of birthday_logs" ON public.birthday_l
     auth.uid() IS NOT NULL
   );
 
--- 9. Meta Configs table (Stores website header, SEO, social meta configs, and module visibility toggles)
+-- 9. Meta Configs & Meta Settings tables (Stores website header, SEO, social meta configs, and module visibility toggles)
 CREATE TABLE IF NOT EXISTS public.meta_configs (
   id TEXT PRIMARY KEY DEFAULT 'singleton',
-  title TEXT NOT NULL,
-  description TEXT NOT NULL,
-  keywords TEXT NOT NULL,
-  og_image TEXT NOT NULL,
-  favicon TEXT NOT NULL,
-  site_url TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  keywords TEXT,
+  og_image TEXT,
+  default_og_image TEXT,
+  favicon TEXT,
+  site_url TEXT,
   is_football_enabled BOOLEAN DEFAULT true,
   is_prayer_requests_enabled BOOLEAN DEFAULT true,
   is_calling_enabled BOOLEAN DEFAULT true,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
+);
+
+CREATE TABLE IF NOT EXISTS public.meta_settings (
+  id TEXT PRIMARY KEY DEFAULT 'singleton',
+  title TEXT,
+  description TEXT,
+  keywords TEXT,
+  og_image TEXT,
+  default_og_image TEXT,
+  favicon TEXT,
+  site_url TEXT,
+  is_football_enabled BOOLEAN DEFAULT true,
+  is_prayer_requests_enabled BOOLEAN DEFAULT true,
+  is_calling_enabled BOOLEAN DEFAULT true,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
 );
 
 ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_football_enabled BOOLEAN DEFAULT true;
@@ -472,14 +488,24 @@ ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_prayer_requests_enab
 ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS is_calling_enabled BOOLEAN DEFAULT true;
 ALTER TABLE public.meta_configs ADD COLUMN IF NOT EXISTS default_og_image TEXT;
 
--- Enable RLS for meta_configs
-ALTER TABLE public.meta_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meta_settings ADD COLUMN IF NOT EXISTS is_football_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.meta_settings ADD COLUMN IF NOT EXISTS is_prayer_requests_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.meta_settings ADD COLUMN IF NOT EXISTS is_calling_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.meta_settings ADD COLUMN IF NOT EXISTS default_og_image TEXT;
 
--- Allow public select, insert, update and delete of meta_configs (restricted at the API layer by email)
+-- Enable RLS for meta_configs & meta_settings
+ALTER TABLE public.meta_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meta_settings ENABLE ROW LEVEL SECURITY;
+
+-- Allow public select, insert, update and delete of meta_configs & meta_settings
 DROP POLICY IF EXISTS "Allow public read of meta_configs" ON public.meta_configs;
 DROP POLICY IF EXISTS "Allow authenticated insert/update of meta_configs" ON public.meta_configs;
 DROP POLICY IF EXISTS "Allow public management of meta_configs" ON public.meta_configs;
 CREATE POLICY "Allow public management of meta_configs" ON public.meta_configs
+  FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public management of meta_settings" ON public.meta_settings;
+CREATE POLICY "Allow public management of meta_settings" ON public.meta_settings
   FOR ALL USING (true) WITH CHECK (true);
 
 -- 10. SMTP Configs table (Stores SMTP settings securely)
